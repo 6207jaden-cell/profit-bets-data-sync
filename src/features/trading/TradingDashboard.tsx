@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { StrategiesPanel } from "./components/StrategiesPanel";
+import { BacktestingPanel } from "./components/BacktestingPanel";
 
 export default function TradingDashboard() {
   const { tier, email, userId, loading } = useProfile();
