@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { StrategiesPanel } from "./components/StrategiesPanel";
 
 export default function TradingDashboard() {
   const { tier, email, userId, loading } = useProfile();
@@ -244,7 +245,7 @@ export default function TradingDashboard() {
           </TabsContent>
 
           <TabsContent value="strategies">
-            <ComingSoon icon={Brain} title="Strategy Engine" body="Describe a strategy in plain English and the AI converts it into structured rules (indicators, entry/exit, timeframes). Shipping in the next pass." />
+            <StrategiesPanel />
           </TabsContent>
           <TabsContent value="backtest">
             <ComingSoon icon={FlaskConical} title="Historical Backtesting" body="Simulate any strategy against historical price data with win rate, ROI, drawdown, and equity curve." />
