@@ -239,7 +239,7 @@ Use realistic prices for the chosen tickers. JSON ONLY, no commentary.`;
   }).filter((r) => r.asset.length > 0);
 
   if (rows.length === 0) return { generated: 0, reason: "no_valid_rows" };
-  const { error } = await supabaseAdmin.from("market_signals").insert(rows);
+  const { error } = await supabaseAdmin.from("market_signals").insert(rows as never);
   if (error) return { generated: 0, reason: error.message };
   return { generated: rows.length };
 });
