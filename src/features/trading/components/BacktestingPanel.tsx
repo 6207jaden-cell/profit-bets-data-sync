@@ -168,8 +168,6 @@ export function BacktestingPanel() {
   );
 
   return <BlurLock active={!allowed} label="Backtesting requires Starter">{content}</BlurLock>;
-
-  return content;
 }
 
 function BacktestResultView({ result }: { result: SuccessResult }) {
