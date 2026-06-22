@@ -14,16 +14,225 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      manual_positions: {
+        Row: {
+          asset: string
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          cost_basis: number
+          created_at: string
+          id: string
+          shares: number
+          user_id: string
+        }
+        Insert: {
+          asset: string
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          cost_basis: number
+          created_at?: string
+          id?: string
+          shares: number
+          user_id: string
+        }
+        Update: {
+          asset?: string
+          asset_type?: Database["public"]["Enums"]["asset_type"]
+          cost_basis?: number
+          created_at?: string
+          id?: string
+          shares?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      market_signals: {
+        Row: {
+          asset: string
+          confidence: number
+          created_at: string
+          direction: Database["public"]["Enums"]["signal_direction"]
+          entry_price: number | null
+          expected_edge_pct: number | null
+          id: string
+          is_public: boolean
+          resolved_at: string | null
+          resolved_pnl_pct: number | null
+          result: Database["public"]["Enums"]["signal_result"]
+          signal_type: Database["public"]["Enums"]["signal_type"]
+          stop_price: number | null
+          target_price: number | null
+          thesis: string | null
+          user_id: string | null
+        }
+        Insert: {
+          asset: string
+          confidence: number
+          created_at?: string
+          direction: Database["public"]["Enums"]["signal_direction"]
+          entry_price?: number | null
+          expected_edge_pct?: number | null
+          id?: string
+          is_public?: boolean
+          resolved_at?: string | null
+          resolved_pnl_pct?: number | null
+          result?: Database["public"]["Enums"]["signal_result"]
+          signal_type: Database["public"]["Enums"]["signal_type"]
+          stop_price?: number | null
+          target_price?: number | null
+          thesis?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          asset?: string
+          confidence?: number
+          created_at?: string
+          direction?: Database["public"]["Enums"]["signal_direction"]
+          entry_price?: number | null
+          expected_edge_pct?: number | null
+          id?: string
+          is_public?: boolean
+          resolved_at?: string | null
+          resolved_pnl_pct?: number | null
+          result?: Database["public"]["Enums"]["signal_result"]
+          signal_type?: Database["public"]["Enums"]["signal_type"]
+          stop_price?: number | null
+          target_price?: number | null
+          thesis?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      market_tracking: {
+        Row: {
+          asset: string
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          asset: string
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          asset?: string
+          asset_type?: Database["public"]["Enums"]["asset_type"]
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      price_alerts: {
+        Row: {
+          asset: string
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          created_at: string
+          direction: Database["public"]["Enums"]["alert_direction"]
+          id: string
+          target_price: number
+          triggered: boolean
+          triggered_at: string | null
+          triggered_price: number | null
+          user_id: string
+        }
+        Insert: {
+          asset: string
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          created_at?: string
+          direction: Database["public"]["Enums"]["alert_direction"]
+          id?: string
+          target_price: number
+          triggered?: boolean
+          triggered_at?: string | null
+          triggered_price?: number | null
+          user_id: string
+        }
+        Update: {
+          asset?: string
+          asset_type?: Database["public"]["Enums"]["asset_type"]
+          created_at?: string
+          direction?: Database["public"]["Enums"]["alert_direction"]
+          id?: string
+          target_price?: number
+          triggered?: boolean
+          triggered_at?: string | null
+          triggered_price?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          tier: Database["public"]["Enums"]["user_tier"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+          tier?: Database["public"]["Enums"]["user_tier"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          tier?: Database["public"]["Enums"]["user_tier"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      alert_direction: "above" | "below"
+      app_role: "admin" | "user"
+      asset_type: "stock" | "crypto"
+      signal_direction: "call" | "put" | "buy" | "sell"
+      signal_result: "open" | "hit_target" | "hit_stop" | "stale"
+      signal_type: "options_flow" | "buy_sell"
+      user_tier: "free" | "starter" | "pro" | "premium"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +359,14 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      alert_direction: ["above", "below"],
+      app_role: ["admin", "user"],
+      asset_type: ["stock", "crypto"],
+      signal_direction: ["call", "put", "buy", "sell"],
+      signal_result: ["open", "hit_target", "hit_stop", "stale"],
+      signal_type: ["options_flow", "buy_sell"],
+      user_tier: ["free", "starter", "pro", "premium"],
+    },
   },
 } as const
