@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { StrategiesPanel } from "./components/StrategiesPanel";
+import { BacktestingPanel } from "./components/BacktestingPanel";
 
 export default function TradingDashboard() {
   const { tier, email, userId, loading } = useProfile();
@@ -248,7 +249,7 @@ export default function TradingDashboard() {
             <StrategiesPanel />
           </TabsContent>
           <TabsContent value="backtest">
-            <ComingSoon icon={FlaskConical} title="Historical Backtesting" body="Simulate any strategy against historical price data with win rate, ROI, drawdown, and equity curve." />
+            <BacktestingPanel />
           </TabsContent>
           <TabsContent value="execution">
             <ComingSoon icon={Zap} title="Execution Layer" body="Paper trading is default. Connect Alpaca (Premium) for live execution with confirmation modal and risk checks." />
