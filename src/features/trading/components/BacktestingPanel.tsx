@@ -167,16 +167,7 @@ export function BacktestingPanel() {
     </div>
   );
 
-  if (!allowed) {
-    return (
-      <BlurLock
-        title="Backtesting requires Starter"
-        description="Upgrade to Starter or higher to simulate strategies against historical price data."
-      >
-        {content}
-      </BlurLock>
-    );
-  }
+  return <BlurLock active={!allowed} label="Backtesting requires Starter">{content}</BlurLock>;
 
   return content;
 }
