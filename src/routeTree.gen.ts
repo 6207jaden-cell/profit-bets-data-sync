@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedMarketsRouteImport } from './routes/_authenticated/markets'
+import { Route as ApiPublicEvaluateAlertsRouteImport } from './routes/api/public/evaluate-alerts'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -33,16 +34,23 @@ const AuthenticatedMarketsRoute = AuthenticatedMarketsRouteImport.update({
   path: '/markets',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiPublicEvaluateAlertsRoute = ApiPublicEvaluateAlertsRouteImport.update({
+  id: '/api/public/evaluate-alerts',
+  path: '/api/public/evaluate-alerts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/markets': typeof AuthenticatedMarketsRoute
+  '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/markets': typeof AuthenticatedMarketsRoute
+  '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -50,19 +58,27 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/markets': typeof AuthenticatedMarketsRoute
+  '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/markets'
+  fullPaths: '/' | '/auth' | '/markets' | '/api/public/evaluate-alerts'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/markets'
-  id: '__root__' | '/' | '/_authenticated' | '/auth' | '/_authenticated/markets'
+  to: '/' | '/auth' | '/markets' | '/api/public/evaluate-alerts'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/markets'
+    | '/api/public/evaluate-alerts'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicEvaluateAlertsRoute: typeof ApiPublicEvaluateAlertsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -95,6 +111,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMarketsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/evaluate-alerts': {
+      id: '/api/public/evaluate-alerts'
+      path: '/api/public/evaluate-alerts'
+      fullPath: '/api/public/evaluate-alerts'
+      preLoaderRoute: typeof ApiPublicEvaluateAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -113,6 +136,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicEvaluateAlertsRoute: ApiPublicEvaluateAlertsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
