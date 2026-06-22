@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      broker_connections: {
+        Row: {
+          account_label: string | null
+          connected: boolean
+          created_at: string
+          id: string
+          is_live: boolean
+          provider: Database["public"]["Enums"]["broker_provider"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_label?: string | null
+          connected?: boolean
+          created_at?: string
+          id?: string
+          is_live?: boolean
+          provider?: Database["public"]["Enums"]["broker_provider"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_label?: string | null
+          connected?: boolean
+          created_at?: string
+          id?: string
+          is_live?: boolean
+          provider?: Database["public"]["Enums"]["broker_provider"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       manual_positions: {
         Row: {
           asset: string
@@ -125,6 +158,99 @@ export type Database = {
         }
         Relationships: []
       }
+      paper_portfolios: {
+        Row: {
+          balance: number
+          created_at: string
+          equity: number
+          id: string
+          starting_balance: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          balance?: number
+          created_at?: string
+          equity?: number
+          id?: string
+          starting_balance?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          balance?: number
+          created_at?: string
+          equity?: number
+          id?: string
+          starting_balance?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      paper_trades: {
+        Row: {
+          asset: string
+          closed_at: string | null
+          created_at: string
+          entry_price: number
+          exit_price: number | null
+          id: string
+          is_open: boolean
+          pnl: number | null
+          portfolio_id: string
+          quantity: number
+          side: Database["public"]["Enums"]["trade_side"]
+          strategy_id: string | null
+          user_id: string
+        }
+        Insert: {
+          asset: string
+          closed_at?: string | null
+          created_at?: string
+          entry_price: number
+          exit_price?: number | null
+          id?: string
+          is_open?: boolean
+          pnl?: number | null
+          portfolio_id: string
+          quantity: number
+          side: Database["public"]["Enums"]["trade_side"]
+          strategy_id?: string | null
+          user_id: string
+        }
+        Update: {
+          asset?: string
+          closed_at?: string | null
+          created_at?: string
+          entry_price?: number
+          exit_price?: number | null
+          id?: string
+          is_open?: boolean
+          pnl?: number | null
+          portfolio_id?: string
+          quantity?: number
+          side?: Database["public"]["Enums"]["trade_side"]
+          strategy_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_trades_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "paper_portfolios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paper_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_alerts: {
         Row: {
           asset: string
@@ -191,6 +317,224 @@ export type Database = {
         }
         Relationships: []
       }
+      risk_limits: {
+        Row: {
+          cooldown_seconds: number
+          id: string
+          max_daily_loss_pct: number
+          max_position_pct: number
+          max_sector_pct: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cooldown_seconds?: number
+          id?: string
+          max_daily_loss_pct?: number
+          max_position_pct?: number
+          max_sector_pct?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cooldown_seconds?: number
+          id?: string
+          max_daily_loss_pct?: number
+          max_position_pct?: number
+          max_sector_pct?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      signals_executions: {
+        Row: {
+          asset: string
+          created_at: string
+          execution_type: Database["public"]["Enums"]["execution_mode"]
+          id: string
+          price: number | null
+          quantity: number
+          reason: string | null
+          side: Database["public"]["Enums"]["trade_side"]
+          signal_id: string | null
+          status: Database["public"]["Enums"]["execution_status"]
+          strategy_id: string | null
+          user_id: string
+        }
+        Insert: {
+          asset: string
+          created_at?: string
+          execution_type?: Database["public"]["Enums"]["execution_mode"]
+          id?: string
+          price?: number | null
+          quantity: number
+          reason?: string | null
+          side: Database["public"]["Enums"]["trade_side"]
+          signal_id?: string | null
+          status?: Database["public"]["Enums"]["execution_status"]
+          strategy_id?: string | null
+          user_id: string
+        }
+        Update: {
+          asset?: string
+          created_at?: string
+          execution_type?: Database["public"]["Enums"]["execution_mode"]
+          id?: string
+          price?: number | null
+          quantity?: number
+          reason?: string | null
+          side?: Database["public"]["Enums"]["trade_side"]
+          signal_id?: string | null
+          status?: Database["public"]["Enums"]["execution_status"]
+          strategy_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signals_executions_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "market_signals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "signals_executions_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      smart_alerts: {
+        Row: {
+          action: Json
+          active: boolean
+          conditions: Json
+          created_at: string
+          id: string
+          last_triggered_at: string | null
+          name: string
+          user_id: string
+        }
+        Insert: {
+          action?: Json
+          active?: boolean
+          conditions?: Json
+          created_at?: string
+          id?: string
+          last_triggered_at?: string | null
+          name: string
+          user_id: string
+        }
+        Update: {
+          action?: Json
+          active?: boolean
+          conditions?: Json
+          created_at?: string
+          id?: string
+          last_triggered_at?: string | null
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      strategies: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string | null
+          execution_mode: Database["public"]["Enums"]["execution_mode"]
+          id: string
+          market_type: Database["public"]["Enums"]["market_type"]
+          name: string
+          risk_level: Database["public"]["Enums"]["risk_level"]
+          strategy_json: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          execution_mode?: Database["public"]["Enums"]["execution_mode"]
+          id?: string
+          market_type?: Database["public"]["Enums"]["market_type"]
+          name: string
+          risk_level?: Database["public"]["Enums"]["risk_level"]
+          strategy_json?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          execution_mode?: Database["public"]["Enums"]["execution_mode"]
+          id?: string
+          market_type?: Database["public"]["Enums"]["market_type"]
+          name?: string
+          risk_level?: Database["public"]["Enums"]["risk_level"]
+          strategy_json?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      strategy_performance: {
+        Row: {
+          backtest_from: string | null
+          backtest_to: string | null
+          drawdown: number | null
+          equity_curve: Json | null
+          id: string
+          roi: number | null
+          sharpe: number | null
+          strategy_id: string
+          trade_count: number | null
+          updated_at: string
+          user_id: string
+          win_rate: number | null
+        }
+        Insert: {
+          backtest_from?: string | null
+          backtest_to?: string | null
+          drawdown?: number | null
+          equity_curve?: Json | null
+          id?: string
+          roi?: number | null
+          sharpe?: number | null
+          strategy_id: string
+          trade_count?: number | null
+          updated_at?: string
+          user_id: string
+          win_rate?: number | null
+        }
+        Update: {
+          backtest_from?: string | null
+          backtest_to?: string | null
+          drawdown?: number | null
+          equity_curve?: Json | null
+          id?: string
+          roi?: number | null
+          sharpe?: number | null
+          strategy_id?: string
+          trade_count?: number | null
+          updated_at?: string
+          user_id?: string
+          win_rate?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_performance_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -229,9 +573,15 @@ export type Database = {
       alert_direction: "above" | "below"
       app_role: "admin" | "user"
       asset_type: "stock" | "crypto"
+      broker_provider: "paper" | "alpaca" | "ibkr"
+      execution_mode: "off" | "paper" | "live"
+      execution_status: "pending" | "filled" | "rejected" | "cancelled"
+      market_type: "stocks" | "crypto" | "both"
+      risk_level: "low" | "medium" | "high"
       signal_direction: "call" | "put" | "buy" | "sell"
       signal_result: "open" | "hit_target" | "hit_stop" | "stale"
       signal_type: "options_flow" | "buy_sell"
+      trade_side: "buy" | "sell"
       user_tier: "free" | "starter" | "pro" | "premium"
     }
     CompositeTypes: {
@@ -363,9 +713,15 @@ export const Constants = {
       alert_direction: ["above", "below"],
       app_role: ["admin", "user"],
       asset_type: ["stock", "crypto"],
+      broker_provider: ["paper", "alpaca", "ibkr"],
+      execution_mode: ["off", "paper", "live"],
+      execution_status: ["pending", "filled", "rejected", "cancelled"],
+      market_type: ["stocks", "crypto", "both"],
+      risk_level: ["low", "medium", "high"],
       signal_direction: ["call", "put", "buy", "sell"],
       signal_result: ["open", "hit_target", "hit_stop", "stale"],
       signal_type: ["options_flow", "buy_sell"],
+      trade_side: ["buy", "sell"],
       user_tier: ["free", "starter", "pro", "premium"],
     },
   },

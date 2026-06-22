@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedTradingRouteImport } from './routes/_authenticated/trading'
 import { Route as AuthenticatedMarketsRouteImport } from './routes/_authenticated/markets'
 import { Route as ApiPublicEvaluateAlertsRouteImport } from './routes/api/public/evaluate-alerts'
 
@@ -29,6 +30,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedTradingRoute = AuthenticatedTradingRouteImport.update({
+  id: '/trading',
+  path: '/trading',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedMarketsRoute = AuthenticatedMarketsRouteImport.update({
   id: '/markets',
   path: '/markets',
@@ -44,12 +50,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/markets': typeof AuthenticatedMarketsRoute
+  '/trading': typeof AuthenticatedTradingRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/markets': typeof AuthenticatedMarketsRoute
+  '/trading': typeof AuthenticatedTradingRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
 }
 export interface FileRoutesById {
@@ -58,19 +66,26 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/markets': typeof AuthenticatedMarketsRoute
+  '/_authenticated/trading': typeof AuthenticatedTradingRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/markets' | '/api/public/evaluate-alerts'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/markets'
+    | '/trading'
+    | '/api/public/evaluate-alerts'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/markets' | '/api/public/evaluate-alerts'
+  to: '/' | '/auth' | '/markets' | '/trading' | '/api/public/evaluate-alerts'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/markets'
+    | '/_authenticated/trading'
     | '/api/public/evaluate-alerts'
   fileRoutesById: FileRoutesById
 }
@@ -104,6 +119,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/trading': {
+      id: '/_authenticated/trading'
+      path: '/trading'
+      fullPath: '/trading'
+      preLoaderRoute: typeof AuthenticatedTradingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/markets': {
       id: '/_authenticated/markets'
       path: '/markets'
@@ -123,10 +145,12 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedMarketsRoute: typeof AuthenticatedMarketsRoute
+  AuthenticatedTradingRoute: typeof AuthenticatedTradingRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedMarketsRoute: AuthenticatedMarketsRoute,
+  AuthenticatedTradingRoute: AuthenticatedTradingRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -141,13 +165,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   LineChart, Sidebar as SidebarIcon, Bell, Eye, Briefcase, History, Newspaper, Calendar,
-  Activity, TrendingUp, LogOut, Zap, Sparkles,
+  Activity, TrendingUp, LogOut, Zap, Sparkles, Brain,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -122,14 +122,19 @@ export default function MarketsDashboard() {
           <span className="font-display font-semibold">Markets</span>
         </div>
         <nav className="flex-1 space-y-1 text-sm">
+          <Link to="/markets" className="flex items-center gap-2 px-2.5 py-2 rounded-md bg-sidebar-accent text-sidebar-accent-foreground">
+            <Activity className="h-4 w-4" /> Dashboard
+          </Link>
+          <Link to="/trading" className="flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-sidebar-accent/50">
+            <Brain className="h-4 w-4" /> AI Trading
+          </Link>
           {[
-            { icon: Activity, label: "Overview", active: true },
             { icon: Eye, label: "Watchlist" },
             { icon: Briefcase, label: "Portfolio" },
             { icon: Bell, label: "Alerts" },
             { icon: History, label: "Signal History" },
           ].map((i) => (
-            <div key={i.label} className={cn("flex items-center gap-2 px-2.5 py-2 rounded-md", i.active && "bg-sidebar-accent text-sidebar-accent-foreground")}>
+            <div key={i.label} className="flex items-center gap-2 px-2.5 py-2 rounded-md text-muted-foreground">
               <i.icon className="h-4 w-4" /> {i.label}
             </div>
           ))}

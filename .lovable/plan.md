@@ -1,89 +1,72 @@
+## AI Trading Engine — V2 Extension for /markets
 
-# Markets Dashboard — Build Plan
+Big scope. Proposing a phased build so we ship value incrementally instead of one mega-PR that's hard to validate.
 
-Before I write code, I need to flag a few important constraints and get a couple of decisions from you, because this spec is large (~30+ files, 8 edge functions, 4 third-party APIs, auth + tiers + realtime).
+### Scope confirmation
+- Extends existing `/markets` dashboard — keeps current theme, tier system, realtime, sidebar.
+- Adds a new top-level section "AI Trading Engine" with tabs: Overview, Strategies, Backtesting, Execution, Risk.
+- Paper trading is default. Live trading is Premium-tier, opt-in, with confirmation modal.
+- Broker abstraction: Paper (default), Alpaca (live), Interactive Brokers (stub).
+- All data real (Polygon → Alpha Vantage → Finnhub fallback already wired).
 
-## Stack reality check
+### Phased delivery
 
-Your spec says "React 18 + Vite + Tailwind v3 + shadcn/ui." This project is actually:
-- **TanStack Start** (React 19, file-based routing in `src/routes/`)
-- **Tailwind v4** (CSS-first, `src/styles.css`)
-- **shadcn/ui** ✅ (already installed)
-- **No backend yet** — Lovable Cloud (Supabase) is not enabled
+**Phase 1 — Foundation (this turn)**
+- DB migration: `strategies`, `paper_portfolios`, `paper_trades`, `signals_executions`, `strategy_performance`, `risk_limits`, `broker_connections`, `smart_alerts`. RLS + GRANTs.
+- Realtime publication for `paper_trades`, `signals_executions`, `smart_alerts`.
+- New route `/_authenticated/trading` with 5-tab shell + sidebar entry.
+- Paper portfolio auto-init ($10k) on first visit.
+- Overview tab: portfolio equity, balance, open positions, recent executions (all live from Supabase).
 
-I'll build on the actual stack. The UI/UX, components, and behavior you described all map cleanly. Route will be `src/routes/markets.tsx` (your spec said `/markets`, not `/dashboard`).
+**Phase 2 — Strategy Engine**
+- Server fn `generateStrategyFromPrompt` using Lovable AI Gateway (`google/gemini-3-flash-preview`) → structured JSON (indicators, entry/exit, timeframes).
+- Strategies CRUD UI with NL prompt input + JSON preview.
+- Per-strategy execution mode toggle: OFF / PAPER / LIVE (LIVE gated to Premium).
 
-Server logic will live in **TanStack server functions** (`createServerFn`) + **server routes** (`src/routes/api/*`), not Supabase Edge Functions — that's the correct boundary on this stack. Behavior is identical from the user's perspective.
+**Phase 3 — Backtesting**
+- Server fn `runBacktest`: fetches historical bars (Polygon aggs → Alpha Vantage TIME_SERIES_DAILY fallback), evaluates strategy rules, computes win rate, ROI, max drawdown, Sharpe approx.
+- Equity curve (Recharts), trade log table.
+- Results persisted to `strategy_performance`.
 
-## Decisions I need from you
+**Phase 4 — Paper Execution + Risk Engine**
+- Server fn `executeTrade`: validates against `risk_limits` (max daily loss %, max position %, cooldown), gets live quote, writes `paper_trades` + updates `paper_portfolios.balance/equity`.
+- Server fn `evaluateRisk`: sector exposure, drawdown, correlation grouping.
+- Risk Controls tab: limit editors + live exposure panel.
+- AI signal → auto-execute hook: when strategy has `auto_execute='paper'` and a new signal arrives, call `executeTrade`.
 
-1. **API keys** — I cannot build "no mock data" without these. You'll need to provide:
-   - **Finnhub** (free tier OK) — for news + stock quotes fallback
-   - **Polygon.io** (free tier OK) — primary stock quotes + options flow + earnings
-   - **Alpha Vantage** (free) — secondary stock quote fallback
-   - CoinGecko + Alternative.me Fear & Greed are keyless ✅
-   - **Lovable AI Gateway** for signal generation — auto-provisioned ✅
+**Phase 5 — Live Execution Layer (Premium)**
+- `broker_connections` table stores per-user broker credentials (encrypted via secret reference, not raw).
+- Alpaca adapter (paper or live endpoints based on connection mode).
+- IBKR stub returns "coming soon".
+- Execution Settings panel: connect broker, toggle live trading (default OFF), confirmation modal for every live order.
+- BlurLock for non-Premium.
 
-   If you don't have all of these, tell me which you have and I'll degrade gracefully (e.g. skip options flow if no Polygon key, show "data unavailable" instead of mocks).
+**Phase 6 — Smart Alerts + Portfolio Intelligence**
+- Smart alert condition builder (IF/AND/OR over price %, RSI, EPS surprise).
+- Server fn `aiPortfolioCommentary`: AI-generated rebalancing + drift insights.
+- Extend existing PortfolioPanel with commentary card.
 
-2. **Auth + tiers** — The spec requires per-user data (alerts, watchlist, signals), tier gating (free/starter/pro/premium), and admin roles. That means I need to enable Lovable Cloud and add full auth (email/password + Google). Confirm OK?
+### Technical details
 
-3. **Push notifications for `evaluate-alerts` cron** — Web push needs VAPID keys + service worker + user permission flow. That's a feature on its own. OK to ship alerts as **in-app realtime toasts only** for v1, and defer browser push to a follow-up?
+- All AI calls server-side via Lovable AI Gateway, `google/gemini-3-flash-preview` default.
+- All market data uses existing `getStockQuotes` / `getMarketNews` with fallback chain.
+- Live status badge in header polls `signals_executions` last row + measures p99 latency.
+- Framer Motion already installed; reuse for trade row entrance.
+- Monospace numerics via existing `font-mono` utility.
+- Tier check via existing `useProfile` hook; BlurLock component already exists.
+- Broker secrets: request `ALPACA_API_KEY_ID` + `ALPACA_SECRET_KEY` only when user connects Alpaca (Phase 5).
 
-4. **Portfolio "connected positions"** — Connecting a real brokerage (Plaid/SnapTrade) is a multi-week integration with paid APIs. OK to make Portfolio a **manual positions entry** (user adds ticker + shares + cost basis, we compute P&L from live quotes) for v1?
+### Tier matrix
+| Feature | Free | Starter | Pro | Premium |
+|---|---|---|---|---|
+| Paper trading | ✓ | ✓ | ✓ | ✓ |
+| Strategies | 2 | 5 | 20 | ∞ |
+| Backtesting | — | ✓ | ✓ | ✓ |
+| Auto paper exec | — | — | ✓ | ✓ |
+| Live execution | — | — | — | ✓ |
+| Smart alerts | 1 | 5 | 25 | ∞ |
 
-## What I'll build (assuming "yes, proceed with sensible defaults")
+### What I'll build this turn
+**Phase 1 only** (DB + shell + Overview). Then I'll pause for you to verify before continuing through Phases 2–6. This keeps each step reviewable and avoids a 30-file blob.
 
-### Backend (Lovable Cloud)
-- Enable Cloud, configure email + Google auth
-- Migrations: `market_signals`, `market_tracking`, `price_alerts`, `manual_positions`, `user_roles` (+ `app_role` enum + `has_role` SECURITY DEFINER), `profiles` (for tier). All with explicit GRANTs + RLS scoped to `auth.uid()`.
-- Cron: pg_cron calls `/api/public/evaluate-alerts` and `/api/public/resolve-signals` every 5 min (HMAC-signed).
-
-### Server functions / routes
-- `stock-prices.functions.ts` — Polygon → Alpha Vantage → Finnhub fallback chain
-- `crypto.functions.ts` — CoinGecko quotes + on-chain
-- `market-news.functions.ts` — Finnhub news + Gemini sentiment tag
-- `earnings.functions.ts` — Polygon earnings calendar
-- `options-flow.functions.ts` — Polygon unusual options
-- `market-signals.functions.ts` — Gemini 2.5 Flash via Lovable AI Gateway, writes to `market_signals`
-- `fear-greed.functions.ts` — alternative.me passthrough (cached 5 min)
-- Public API routes: `/api/public/evaluate-alerts`, `/api/public/resolve-signals` (HMAC-verified)
-
-### Frontend (`src/routes/_authenticated/markets.tsx`)
-- Sidebar nav (collapsible, shadcn `Sidebar`)
-- Tabs: **Overview** / **Watchlist** / **Portfolio** / **Signal History**
-- Overview tab:
-  - 4-metric stats bar (open signals, 30d win %, 30d avg P&L, tracked count)
-  - Market Pulse row: Fear & Greed gauge, Market Status, AI Signals Today
-  - Latest AI Signals grid (`MarketSignalCard`, 1/2/3 col responsive)
-  - Sample Signals (blur-locked for free tier)
-  - News Feed ticker w/ sentiment chips
-  - Earnings Calendar + Options Flow (2-col)
-  - Price Alerts panel (create + active + triggered lists)
-- Watchlist tab: tracked assets, 60s auto-refresh
-- Portfolio tab: manual positions, P&L, allocation donut (recharts)
-- Signal History tab: past signals table + calibration scatter plot (recharts)
-- `<LiveBadge>` with last-updated timestamp
-- `<BlurLock>` wrapper for tier gating
-- Realtime: Supabase channels on `price_alerts` + `market_signals`
-- SEO `head()`: title "Markets Dashboard — [App]" (<60), meta desc (<160), single H1, semantic HTML
-
-### Design
-- Dark theme tokens in `src/styles.css`: bg `#0F172A`, card `#111827`, border subtle, accent `emerald-400` / `teal-400`
-- Fonts: **Space Grotesk** (display) + **Inter** (body) via `<link>` in `__root.tsx` head
-- Monospace (`JetBrains Mono`) for all numerics
-- Framer Motion card entrance animations
-- No purple/indigo
-
-## Scope estimate
-~35 files, ~6 migrations, ~10 server functions, 2 cron routes. This will take multiple build turns.
-
----
-
-**Please reply with:**
-1. Which API keys you have (or "I'll get them — proceed with what's possible")
-2. OK to enable Cloud + add auth?
-3. OK to skip web push (toasts only) for v1?
-4. OK to make Portfolio manual entry for v1?
-
-Once you confirm, I'll start with: enable Cloud → migrations → auth → core UI shell → fill in features.
+Confirm and I'll start with the migration.
