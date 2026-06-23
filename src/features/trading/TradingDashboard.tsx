@@ -254,10 +254,10 @@ export default function TradingDashboard() {
             <BacktestingPanel />
           </TabsContent>
           <TabsContent value="execution">
-            <ComingSoon icon={Zap} title="Execution Layer" body="Paper trading is default. Connect Alpaca (Premium) for live execution with confirmation modal and risk checks." />
+            <ExecutionPanel />
           </TabsContent>
           <TabsContent value="risk">
-            <ComingSoon icon={Shield} title="Risk Controls" body="Set max daily loss %, max position size %, sector exposure caps, and per-trade cooldowns. The engine blocks trades that breach your rules." />
+            <RiskPanel />
           </TabsContent>
         </Tabs>
       </main>
