@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { StrategiesPanel } from "./components/StrategiesPanel";
 import { BacktestingPanel } from "./components/BacktestingPanel";
+import { ExecutionPanel } from "./components/ExecutionPanel";
+import { RiskPanel } from "./components/RiskPanel";
 
 export default function TradingDashboard() {
   const { tier, email, userId, loading } = useProfile();
@@ -252,10 +254,10 @@ export default function TradingDashboard() {
             <BacktestingPanel />
           </TabsContent>
           <TabsContent value="execution">
-            <ComingSoon icon={Zap} title="Execution Layer" body="Paper trading is default. Connect Alpaca (Premium) for live execution with confirmation modal and risk checks." />
+            <ExecutionPanel />
           </TabsContent>
           <TabsContent value="risk">
-            <ComingSoon icon={Shield} title="Risk Controls" body="Set max daily loss %, max position size %, sector exposure caps, and per-trade cooldowns. The engine blocks trades that breach your rules." />
+            <RiskPanel />
           </TabsContent>
         </Tabs>
       </main>
@@ -285,13 +287,3 @@ function LiveStatus({ updatedAt }: { updatedAt?: string | null }) {
   );
 }
 
-function ComingSoon({ icon: Icon, title, body }: { icon: typeof Brain; title: string; body: string }) {
-  return (
-    <Card className="p-10 border-border bg-card text-center">
-      <Icon className="h-10 w-10 text-primary mx-auto mb-3" />
-      <h2 className="font-display font-semibold text-lg mb-2">{title}</h2>
-      <p className="text-sm text-muted-foreground max-w-md mx-auto">{body}</p>
-      <Badge variant="outline" className="mt-4 font-mono text-[10px]">SHIPPING NEXT</Badge>
-    </Card>
-  );
-}
