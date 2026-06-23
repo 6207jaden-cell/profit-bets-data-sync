@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { StrategiesPanel } from "./components/StrategiesPanel";
 import { BacktestingPanel } from "./components/BacktestingPanel";
+import { ExecutionPanel } from "./components/ExecutionPanel";
+import { RiskPanel } from "./components/RiskPanel";
 
 export default function TradingDashboard() {
   const { tier, email, userId, loading } = useProfile();
