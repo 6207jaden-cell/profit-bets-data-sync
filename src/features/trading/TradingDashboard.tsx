@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
-  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight,
+  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
@@ -16,6 +16,7 @@ import { StrategiesPanel } from "./components/StrategiesPanel";
 import { BacktestingPanel } from "./components/BacktestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
+import { BrokerPanel } from "./components/BrokerPanel";
 
 export default function TradingDashboard() {
   const { tier, email, userId, loading } = useProfile();
@@ -157,12 +158,13 @@ export default function TradingDashboard() {
         </header>
 
         <Tabs defaultValue="overview" className="p-6">
-          <TabsList className="mb-6">
+          <TabsList className="mb-6 flex-wrap">
             <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
             <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
             <TabsTrigger value="backtest"><FlaskConical className="h-3.5 w-3.5 mr-1.5" />Backtesting</TabsTrigger>
             <TabsTrigger value="execution"><Zap className="h-3.5 w-3.5 mr-1.5" />Execution</TabsTrigger>
             <TabsTrigger value="risk"><Shield className="h-3.5 w-3.5 mr-1.5" />Risk</TabsTrigger>
+            <TabsTrigger value="broker"><Link2 className="h-3.5 w-3.5 mr-1.5" />Broker</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -258,6 +260,9 @@ export default function TradingDashboard() {
           </TabsContent>
           <TabsContent value="risk">
             <RiskPanel />
+          </TabsContent>
+          <TabsContent value="broker">
+            <BrokerPanel />
           </TabsContent>
         </Tabs>
       </main>
