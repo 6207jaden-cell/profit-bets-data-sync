@@ -1,72 +1,82 @@
-## AI Trading Engine — V2 Extension for /markets
+## Goal
 
-Big scope. Proposing a phased build so we ship value incrementally instead of one mega-PR that's hard to validate.
+Add an **AI Agent** tab to the Trading dashboard where users chat with an AI that has live access to their Robinhood account via Robinhood's MCP server at `https://agent.robinhood.com/mcp/trading`. Each user connects their own Robinhood account through OAuth; the AI can then call whatever tools Robinhood exposes (get portfolio, place order, etc.).
 
-### Scope confirmation
-- Extends existing `/markets` dashboard — keeps current theme, tier system, realtime, sidebar.
-- Adds a new top-level section "AI Trading Engine" with tabs: Overview, Strategies, Backtesting, Execution, Risk.
-- Paper trading is default. Live trading is Premium-tier, opt-in, with confirmation modal.
-- Broker abstraction: Paper (default), Alpaca (live), Interactive Brokers (stub).
-- All data real (Polygon → Alpha Vantage → Finnhub fallback already wired).
+## User flow
 
-### Phased delivery
+1. User opens Trading → **Agent** tab
+2. First visit shows "Connect Robinhood" button → OAuth popup → returns authenticated
+3. Chat interface appears with input like "Show my positions" / "Sell half my AAPL"
+4. AI (Gemini 3 Flash) responds, calling Robinhood MCP tools as needed
+5. Tool calls render inline (collapsed by default) with status, params, result
+6. Every trade the agent proposes goes through Robinhood's own confirmation layer
 
-**Phase 1 — Foundation (this turn)**
-- DB migration: `strategies`, `paper_portfolios`, `paper_trades`, `signals_executions`, `strategy_performance`, `risk_limits`, `broker_connections`, `smart_alerts`. RLS + GRANTs.
-- Realtime publication for `paper_trades`, `signals_executions`, `smart_alerts`.
-- New route `/_authenticated/trading` with 5-tab shell + sidebar entry.
-- Paper portfolio auto-init ($10k) on first visit.
-- Overview tab: portfolio equity, balance, open positions, recent executions (all live from Supabase).
+## Technical implementation
 
-**Phase 2 — Strategy Engine**
-- Server fn `generateStrategyFromPrompt` using Lovable AI Gateway (`google/gemini-3-flash-preview`) → structured JSON (indicators, entry/exit, timeframes).
-- Strategies CRUD UI with NL prompt input + JSON preview.
-- Per-strategy execution mode toggle: OFF / PAPER / LIVE (LIVE gated to Premium).
+### 1. Database migration
+New table `mcp_connections` for per-user OAuth state:
+- `user_id`, `server_url`, `server_label` ("Robinhood")
+- `access_token`, `refresh_token`, `expires_at` (encrypted-at-rest via Supabase)
+- `client_id`, `client_secret`, `dcr_metadata` (dynamic client registration data)
+- `state` (`ready` | `authenticating` | `failed`), `auth_url`
+- RLS: user owns their rows; service role for admin
+- GRANTs for authenticated + service_role
 
-**Phase 3 — Backtesting**
-- Server fn `runBacktest`: fetches historical bars (Polygon aggs → Alpha Vantage TIME_SERIES_DAILY fallback), evaluates strategy rules, computes win rate, ROI, max drawdown, Sharpe approx.
-- Equity curve (Recharts), trade log table.
-- Results persisted to `strategy_performance`.
+### 2. Packages
+`bun add ai @ai-sdk/react @ai-sdk/openai-compatible @ai-sdk/mcp zod` and AI Elements: `bunx ai-elements@latest add conversation message prompt-input shimmer tool`
 
-**Phase 4 — Paper Execution + Risk Engine**
-- Server fn `executeTrade`: validates against `risk_limits` (max daily loss %, max position %, cooldown), gets live quote, writes `paper_trades` + updates `paper_portfolios.balance/equity`.
-- Server fn `evaluateRisk`: sector exposure, drawdown, correlation grouping.
-- Risk Controls tab: limit editors + live exposure panel.
-- AI signal → auto-execute hook: when strategy has `auto_execute='paper'` and a new signal arrives, call `executeTrade`.
+### 3. Server functions (`src/lib/mcp-client.functions.ts`)
+- `initiateRobinhoodConnection` — creates MCP client with OAuth provider, probes tools, returns `{ state, authUrl? }`
+- `completeRobinhoodOAuth` — handles callback, saves tokens, marks ready
+- `getRobinhoodConnection` — returns current user's connection state
+- `disconnectRobinhood` — deletes the connection
 
-**Phase 5 — Live Execution Layer (Premium)**
-- `broker_connections` table stores per-user broker credentials (encrypted via secret reference, not raw).
-- Alpaca adapter (paper or live endpoints based on connection mode).
-- IBKR stub returns "coming soon".
-- Execution Settings panel: connect broker, toggle live trading (default OFF), confirmation modal for every live order.
-- BlurLock for non-Premium.
+### 4. OAuth callback route
+`src/routes/api/mcp/robinhood/callback.ts` — server route completing the OAuth code exchange, storing tokens, redirecting user back to `/trading?tab=agent&connected=1`
 
-**Phase 6 — Smart Alerts + Portfolio Intelligence**
-- Smart alert condition builder (IF/AND/OR over price %, RSI, EPS surprise).
-- Server fn `aiPortfolioCommentary`: AI-generated rebalancing + drift insights.
-- Extend existing PortfolioPanel with commentary card.
+### 5. Chat streaming route
+`src/routes/api/chat/agent.ts` — POST handler that:
+- Verifies auth (bearer middleware)
+- Loads user's Robinhood MCP connection tokens
+- Creates short-lived MCP client, calls `client.tools()` to fetch Robinhood tools
+- Calls `streamText` with Lovable AI Gateway (`google/gemini-3-flash-preview`), passing MCP tools + a trading-focused system prompt
+- Returns `toUIMessageStreamResponse()`
+- Closes MCP client in `onFinish` and on error
 
-### Technical details
+### 6. UI — new "Agent" tab in TradingDashboard
+`src/features/trading/components/AgentPanel.tsx`:
+- **Disconnected state**: "Connect Robinhood" card with OAuth CTA (matches your screenshot's dark aesthetic — sparse, Beta badge, three benefit bullets)
+- **Connected state**: AI Elements chat (`Conversation`, `Message`, `MessageResponse`, `Tool`, `PromptInput`) using `useChat` pointed at `/api/chat/agent`
+- Suggested prompts on empty state: "What's in my portfolio?", "Analyze my top holding", "Set up a stop loss on TSLA"
+- Tool calls render in collapsed accordions showing Robinhood API activity
+- Uses no localStorage / no thread history for v1 — single ephemeral conversation per session (can add threads later)
 
-- All AI calls server-side via Lovable AI Gateway, `google/gemini-3-flash-preview` default.
-- All market data uses existing `getStockQuotes` / `getMarketNews` with fallback chain.
-- Live status badge in header polls `signals_executions` last row + measures p99 latency.
-- Framer Motion already installed; reuse for trade row entrance.
-- Monospace numerics via existing `font-mono` utility.
-- Tier check via existing `useProfile` hook; BlurLock component already exists.
-- Broker secrets: request `ALPACA_API_KEY_ID` + `ALPACA_SECRET_KEY` only when user connects Alpaca (Phase 5).
+### 7. TradingDashboard integration
+Add 7th tab "Agent" with `Sparkles`-adjacent domain icon (use `Bot` or generated logo). No tier gate initially — Robinhood's own account/safety layer applies.
 
-### Tier matrix
-| Feature | Free | Starter | Pro | Premium |
-|---|---|---|---|---|
-| Paper trading | ✓ | ✓ | ✓ | ✓ |
-| Strategies | 2 | 5 | 20 | ∞ |
-| Backtesting | — | ✓ | ✓ | ✓ |
-| Auto paper exec | — | — | ✓ | ✓ |
-| Live execution | — | — | — | ✓ |
-| Smart alerts | 1 | 5 | 25 | ∞ |
+## Security & safety notes
 
-### What I'll build this turn
-**Phase 1 only** (DB + shell + Overview). Then I'll pause for you to verify before continuing through Phases 2–6. This keeps each step reviewable and avoids a 30-file blob.
+- MCP tokens stored server-side only, scoped by RLS to `auth.uid()`
+- Chat route requires `requireSupabaseAuth`; token never leaves the server
+- No `supabaseAdmin` in client-reachable modules
+- The AI cannot bypass Robinhood's per-trade confirmations — those live on Robinhood's side
+- System prompt instructs the model to summarize proposed trades before executing and to prefer read-only tools when the user's intent is ambiguous
 
-Confirm and I'll start with the migration.
+## Out of scope for this turn
+
+- Chat history persistence (threads/db) — ephemeral only
+- Live-order confirmation modal *inside our app* (Robinhood handles theirs)
+- Removing/rewiring the existing Alpaca "Broker" tab — leaves it alongside as an alternative path
+- Non-Robinhood MCP servers (extensible via `mcp_connections.server_url` but no UI yet)
+
+## Deliverables
+
+1. `supabase/migrations/…_mcp_connections.sql`
+2. `src/lib/mcp-client.functions.ts`
+3. `src/routes/api/mcp/robinhood/callback.ts`
+4. `src/routes/api/chat/agent.ts`
+5. `src/features/trading/components/AgentPanel.tsx`
+6. AI Elements components under `src/components/ai-elements/`
+7. Updated `src/features/trading/TradingDashboard.tsx` (new tab)
+
+Confirm and I'll ship it in phases: **(a)** migration + packages + AI Elements, **(b)** OAuth connect flow, **(c)** chat streaming + UI.
