@@ -63,10 +63,9 @@ export function AgentPanel() {
         prepareSendMessagesRequest: async ({ messages, id }) => {
           const { data } = await supabase.auth.getSession();
           const tok = data.session?.access_token;
-          return {
-            body: { messages, id },
-            headers: tok ? { Authorization: `Bearer ${tok}` } : {},
-          };
+          const headers: Record<string, string> = {};
+          if (tok) headers.Authorization = `Bearer ${tok}`;
+          return { body: { messages, id }, headers };
         },
       }),
     [],
