@@ -158,6 +158,60 @@ export type Database = {
         }
         Relationships: []
       }
+      mcp_connections: {
+        Row: {
+          access_token: string | null
+          auth_url: string | null
+          client_id: string | null
+          client_secret: string | null
+          code_verifier: string | null
+          created_at: string
+          dcr_metadata: Json | null
+          expires_at: string | null
+          id: string
+          refresh_token: string | null
+          server_label: string
+          server_url: string
+          state: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          auth_url?: string | null
+          client_id?: string | null
+          client_secret?: string | null
+          code_verifier?: string | null
+          created_at?: string
+          dcr_metadata?: Json | null
+          expires_at?: string | null
+          id?: string
+          refresh_token?: string | null
+          server_label: string
+          server_url: string
+          state?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          auth_url?: string | null
+          client_id?: string | null
+          client_secret?: string | null
+          code_verifier?: string | null
+          created_at?: string
+          dcr_metadata?: Json | null
+          expires_at?: string | null
+          id?: string
+          refresh_token?: string | null
+          server_label?: string
+          server_url?: string
+          state?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       paper_portfolios: {
         Row: {
           balance: number
