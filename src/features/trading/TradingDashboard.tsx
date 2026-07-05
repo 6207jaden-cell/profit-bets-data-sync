@@ -17,6 +17,7 @@ import { BacktestingPanel } from "./components/BacktestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
 import { BrokerPanel } from "./components/BrokerPanel";
+import { AgentPanel } from "./components/AgentPanel";
 
 export default function TradingDashboard() {
   const { tier, email, userId, loading } = useProfile();
