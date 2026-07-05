@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedTradingRouteImport } from './routes/_authenticated/trading'
 import { Route as AuthenticatedMarketsRouteImport } from './routes/_authenticated/markets'
 import { Route as ApiPublicEvaluateAlertsRouteImport } from './routes/api/public/evaluate-alerts'
+import { Route as ApiPublicMcpRobinhoodCallbackRouteImport } from './routes/api/public/mcp/robinhood/callback'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -45,6 +46,12 @@ const ApiPublicEvaluateAlertsRoute = ApiPublicEvaluateAlertsRouteImport.update({
   path: '/api/public/evaluate-alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicMcpRobinhoodCallbackRoute =
+  ApiPublicMcpRobinhoodCallbackRouteImport.update({
+    id: '/api/public/mcp/robinhood/callback',
+    path: '/api/public/mcp/robinhood/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -52,6 +59,7 @@ export interface FileRoutesByFullPath {
   '/markets': typeof AuthenticatedMarketsRoute
   '/trading': typeof AuthenticatedTradingRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
+  '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -59,6 +67,7 @@ export interface FileRoutesByTo {
   '/markets': typeof AuthenticatedMarketsRoute
   '/trading': typeof AuthenticatedTradingRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
+  '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -68,6 +77,7 @@ export interface FileRoutesById {
   '/_authenticated/markets': typeof AuthenticatedMarketsRoute
   '/_authenticated/trading': typeof AuthenticatedTradingRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
+  '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -77,8 +87,15 @@ export interface FileRouteTypes {
     | '/markets'
     | '/trading'
     | '/api/public/evaluate-alerts'
+    | '/api/public/mcp/robinhood/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/markets' | '/trading' | '/api/public/evaluate-alerts'
+  to:
+    | '/'
+    | '/auth'
+    | '/markets'
+    | '/trading'
+    | '/api/public/evaluate-alerts'
+    | '/api/public/mcp/robinhood/callback'
   id:
     | '__root__'
     | '/'
@@ -87,6 +104,7 @@ export interface FileRouteTypes {
     | '/_authenticated/markets'
     | '/_authenticated/trading'
     | '/api/public/evaluate-alerts'
+    | '/api/public/mcp/robinhood/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -94,6 +112,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ApiPublicEvaluateAlertsRoute: typeof ApiPublicEvaluateAlertsRoute
+  ApiPublicMcpRobinhoodCallbackRoute: typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -140,6 +159,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicEvaluateAlertsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/mcp/robinhood/callback': {
+      id: '/api/public/mcp/robinhood/callback'
+      path: '/api/public/mcp/robinhood/callback'
+      fullPath: '/api/public/mcp/robinhood/callback'
+      preLoaderRoute: typeof ApiPublicMcpRobinhoodCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -161,6 +187,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ApiPublicEvaluateAlertsRoute: ApiPublicEvaluateAlertsRoute,
+  ApiPublicMcpRobinhoodCallbackRoute: ApiPublicMcpRobinhoodCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
