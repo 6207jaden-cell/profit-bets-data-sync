@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { convertToModelMessages, streamText, experimental_createMCPClient, type UIMessage } from "ai";
+import { convertToModelMessages, streamText, dynamicTool, jsonSchema, type UIMessage, type ToolSet } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
@@ -13,6 +13,40 @@ Guidelines:
 - Before placing any order, summarize the proposed trade (symbol, side, quantity, order type, estimated cost) and ask for explicit confirmation UNLESS the user has clearly instructed you to execute.
 - Robinhood's own confirmation layer applies to real orders; never claim a trade is filled unless a tool result confirms it.
 - Be concise, use bullet points and inline code for tickers/prices. Never fabricate holdings or prices — always call a tool.`;
+
+type McpToolInfo = { name: string; description?: string; inputSchema?: object };
+
+async function loadMcpTools(accessToken: string): Promise<{
+  tools: ToolSet;
+  close: () => Promise<void>;
+}> {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StreamableHTTPClientTransport } = await import(
+    "@modelcontextprotocol/sdk/client/streamableHttp.js"
+  );
+
+  const transport = new StreamableHTTPClientTransport(new URL(ROBINHOOD_MCP_URL), {
+    requestInit: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+
+  const client = new Client({ name: "markets-ai", version: "0.1.0" });
+  await client.connect(transport);
+
+  const listed = await client.listTools();
+  const tools: ToolSet = {};
+  for (const t of listed.tools as McpToolInfo[]) {
+    tools[t.name] = dynamicTool({
+      description: t.description ?? t.name,
+      inputSchema: jsonSchema(t.inputSchema ?? { type: "object", properties: {} }),
+      execute: async (input) => {
+        const res = await client.callTool({ name: t.name, arguments: input as Record<string, unknown> });
+        return res;
+      },
+    });
+  }
+
+  return { tools, close: () => client.close() };
+}
 
 export const Route = createFileRoute("/api/chat")({
   server: {
@@ -46,21 +80,16 @@ export const Route = createFileRoute("/api/chat")({
           .eq("server_url", ROBINHOOD_MCP_URL)
           .maybeSingle();
 
-        let mcpClient: Awaited<ReturnType<typeof experimental_createMCPClient>> | null = null;
-        let mcpTools: Record<string, unknown> = {};
+        let tools: ToolSet = {};
+        let close: (() => Promise<void>) | null = null;
 
         if (conn?.state === "ready" && conn.access_token) {
           try {
-            mcpClient = await experimental_createMCPClient({
-              transport: {
-                type: "sse",
-                url: ROBINHOOD_MCP_URL,
-                headers: { Authorization: `Bearer ${conn.access_token}` },
-              },
-            });
-            mcpTools = await mcpClient.tools();
+            const loaded = await loadMcpTools(conn.access_token);
+            tools = loaded.tools;
+            close = loaded.close;
           } catch (e) {
-            console.error("[mcp] client init failed", e);
+            console.error("[mcp] tool load failed", e);
           }
         }
 
@@ -70,17 +99,14 @@ export const Route = createFileRoute("/api/chat")({
           headers: { "Lovable-API-Key": LOVABLE_API_KEY, "X-Lovable-AIG-SDK": "ai-sdk" },
         });
 
+        const modelMessages = await convertToModelMessages(messages);
         const result = streamText({
           model: gateway.chatModel("google/gemini-2.5-flash"),
           system: SYSTEM_PROMPT,
-          messages: convertToModelMessages(messages),
-          tools: mcpTools as never,
-          onFinish: async () => {
-            try { await mcpClient?.close(); } catch { /* noop */ }
-          },
-          onError: async () => {
-            try { await mcpClient?.close(); } catch { /* noop */ }
-          },
+          messages: modelMessages,
+          tools,
+          onFinish: async () => { try { await close?.(); } catch { /* noop */ } },
+          onError: async () => { try { await close?.(); } catch { /* noop */ } },
         });
 
         return result.toUIMessageStreamResponse({ originalMessages: messages });
