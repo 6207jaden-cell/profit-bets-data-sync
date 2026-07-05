@@ -158,7 +158,7 @@ export default function TradingDashboard() {
           </div>
         </header>
 
-        <Tabs defaultValue="overview" className="p-6">
+        <Tabs defaultValue={typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview"} className="p-6">
           <TabsList className="mb-6 flex-wrap">
             <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
             <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
