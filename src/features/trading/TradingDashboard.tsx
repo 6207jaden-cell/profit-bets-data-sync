@@ -266,6 +266,9 @@ export default function TradingDashboard() {
           <TabsContent value="broker">
             <BrokerPanel />
           </TabsContent>
+          <TabsContent value="agent">
+            <AgentPanel />
+          </TabsContent>
         </Tabs>
       </main>
     </div>
