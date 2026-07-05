@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
-  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2,
+  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
@@ -17,6 +17,7 @@ import { BacktestingPanel } from "./components/BacktestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
 import { BrokerPanel } from "./components/BrokerPanel";
+import { AgentPanel } from "./components/AgentPanel";
 
 export default function TradingDashboard() {
   const { tier, email, userId, loading } = useProfile();
@@ -157,7 +158,7 @@ export default function TradingDashboard() {
           </div>
         </header>
 
-        <Tabs defaultValue="overview" className="p-6">
+        <Tabs defaultValue={typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview"} className="p-6">
           <TabsList className="mb-6 flex-wrap">
             <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
             <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
@@ -165,6 +166,7 @@ export default function TradingDashboard() {
             <TabsTrigger value="execution"><Zap className="h-3.5 w-3.5 mr-1.5" />Execution</TabsTrigger>
             <TabsTrigger value="risk"><Shield className="h-3.5 w-3.5 mr-1.5" />Risk</TabsTrigger>
             <TabsTrigger value="broker"><Link2 className="h-3.5 w-3.5 mr-1.5" />Broker</TabsTrigger>
+            <TabsTrigger value="agent"><Bot className="h-3.5 w-3.5 mr-1.5" />Agent</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -263,6 +265,9 @@ export default function TradingDashboard() {
           </TabsContent>
           <TabsContent value="broker">
             <BrokerPanel />
+          </TabsContent>
+          <TabsContent value="agent">
+            <AgentPanel />
           </TabsContent>
         </Tabs>
       </main>
