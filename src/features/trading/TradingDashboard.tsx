@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
-  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2,
+  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
