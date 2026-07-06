@@ -33,6 +33,7 @@ export function AgentPanel() {
   const [input, setInput] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [authTokenReady, setAuthTokenReady] = useState(false);
+  const [pendingAuthUrl, setPendingAuthUrl] = useState<string | null>(null);
 
   const getConnFn = useServerFn(getRobinhoodConnection);
   const initFn = useServerFn(initiateRobinhoodConnection);
@@ -52,6 +53,7 @@ export function AgentPanel() {
   // Refresh state after callback redirect
   useEffect(() => {
     if (search.connected) {
+      setPendingAuthUrl(null);
       qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
       const params = new URLSearchParams(window.location.search);
       params.delete("connected");
@@ -83,40 +85,31 @@ export function AgentPanel() {
   const ready = conn.data?.state === "ready";
   const authenticating = conn.data?.state === "authenticating";
   const authUrl = typeof conn.data?.auth_url === "string" ? conn.data.auth_url : null;
-  const currentAuthUrl = authUrl && (() => {
+  const currentAuthUrl = pendingAuthUrl ?? (authUrl && (() => {
     try {
       return new URL(authUrl).pathname === "/mcp/trading" ? authUrl : null;
     } catch {
       return null;
     }
-  })();
+  })());
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
 
-  function openRobinhoodAuthorization(url: string) {
-    const opened = window.open(url, "_blank", "noopener,noreferrer");
-    if (!opened) window.location.assign(url);
-  }
-
   async function handleConnect() {
-    const authWindow = window.open("about:blank", "_blank");
     setConnecting(true);
     try {
       const { auth_url } = await initFn({ data: { origin: window.location.origin } });
-      if (authWindow) {
-        authWindow.opener = null;
-        authWindow.location.replace(auth_url);
-      } else {
-        window.location.assign(auth_url);
-      }
+      setPendingAuthUrl(auth_url);
+      qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
     } catch (e) {
-      setConnecting(false);
-      authWindow?.close();
       console.error(e);
       alert(`Could not start Robinhood connection: ${(e as Error).message}`);
+    } finally {
+      setConnecting(false);
     }
   }
 
   async function handleDisconnect() {
+    setPendingAuthUrl(null);
     await disconnectFn();
     qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
   }
@@ -177,21 +170,31 @@ export function AgentPanel() {
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for Robinhood authorization…
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                <Button
-                  type="button"
-                  onClick={() => (currentAuthUrl ? openRobinhoodAuthorization(currentAuthUrl) : handleConnect())}
-                  disabled={connecting}
-                  className="w-full"
-                >
-                  {connecting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
-                  Continue
-                </Button>
+                {currentAuthUrl ? (
+                  <a
+                    href={currentAuthUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cn(
+                      "inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                      connecting && "pointer-events-none opacity-50",
+                    )}
+                  >
+                    <Link2 className="h-4 w-4" />
+                    Open Robinhood
+                  </a>
+                ) : (
+                  <Button type="button" onClick={handleConnect} disabled={connecting} className="w-full">
+                    {connecting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
+                    Create secure link
+                  </Button>
+                )}
                 <Button type="button" variant="outline" onClick={handleDisconnect} className="w-full">
                   Start over
                 </Button>
               </div>
               <div className="text-[10px] text-muted-foreground">
-                If Robinhood opened as a blank page, continue opens it in a new browser tab.
+                If Robinhood opens as a blank page, close that tab and use Open Robinhood here.
               </div>
             </div>
           ) : (
