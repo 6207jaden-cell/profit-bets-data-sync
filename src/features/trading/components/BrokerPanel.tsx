@@ -14,6 +14,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Link } from "@tanstack/react-router";
+import { Bot } from "lucide-react";
 import { BlurLock } from "@/features/markets/components/BlurLock";
 import { useProfile } from "@/hooks/use-profile";
 import {
