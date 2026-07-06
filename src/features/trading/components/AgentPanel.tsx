@@ -81,15 +81,29 @@ export function AgentPanel() {
   });
 
   const ready = conn.data?.state === "ready";
+  const authenticating = conn.data?.state === "authenticating";
+  const authUrl = typeof conn.data?.auth_url === "string" ? conn.data.auth_url : null;
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
 
+  function openRobinhoodAuthorization(url: string) {
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) window.location.assign(url);
+  }
+
   async function handleConnect() {
+    const authWindow = window.open("about:blank", "_blank");
     setConnecting(true);
     try {
       const { auth_url } = await initFn({ data: { origin: window.location.origin } });
-      window.location.href = auth_url;
+      if (authWindow) {
+        authWindow.opener = null;
+        authWindow.location.replace(auth_url);
+      } else {
+        window.location.assign(auth_url);
+      }
     } catch (e) {
       setConnecting(false);
+      authWindow?.close();
       console.error(e);
       alert(`Could not start Robinhood connection: ${(e as Error).message}`);
     }
@@ -150,10 +164,28 @@ export function AgentPanel() {
             <li className="flex gap-2"><Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" /> Analyze positions with real-time context.</li>
             <li className="flex gap-2"><Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" /> Propose trades that Robinhood confirms on their side.</li>
           </ul>
-          {conn.data?.state === "authenticating" ? (
-            <div className="text-xs text-muted-foreground flex items-center justify-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for Robinhood authorization…
-              <button onClick={handleDisconnect} className="underline">cancel</button>
+          {authenticating ? (
+            <div className="space-y-3">
+              <div className="text-xs text-muted-foreground flex items-center justify-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for Robinhood authorization…
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button
+                  type="button"
+                  onClick={() => (authUrl ? openRobinhoodAuthorization(authUrl) : handleConnect())}
+                  disabled={connecting}
+                  className="w-full"
+                >
+                  {connecting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
+                  Continue
+                </Button>
+                <Button type="button" variant="outline" onClick={handleDisconnect} className="w-full">
+                  Start over
+                </Button>
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                If Robinhood opened as a blank page, continue opens it in a new browser tab.
+              </div>
             </div>
           ) : (
             <Button onClick={handleConnect} disabled={connecting} className="w-full">
