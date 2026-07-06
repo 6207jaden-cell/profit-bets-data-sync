@@ -26,9 +26,6 @@ import { SmartAlertsPanel } from "./components/SmartAlertsPanel";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import { SignalHistoryPanel } from "./components/SignalHistoryPanel";
 import { PortfolioPanel } from "./components/PortfolioPanel";
-import { WatchlistPanel } from "./components/WatchlistPanel";
-import { PortfolioPanel } from "./components/PortfolioPanel";
-import { SignalHistoryPanel } from "./components/SignalHistoryPanel";
 import { TopNav } from "@/components/TopNav";
 
 type SignalRow = {
