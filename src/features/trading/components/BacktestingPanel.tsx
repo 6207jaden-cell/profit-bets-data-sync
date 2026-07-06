@@ -22,6 +22,7 @@ type SuccessResult = Extract<BacktestResponse, { ok: true }>;
 
 export function BacktestingPanel() {
   const { hasPro, userId } = useProfile();
+  const qc = useQueryClient();
   const runFn = useServerFn(runBacktest);
   const allowed = hasPro;
 
