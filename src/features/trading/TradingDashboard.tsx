@@ -182,6 +182,7 @@ export default function TradingDashboard() {
             <TabsTrigger value="broker"><Link2 className="h-3.5 w-3.5 mr-1.5" />Broker</TabsTrigger>
             <TabsTrigger value="agent"><Bot className="h-3.5 w-3.5 mr-1.5" />Agent</TabsTrigger>
             <TabsTrigger value="leaderboard"><Trophy className="h-3.5 w-3.5 mr-1.5" />Leaderboard</TabsTrigger>
+            <TabsTrigger value="options"><Sigma className="h-3.5 w-3.5 mr-1.5" />Options</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
