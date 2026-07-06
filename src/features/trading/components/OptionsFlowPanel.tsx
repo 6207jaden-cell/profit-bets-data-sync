@@ -47,7 +47,7 @@ export function OptionsFlowPanel() {
     return m ? m[1] : sym;
   };
 
-  const mcpConnected = rh.data?.status === "ready";
+  const mcpConnected = rh.data?.state === "ready";
 
   return (
     <div className="space-y-4">
