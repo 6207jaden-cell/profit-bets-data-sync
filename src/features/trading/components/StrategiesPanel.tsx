@@ -35,6 +35,7 @@ type Strategy = {
   risk_level: "low" | "medium" | "high";
   execution_mode: ExecMode;
   active: boolean;
+  source: string;
   created_at: string;
 };
 
