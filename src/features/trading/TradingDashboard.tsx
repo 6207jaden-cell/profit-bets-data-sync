@@ -186,27 +186,27 @@ export default function TradingDashboard() {
           <TabsContent value="overview" className="space-y-6">
             <section aria-labelledby="paper-portfolio" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <h2 id="paper-portfolio" className="sr-only">Paper Portfolio</h2>
-              <Card className="p-5 border-border bg-card lg:col-span-2">
-                <header className="flex items-center justify-between mb-4">
-                  <h3 className="font-display font-semibold flex items-center gap-2"><LineChartIcon className="h-4 w-4 text-primary" /> Paper Portfolio</h3>
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">simulated</span>
+              <Card className="p-4 sm:p-5 border-border bg-card lg:col-span-2">
+                <header className="flex items-center justify-between mb-4 gap-2">
+                  <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate"><LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio</h3>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">simulated</span>
                 </header>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                  <div className="min-w-0">
                     <div className="text-xs text-muted-foreground">Equity</div>
-                    <div className="font-mono text-2xl font-semibold">${equity.toFixed(2)}</div>
+                    <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${equity.toFixed(2)}</div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xs text-muted-foreground">Cash</div>
-                    <div className="font-mono text-2xl font-semibold">${Number(p?.balance ?? 0).toFixed(2)}</div>
+                    <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${Number(p?.balance ?? 0).toFixed(2)}</div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xs text-muted-foreground">Starting</div>
-                    <div className="font-mono text-2xl font-semibold text-muted-foreground">${start.toFixed(0)}</div>
+                    <div className="font-mono text-lg sm:text-2xl font-semibold text-muted-foreground truncate">${start.toFixed(0)}</div>
                   </div>
                 </div>
               </Card>
-              <Card className="p-5 border-border bg-card">
+              <Card className="p-4 sm:p-5 border-border bg-card">
                 <header className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold">Quick Actions</h3>
                 </header>
