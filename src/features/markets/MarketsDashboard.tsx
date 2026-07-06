@@ -184,6 +184,7 @@ export default function MarketsDashboard() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
             <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
+            <TabsTrigger value="alerts">Smart Alerts</TabsTrigger>
             <TabsTrigger value="history">Signal History</TabsTrigger>
           </TabsList>
 
@@ -349,6 +350,7 @@ export default function MarketsDashboard() {
 
           <TabsContent value="watchlist"><WatchlistPanel /></TabsContent>
           <TabsContent value="portfolio"><PortfolioPanel /></TabsContent>
+          <TabsContent value="alerts"><SmartAlertsPanel /></TabsContent>
           <TabsContent value="history"><SignalHistoryPanel /></TabsContent>
         </Tabs>
       </main>
