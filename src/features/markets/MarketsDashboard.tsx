@@ -351,6 +351,7 @@ export default function MarketsDashboard() {
           <TabsContent value="history"><SignalHistoryPanel /></TabsContent>
         </Tabs>
       </main>
+      </div>
     </div>
   );
 }
