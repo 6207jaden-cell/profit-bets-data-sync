@@ -4,10 +4,13 @@ import { Card } from "@/components/ui/card";
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, ZAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { History } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useProfile } from "@/hooks/use-profile";
+import { PremiumLock } from "@/components/PremiumLock";
 
 type Row = { id: string; asset: string; direction: string; confidence: number; result: string; resolved_pnl_pct: number | null; created_at: string };
 
 export function SignalHistoryPanel() {
+  const { hasPro } = useProfile();
   const { data: rows = [] } = useQuery({
     queryKey: ["signal-history"],
     queryFn: async () => {
@@ -15,7 +18,23 @@ export function SignalHistoryPanel() {
       if (error) throw error;
       return (data ?? []) as Row[];
     },
+    enabled: hasPro,
   });
+
+  if (!hasPro) {
+    return (
+      <PremiumLock
+        requiredTier="pro"
+        title="Signal History"
+        description="Review historical AI signal performance, calibration, and P&L. Included with Pro."
+        perks={[
+          "Full outcome history (hit target / stopped out)",
+          "Confidence calibration chart",
+          "P&L attribution per signal",
+        ]}
+      />
+    );
+  }
 
   // Calibration: bucket confidence in 10% bins, compute hit rate
   const buckets: { conf: number; hit: number; n: number }[] = Array.from({ length: 10 }, (_, i) => ({ conf: i * 10 + 5, hit: 0, n: 0 }));
