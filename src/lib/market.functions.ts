@@ -99,26 +99,43 @@ export const getCryptoQuotes = createServerFn({ method: "POST" })
   });
 
 // ---------- News (Finnhub) ----------
-type NewsItem = { id: string; headline: string; summary: string; url: string; source: string; datetime: number; sentiment: "bullish" | "bearish" | "neutral" };
-export const getMarketNews = createServerFn({ method: "GET" }).handler(async (): Promise<FetchResult<NewsItem[]>> => {
-  const key = process.env.FINNHUB_API_KEY;
-  if (!key) return { available: false, reason: "missing_api_key", updatedAt: now() };
-  try {
-    const j = (await safeJson(`https://finnhub.io/api/v1/news?category=general&token=${key}`)) as Array<{ id: number; headline: string; summary: string; url: string; source: string; datetime: number }>;
-    const items: NewsItem[] = j.slice(0, 25).map((n) => ({
-      id: String(n.id),
-      headline: n.headline,
-      summary: n.summary,
-      url: n.url,
-      source: n.source,
-      datetime: n.datetime * 1000,
-      sentiment: classify(`${n.headline} ${n.summary}`),
-    }));
-    return { available: true, data: items, updatedAt: now() };
-  } catch (e) {
-    return { available: false, reason: e instanceof Error ? e.message : "fetch_failed", updatedAt: now() };
-  }
-});
+type NewsItem = {
+  id: string; headline: string; summary: string; url: string; source: string;
+  datetime: number; sentiment: "bullish" | "bearish" | "neutral";
+  image: string | null; tickers: string[]; category: "stocks" | "crypto";
+};
+export const getMarketNews = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ category: z.enum(["all", "stocks", "crypto"]).optional() }).parse(d ?? {}))
+  .handler(async ({ data }): Promise<FetchResult<NewsItem[]>> => {
+    const key = process.env.FINNHUB_API_KEY;
+    if (!key) return { available: false, reason: "missing_api_key", updatedAt: now() };
+    const category = data.category ?? "all";
+    try {
+      const fetchCat = async (cat: "general" | "crypto") =>
+        (await safeJson(`https://finnhub.io/api/v1/news?category=${cat}&token=${key}`)) as Array<{ id: number; headline: string; summary: string; url: string; source: string; datetime: number; image?: string; related?: string }>;
+      const buckets: Array<{ raw: Awaited<ReturnType<typeof fetchCat>>; cat: "stocks" | "crypto" }> = [];
+      if (category === "all" || category === "stocks") buckets.push({ raw: await fetchCat("general"), cat: "stocks" });
+      if (category === "all" || category === "crypto") buckets.push({ raw: await fetchCat("crypto"), cat: "crypto" });
+      const items: NewsItem[] = buckets.flatMap(({ raw, cat }) =>
+        raw.slice(0, category === "all" ? 15 : 30).map((n) => ({
+          id: `${cat}-${n.id}`,
+          headline: n.headline,
+          summary: n.summary,
+          url: n.url,
+          source: n.source,
+          datetime: n.datetime * 1000,
+          sentiment: classify(`${n.headline} ${n.summary}`),
+          image: n.image || null,
+          tickers: (n.related ?? "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 4),
+          category: cat,
+        })),
+      );
+      items.sort((a, b) => b.datetime - a.datetime);
+      return { available: true, data: items.slice(0, 40), updatedAt: now() };
+    } catch (e) {
+      return { available: false, reason: e instanceof Error ? e.message : "fetch_failed", updatedAt: now() };
+    }
+  });
 
 function classify(text: string): "bullish" | "bearish" | "neutral" {
   const t = text.toLowerCase();
