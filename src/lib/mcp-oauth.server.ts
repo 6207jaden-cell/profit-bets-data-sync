@@ -120,8 +120,10 @@ export function buildAuthorizeUrl(params: {
   state: string;
   scope?: string;
   resource?: string;
+  force_path?: string;
 }): string {
   const u = new URL(params.authorization_endpoint);
+  if (params.force_path) u.pathname = params.force_path;
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", params.client_id);
   u.searchParams.set("redirect_uri", params.redirect_uri);
