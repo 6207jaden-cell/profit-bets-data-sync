@@ -55,6 +55,7 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
       redirect_uri,
       code_challenge: pkce.challenge,
       state,
+      scope: "internal",
       resource: ROBINHOOD_MCP_URL,
     });
 
