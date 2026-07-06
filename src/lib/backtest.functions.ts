@@ -1,5 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import {
+  sma,
+  ema,
+  rsi,
+  evalGroup,
+  type IndicatorContext,
+} from "@/lib/indicators";
 
 type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
 
@@ -63,129 +70,6 @@ async function fetchAlphaVantage(symbol: string): Promise<Bar[] | null> {
   } catch {
     return null;
   }
-}
-
-// Indicators
-function sma(values: number[], period: number): Array<number | null> {
-  const out: Array<number | null> = [];
-  let sum = 0;
-  for (let i = 0; i < values.length; i++) {
-    sum += values[i];
-    if (i >= period) sum -= values[i - period];
-    out.push(i >= period - 1 ? sum / period : null);
-  }
-  return out;
-}
-
-function ema(values: number[], period: number): Array<number | null> {
-  const out: Array<number | null> = [];
-  const k = 2 / (period + 1);
-  let prev: number | null = null;
-  for (let i = 0; i < values.length; i++) {
-    if (i < period - 1) { out.push(null); continue; }
-    if (prev == null) {
-      let s = 0;
-      for (let j = i - period + 1; j <= i; j++) s += values[j];
-      prev = s / period;
-    } else {
-      prev = values[i] * k + prev * (1 - k);
-    }
-    out.push(prev);
-  }
-  return out;
-}
-
-function rsi(values: number[], period = 14): Array<number | null> {
-  const out: Array<number | null> = [null];
-  let gains = 0, losses = 0;
-  for (let i = 1; i < values.length; i++) {
-    const diff = values[i] - values[i - 1];
-    const gain = Math.max(diff, 0);
-    const loss = Math.max(-diff, 0);
-    if (i <= period) {
-      gains += gain; losses += loss;
-      if (i === period) {
-        const rs = losses === 0 ? 100 : gains / losses;
-        out.push(100 - 100 / (1 + rs));
-      } else out.push(null);
-    } else {
-      gains = (gains * (period - 1) + gain) / period;
-      losses = (losses * (period - 1) + loss) / period;
-      const rs = losses === 0 ? 100 : gains / losses;
-      out.push(100 - 100 / (1 + rs));
-    }
-  }
-  return out;
-}
-
-type IndicatorContext = {
-  price: number;
-  prev_price: number;
-  rsi: number | null;
-  sma20: number | null;
-  sma50: number | null;
-  sma200: number | null;
-  ema12: number | null;
-  ema26: number | null;
-  entry_price: number | null;
-};
-
-function evalCondition(cond: string, ctx: IndicatorContext): boolean {
-  // Parse a simple condition like "RSI < 30" or "price > SMA(50)" or "price < entry * 0.97"
-  const c = cond.replace(/\s+/g, "").toLowerCase();
-  // tokens
-  const get = (token: string): number | null => {
-    if (token === "price" || token === "close") return ctx.price;
-    if (token === "prev_price") return ctx.prev_price;
-    if (token === "rsi" || token === "rsi(14)") return ctx.rsi;
-    if (token === "sma(20)" || token === "sma20") return ctx.sma20;
-    if (token === "sma(50)" || token === "sma50") return ctx.sma50;
-    if (token === "sma(200)" || token === "sma200") return ctx.sma200;
-    if (token === "ema(12)" || token === "ema12") return ctx.ema12;
-    if (token === "ema(26)" || token === "ema26") return ctx.ema26;
-    if (token === "entry") return ctx.entry_price;
-    if (/^-?\d+(\.\d+)?$/.test(token)) return Number(token);
-    return null;
-  };
-
-  // Handle simple "A op B" or "A op B*C"
-  const m = c.match(/^(.+?)(<=|>=|<|>|==|!=)(.+)$/);
-  if (!m) return false;
-  const [, lhsStr, op, rhsStr] = m;
-
-  function evalSide(s: string): number | null {
-    // handle multiplication: token*number
-    if (s.includes("*")) {
-      const parts = s.split("*");
-      let acc: number | null = null;
-      for (const p of parts) {
-        const v = get(p);
-        if (v == null) return null;
-        acc = acc == null ? v : acc * v;
-      }
-      return acc;
-    }
-    return get(s);
-  }
-
-  const a = evalSide(lhsStr);
-  const b = evalSide(rhsStr);
-  if (a == null || b == null) return false;
-  switch (op) {
-    case "<": return a < b;
-    case ">": return a > b;
-    case "<=": return a <= b;
-    case ">=": return a >= b;
-    case "==": return Math.abs(a - b) < 1e-9;
-    case "!=": return Math.abs(a - b) >= 1e-9;
-  }
-  return false;
-}
-
-function evalGroup(conds: string[], logic: "AND" | "OR", ctx: IndicatorContext): boolean {
-  if (conds.length === 0) return false;
-  const results = conds.map((c) => evalCondition(c, ctx));
-  return logic === "OR" ? results.some(Boolean) : results.every(Boolean);
 }
 
 export const runBacktest = createServerFn({ method: "POST" })
