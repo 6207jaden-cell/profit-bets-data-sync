@@ -51,6 +51,13 @@ export default function MarketsDashboard() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  const [drawer, setDrawer] = useState<{ open: boolean; asset: string; type: "stock" | "crypto" }>({
+    open: false, asset: "BTC", type: "crypto",
+  });
+  const openDrawer = (asset: string, type: "stock" | "crypto") => setDrawer({ open: true, asset, type });
+  const [consensusAsset, setConsensusAsset] = useState("BTC");
+  const [consensusType, setConsensusType] = useState<"stock" | "crypto">("crypto");
+
   const fearGreedFn = useServerFn(getFearGreed);
   const newsFn = useServerFn(getMarketNews);
   const earningsFn = useServerFn(getEarnings);
