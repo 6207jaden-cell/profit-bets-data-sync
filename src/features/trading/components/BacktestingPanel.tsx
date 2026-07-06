@@ -20,12 +20,10 @@ import { cn } from "@/lib/utils";
 type BacktestResponse = Awaited<ReturnType<typeof runBacktest>>;
 type SuccessResult = Extract<BacktestResponse, { ok: true }>;
 
-const TIER_ALLOWS_BACKTEST = new Set(["starter", "pro", "premium"]);
-
 export function BacktestingPanel() {
-  const { tier, userId } = useProfile();
+  const { hasPro, userId } = useProfile();
   const runFn = useServerFn(runBacktest);
-  const allowed = TIER_ALLOWS_BACKTEST.has(tier);
+  const allowed = hasPro;
 
   const [selectedId, setSelectedId] = useState<string>("");
   const [symbol, setSymbol] = useState("");
