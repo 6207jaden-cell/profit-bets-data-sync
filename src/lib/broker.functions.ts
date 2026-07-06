@@ -94,10 +94,10 @@ export const placeLiveOrder = createServerFn({ method: "POST" })
     confirm: z.literal(true),
   }).parse(d))
   .handler(async ({ data, context }): Promise<LiveOrderResult> => {
-    // Premium gate
-    const { data: profile } = await context.supabase
-      .from("profiles").select("tier").eq("id", context.userId).maybeSingle();
-    if (profile?.tier !== "premium") return { ok: false, reason: "premium_required" };
+    // Elite tier gate for live trading
+    const { data: isElite } = await context.supabase
+      .rpc("has_tier", { _user_id: context.userId, _min: "elite" });
+    if (!isElite) return { ok: false, reason: "premium_required" };
 
     // Active live connection required
     const { data: conn } = await context.supabase
