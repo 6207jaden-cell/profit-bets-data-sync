@@ -133,7 +133,7 @@ export function ExecutionPanel() {
           </div>
         </div>
         <p className="text-[11px] text-muted-foreground mt-3">
-          Risk engine validates position size, cooldown, and daily loss cap before filling. Live broker execution {tier === "premium" ? "available — connect a broker in settings." : "requires Premium."}
+          Risk engine validates position size, cooldown, and daily loss cap before filling. Live broker execution {tier === "elite" ? "available — connect a broker in settings." : "requires Elite tier."}
         </p>
       </Card>
 
