@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion, AnimatePresence } from "framer-motion";
-import { Brain, Sparkles, Trash2, Loader2, Play, PauseCircle, Lock } from "lucide-react";
+import { Brain, Sparkles, Trash2, Loader2, Play, PauseCircle, Lock, User } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
