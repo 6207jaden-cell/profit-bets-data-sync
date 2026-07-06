@@ -365,6 +365,46 @@ export default function MarketsDashboard() {
             <PriceAlertsPanel />
           </TabsContent>
 
+          <TabsContent value="signals" className="space-y-4">
+            <header className="flex items-center justify-between">
+              <div>
+                <h2 className="font-display font-semibold flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-primary" /> AI Signals
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Live trade ideas from the AI — entry, target, stop, and one-tap Robinhood links.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => generateFn().then(() => qc.invalidateQueries({ queryKey: ["public-signals-today"] }))}>
+                Refresh
+              </Button>
+            </header>
+            {signals.length === 0 ? (
+              <Card className="p-8 text-center text-muted-foreground border-border bg-card">
+                No signals yet today — generating in background…
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {signals.map((s, i) => (
+                  <MarketSignalCard
+                    key={s.id}
+                    index={i}
+                    asset={s.asset}
+                    direction={s.direction}
+                    signalType={s.signal_type}
+                    confidence={s.confidence}
+                    entryPrice={s.entry_price}
+                    targetPrice={s.target_price}
+                    stopPrice={s.stop_price}
+                    expectedEdgePct={s.expected_edge_pct}
+                    thesis={s.thesis}
+                    onDetailsClick={openDrawer}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
           <TabsContent value="watchlist"><WatchlistPanel /></TabsContent>
           <TabsContent value="portfolio"><PortfolioPanel /></TabsContent>
           <TabsContent value="alerts"><SmartAlertsPanel /></TabsContent>
