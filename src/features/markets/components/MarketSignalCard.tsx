@@ -1,5 +1,7 @@
 import { motion } from "framer-motion";
+import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { robinhoodLinkForSignal } from "@/lib/robinhood-links";
 
 interface Props {
   asset: string;
@@ -13,6 +15,7 @@ interface Props {
   thesis?: string | null;
   index?: number;
   locked?: boolean;
+  onDetailsClick?: (asset: string, kind: "stock" | "crypto") => void;
 }
 
 export function MarketSignalCard(p: Props) {
@@ -69,6 +72,35 @@ export function MarketSignalCard(p: Props) {
         </p>
       )}
       {p.thesis && <p className="text-xs text-muted-foreground mt-2 leading-relaxed line-clamp-2">{p.thesis}</p>}
+
+      {!p.locked && (() => {
+        const kind: "stock" | "crypto" | "options" =
+          p.signalType === "options_flow" ? "options"
+          : /^(BTC|ETH|SOL|DOGE|ADA|XRP|AVAX|MATIC|BCH|DOT|LINK|SHIB|LTC|UNI|ATOM|BNB)(-USD)?$/i.test(p.asset) ? "crypto"
+          : "stock";
+        const rh = robinhoodLinkForSignal({ asset: p.asset, assetKind: kind, direction: p.direction });
+        return (
+          <div className="mt-3 flex items-center gap-2">
+            <a
+              href={rh.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-md text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              aria-label={rh.label}
+            >
+              <ExternalLink className="h-3 w-3" /> Robinhood
+            </a>
+            {p.onDetailsClick && kind !== "options" && (
+              <button
+                onClick={() => p.onDetailsClick?.(p.asset, kind)}
+                className="inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-semibold bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+              >
+                Details
+              </button>
+            )}
+          </div>
+        );
+      })()}
     </motion.article>
   );
 }

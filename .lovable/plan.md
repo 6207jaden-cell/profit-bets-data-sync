@@ -1,82 +1,100 @@
-## Goal
+# Port PROFIT_BETS.AI market features → this app
 
-Add an **AI Agent** tab to the Trading dashboard where users chat with an AI that has live access to their Robinhood account via Robinhood's MCP server at `https://agent.robinhood.com/mcp/trading`. Each user connects their own Robinhood account through OAuth; the AI can then call whatever tools Robinhood exposes (get portfolio, place order, etc.).
+## What's being ported (20 components)
 
-## User flow
+Grouped by fate:
 
-1. User opens Trading → **Agent** tab
-2. First visit shows "Connect Robinhood" button → OAuth popup → returns authenticated
-3. Chat interface appears with input like "Show my positions" / "Sell half my AAPL"
-4. AI (Gemini 3 Flash) responds, calling Robinhood MCP tools as needed
-5. Tool calls render inline (collapsed by default) with status, params, result
-6. Every trade the agent proposes goes through Robinhood's own confirmation layer
+**Replace weaker current version (5)** — PROFIT_BETS versions are more feature-rich:
+- `MarketSignalCard` — adds Robinhood/options deep-links, quality badges, timeframe, broker chooser
+- `WatchlistPanel` → `WatchlistTab` — asset drawer integration, richer rows
+- `PortfolioPanel` → `MarketPortfolio` — position P&L, allocation, cost basis
+- `PriceAlertsPanel` → `PriceAlerts` — multi-condition rules, snooze
+- `SignalHistoryPanel` → `SignalHistory` + `CalibrationPlot` — resolved-signal audit + calibration chart
 
-## Technical implementation
+**Bring over new (15)**:
+- `MarketsOverview` (dashboard hero + top movers)
+- `MarketSignalsFeed` (filterable signal grid)
+- `MultiTimeframeConsensus` (1m/5m/1h/1d agreement matrix)
+- `AssetDetailDrawer` (per-ticker deep dive)
+- `LivePriceTicker` (marquee)
+- `MarketAnalytics` (win-rate, edge, prop-type charts)
+- `OptionsFlowScanner` (Polygon options snapshot: unusual volume, sweeps)
+- `CryptoOnChainMetrics` (CoinGecko: dominance, funding, active addresses)
+- `EarningsCalendar` (Finnhub earnings)
+- `NewsFeed` (Finnhub company/general news)
+- `SignalOutcomePanel` (per-signal target/stop resolution)
+- `SampleSignals` (unauthenticated demo cards)
+- `MarketsOnboarding` (first-run tour)
+- `MarketsSEO` (route head helper)
+- `CalibrationPlot` (companion to SignalHistory)
 
-### 1. Database migration
-New table `mcp_connections` for per-user OAuth state:
-- `user_id`, `server_url`, `server_label` ("Robinhood")
-- `access_token`, `refresh_token`, `expires_at` (encrypted-at-rest via Supabase)
-- `client_id`, `client_secret`, `dcr_metadata` (dynamic client registration data)
-- `state` (`ready` | `authenticating` | `failed`), `auth_url`
-- RLS: user owns their rows; service role for admin
-- GRANTs for authenticated + service_role
+## Where they live
 
-### 2. Packages
-`bun add ai @ai-sdk/react @ai-sdk/openai-compatible @ai-sdk/mcp zod` and AI Elements: `bunx ai-elements@latest add conversation message prompt-input shimmer tool`
+**Markets dashboard (`/markets`)** gains new tabs so it becomes the analytics home:
+```
+Overview | Signals | History | Watchlist | Portfolio | Analytics | Alerts | Consensus | Options | News | Earnings
+```
+Plus `LivePriceTicker` above the tab strip and `AssetDetailDrawer` mounted globally.
 
-### 3. Server functions (`src/lib/mcp-client.functions.ts`)
-- `initiateRobinhoodConnection` — creates MCP client with OAuth provider, probes tools, returns `{ state, authUrl? }`
-- `completeRobinhoodOAuth` — handles callback, saves tokens, marks ready
-- `getRobinhoodConnection` — returns current user's connection state
-- `disconnectRobinhood` — deletes the connection
+**AI Trading dashboard (`/trading`)** gets one new tab: **Options** — houses `OptionsFlowScanner` filtered to Robinhood-eligible contracts, with buttons that either (a) deep-link to Robinhood app/web via `robinhood://options/chains/...`, or (b) route the order through your existing MCP Robinhood connection (reuses `mcp-client.functions.ts` + `AgentPanel` execution path).
 
-### 4. OAuth callback route
-`src/routes/api/mcp/robinhood/callback.ts` — server route completing the OAuth code exchange, storing tokens, redirecting user back to `/trading?tab=agent&connected=1`
+## Data wiring (real, no mocks)
 
-### 5. Chat streaming route
-`src/routes/api/chat/agent.ts` — POST handler that:
-- Verifies auth (bearer middleware)
-- Loads user's Robinhood MCP connection tokens
-- Creates short-lived MCP client, calls `client.tools()` to fetch Robinhood tools
-- Calls `streamText` with Lovable AI Gateway (`google/gemini-3-flash-preview`), passing MCP tools + a trading-focused system prompt
-- Returns `toUIMessageStreamResponse()`
-- Closes MCP client in `onFinish` and on error
+Uses secrets already in the project (`POLYGON_API_KEY`, `FINNHUB_API_KEY`, `ALPHA_VANTAGE_API_KEY`, `LOVABLE_API_KEY`) plus one new free public endpoint (CoinGecko — no key). New server functions in `src/lib/`:
 
-### 6. UI — new "Agent" tab in TradingDashboard
-`src/features/trading/components/AgentPanel.tsx`:
-- **Disconnected state**: "Connect Robinhood" card with OAuth CTA (matches your screenshot's dark aesthetic — sparse, Beta badge, three benefit bullets)
-- **Connected state**: AI Elements chat (`Conversation`, `Message`, `MessageResponse`, `Tool`, `PromptInput`) using `useChat` pointed at `/api/chat/agent`
-- Suggested prompts on empty state: "What's in my portfolio?", "Analyze my top holding", "Set up a stop loss on TSLA"
-- Tool calls render in collapsed accordions showing Robinhood API activity
-- Uses no localStorage / no thread history for v1 — single ephemeral conversation per session (can add threads later)
+| Function | Source | Feeds |
+|---|---|---|
+| `getOptionsFlow.functions.ts` | Polygon `/v3/snapshot/options/{ticker}` | OptionsFlowScanner |
+| `getOnChainMetrics.functions.ts` | CoinGecko `/coins/{id}` + `/global` | CryptoOnChainMetrics |
+| `getEarnings.functions.ts` | Finnhub `/calendar/earnings` | EarningsCalendar |
+| `getNews.functions.ts` | Finnhub `/news`, `/company-news` | NewsFeed |
+| `getMultiTimeframe.functions.ts` | Polygon aggregates (1/5/60/D) + reuses `src/lib/indicators.ts` | MultiTimeframeConsensus |
+| `getLiveTicker.functions.ts` | Finnhub `/quote` (batched) | LivePriceTicker |
 
-### 7. TradingDashboard integration
-Add 7th tab "Agent" with `Sparkles`-adjacent domain icon (use `Bot` or generated logo). No tier gate initially — Robinhood's own account/safety layer applies.
+All fetchers cache results in the client via TanStack Query (staleTime 30–60s).
 
-## Security & safety notes
+## Robinhood
 
-- MCP tokens stored server-side only, scoped by RLS to `auth.uid()`
-- Chat route requires `requireSupabaseAuth`; token never leaves the server
-- No `supabaseAdmin` in client-reachable modules
-- The AI cannot bypass Robinhood's per-trade confirmations — those live on Robinhood's side
-- System prompt instructs the model to summarize proposed trades before executing and to prefer read-only tools when the user's intent is ambiguous
+- Deep-link buttons on every `MarketSignalCard`, `OptionsFlowScanner` row, and `AssetDetailDrawer` (buy/sell/options-chain URLs for web + app schemes).
+- "Execute via connected Robinhood" button that reuses your existing MCP path (`src/lib/mcp-client.functions.ts` → `AgentPanel`'s executor) when the Robinhood MCP connection is `ready`. Falls back to deep-link when not connected.
+- Referral banner: skipped (tied to other project's referral code).
 
-## Out of scope for this turn
+## New tables (migration)
 
-- Chat history persistence (threads/db) — ephemeral only
-- Live-order confirmation modal *inside our app* (Robinhood handles theirs)
-- Removing/rewiring the existing Alpaca "Broker" tab — leaves it alongside as an alternative path
-- Non-Robinhood MCP servers (extensible via `mcp_connections.server_url` but no UI yet)
+- `market_news_cache` (source, ticker, headline, url, ts) — Finnhub news is rate-limited, this dedupes
+- `options_flow_cache` (ticker, contract, volume, oi, type, strike, expiry, ts)
+- `earnings_calendar` (ticker, date, eps_est, eps_actual, revenue_est)
+- `signal_calibration` view over `market_signals` for `CalibrationPlot`
 
-## Deliverables
+Each table gets `GRANT`s, RLS enabled, `TO authenticated` SELECT policies (public reference data).
 
-1. `supabase/migrations/…_mcp_connections.sql`
-2. `src/lib/mcp-client.functions.ts`
-3. `src/routes/api/mcp/robinhood/callback.ts`
-4. `src/routes/api/chat/agent.ts`
-5. `src/features/trading/components/AgentPanel.tsx`
-6. AI Elements components under `src/components/ai-elements/`
-7. Updated `src/features/trading/TradingDashboard.tsx` (new tab)
+## Cron
 
-Confirm and I'll ship it in phases: **(a)** migration + packages + AI Elements, **(b)** OAuth connect flow, **(c)** chat streaming + UI.
+One new pg_cron job every 15 min hits `/api/public/refresh-market-cache` which populates the three cache tables above (using anon `apikey` header per project convention).
+
+## Files touched / added
+
+Added (~24):
+- `src/features/markets/components/` — 15 new components + 5 replacements
+- `src/lib/{options,onchain,earnings,news,ticker,multitimeframe}.functions.ts`
+- `src/routes/api/public/refresh-market-cache.ts`
+- `supabase/migrations/<ts>_market_cache_tables.sql`
+- `supabase/migrations/<ts>_market_cache_cron.sql`
+
+Edited:
+- `src/features/markets/MarketsDashboard.tsx` — new tab structure + `LivePriceTicker` + `AssetDetailDrawer`
+- `src/features/trading/TradingDashboard.tsx` — add "Options" tab
+- 5 replaced components deleted after new versions land
+- `src/integrations/supabase/types.ts` — regenerated
+
+## Out of scope
+
+- Referral banner (skipped, uses other project's code)
+- `MarketsOnboarding` tour infrastructure (needs coach-tour context that doesn't exist here) — port as static empty-state instead
+- Any sports/Kalshi/parlay code
+
+## Verification
+
+- Build + typecheck
+- Playwright: load `/markets` on mobile viewport, cycle through every tab, screenshot each; verify OptionsFlowScanner and NewsFeed return real rows
+- Manual: click a Robinhood deep-link, confirm URL scheme resolves; trigger `refresh-market-cache` via `net.http_post` and confirm cache tables populate

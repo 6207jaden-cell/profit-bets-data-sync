@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -26,6 +26,9 @@ import { SmartAlertsPanel } from "./components/SmartAlertsPanel";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import { SignalHistoryPanel } from "./components/SignalHistoryPanel";
 import { PortfolioPanel } from "./components/PortfolioPanel";
+import { LivePriceTicker } from "./components/LivePriceTicker";
+import { AssetDetailDrawer } from "./components/AssetDetailDrawer";
+import { MultiTimeframeConsensus } from "./components/MultiTimeframeConsensus";
 import { TopNav } from "@/components/TopNav";
 
 type SignalRow = {
@@ -47,6 +50,13 @@ export default function MarketsDashboard() {
   const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
   const navigate = useNavigate();
   const qc = useQueryClient();
+
+  const [drawer, setDrawer] = useState<{ open: boolean; asset: string; type: "stock" | "crypto" }>({
+    open: false, asset: "BTC", type: "crypto",
+  });
+  const openDrawer = (asset: string, type: "stock" | "crypto") => setDrawer({ open: true, asset, type });
+  const [consensusAsset, setConsensusAsset] = useState("BTC");
+  const [consensusType, setConsensusType] = useState<"stock" | "crypto">("crypto");
 
   const fearGreedFn = useServerFn(getFearGreed);
   const newsFn = useServerFn(getMarketNews);
@@ -179,13 +189,18 @@ export default function MarketsDashboard() {
           </div>
         </header>
 
-        <Tabs defaultValue="overview" className="p-6">
-          <TabsList className="mb-6">
+        <div className="px-4 sm:px-6 pt-3">
+          <LivePriceTicker />
+        </div>
+
+        <Tabs defaultValue="overview" className="p-4 sm:p-6">
+          <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
             <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
             <TabsTrigger value="alerts">Smart Alerts</TabsTrigger>
             <TabsTrigger value="history">Signal History</TabsTrigger>
+            <TabsTrigger value="consensus">Consensus</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -243,6 +258,7 @@ export default function MarketsDashboard() {
                       stopPrice={s.stop_price}
                       expectedEdgePct={s.expected_edge_pct}
                       thesis={s.thesis}
+                      onDetailsClick={openDrawer}
                     />
                   ))}
                 </div>
@@ -352,9 +368,41 @@ export default function MarketsDashboard() {
           <TabsContent value="portfolio"><PortfolioPanel /></TabsContent>
           <TabsContent value="alerts"><SmartAlertsPanel /></TabsContent>
           <TabsContent value="history"><SignalHistoryPanel /></TabsContent>
+          <TabsContent value="consensus" className="space-y-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={consensusAsset}
+                onChange={(e) => setConsensusAsset(e.target.value.toUpperCase())}
+                placeholder="Asset (BTC, AAPL…)"
+                className="h-9 px-3 rounded-md text-sm bg-card border border-border font-num w-36 focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <div className="flex bg-secondary rounded-md p-0.5">
+                {(["crypto", "stock"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setConsensusType(t)}
+                    className={cn(
+                      "px-3 py-1.5 rounded text-xs font-semibold capitalize transition-all",
+                      consensusType === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <MultiTimeframeConsensus asset={consensusAsset} assetType={consensusType} />
+          </TabsContent>
         </Tabs>
       </main>
       </div>
+
+      <AssetDetailDrawer
+        open={drawer.open}
+        onOpenChange={(o) => setDrawer((d) => ({ ...d, open: o }))}
+        asset={drawer.asset}
+        assetType={drawer.type}
+      />
     </div>
   );
 }
