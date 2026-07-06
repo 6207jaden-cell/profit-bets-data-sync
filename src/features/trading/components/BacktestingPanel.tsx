@@ -131,14 +131,14 @@ export function BacktestingPanel() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mt-4">
-          <Button onClick={handleRun} disabled={running || !selectedId} className="font-mono">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mt-4">
+          <Button onClick={handleRun} disabled={running || !selectedId} className="font-mono w-full sm:w-auto">
             {running ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
             {running ? "RUNNING…" : "RUN BACKTEST"}
           </Button>
           {error && (
-            <span className="text-xs text-bear flex items-center gap-1">
-              <AlertCircle className="h-3 w-3" /> {error.replace(/_/g, " ")}
+            <span className="text-xs text-bear flex items-start gap-1 min-w-0 break-words">
+              <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" /> <span className="min-w-0 break-words">{error.replace(/_/g, " ")}</span>
             </span>
           )}
         </div>
