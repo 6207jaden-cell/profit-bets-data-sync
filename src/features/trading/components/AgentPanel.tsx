@@ -83,6 +83,13 @@ export function AgentPanel() {
   const ready = conn.data?.state === "ready";
   const authenticating = conn.data?.state === "authenticating";
   const authUrl = typeof conn.data?.auth_url === "string" ? conn.data.auth_url : null;
+  const currentAuthUrl = authUrl && (() => {
+    try {
+      return new URL(authUrl).pathname === "/mcp/trading" ? authUrl : null;
+    } catch {
+      return null;
+    }
+  })();
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
 
   function openRobinhoodAuthorization(url: string) {
@@ -172,7 +179,7 @@ export function AgentPanel() {
               <div className="grid gap-2 sm:grid-cols-2">
                 <Button
                   type="button"
-                  onClick={() => (authUrl ? openRobinhoodAuthorization(authUrl) : handleConnect())}
+                  onClick={() => (currentAuthUrl ? openRobinhoodAuthorization(currentAuthUrl) : handleConnect())}
                   disabled={connecting}
                   className="w-full"
                 >
