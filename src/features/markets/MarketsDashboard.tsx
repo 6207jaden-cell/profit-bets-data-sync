@@ -57,6 +57,7 @@ export default function MarketsDashboard() {
   const [drawer, setDrawer] = useState<{ open: boolean; asset: string; type: "stock" | "crypto" }>({
     open: false, asset: "BTC", type: "crypto",
   });
+  const [showAiTradingBanner, setShowAiTradingBanner] = useState(true);
   const openDrawer = (asset: string, type: "stock" | "crypto") => setDrawer({ open: true, asset, type });
   const [consensusAsset, setConsensusAsset] = useState("BTC");
   const [consensusType, setConsensusType] = useState<"stock" | "crypto">("crypto");
