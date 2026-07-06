@@ -288,6 +288,9 @@ export default function TradingDashboard() {
           <TabsContent value="leaderboard">
             <LeaderboardPanel userId={userId!} />
           </TabsContent>
+          <TabsContent value="options">
+            <OptionsFlowPanel />
+          </TabsContent>
         </Tabs>
       </main>
       </div>
