@@ -272,9 +272,9 @@ function Metric({
     ? "text-muted-foreground"
     : value! > 0 ? "text-bull" : "text-bear";
   return (
-    <div className="col-span-1 text-right">
-      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</div>
-      <div className={cn("font-mono text-sm", tone)}>
+    <div className="text-left md:col-span-1 md:text-right min-w-0">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider truncate">{label}</div>
+      <div className={cn("font-mono text-sm truncate", tone)}>
         {isNull ? "—" : `${prefix}${value! > 0 && !prefix ? "+" : ""}${value!.toFixed(digits)}${suffix}`}
       </div>
     </div>
