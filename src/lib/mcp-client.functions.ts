@@ -20,7 +20,7 @@ export const getRobinhoodConnection = createServerFn({ method: "GET" })
 export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ origin: z.string().url() }).parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ context }) => {
     const {
       discoverAuthServer,
       registerClient,
