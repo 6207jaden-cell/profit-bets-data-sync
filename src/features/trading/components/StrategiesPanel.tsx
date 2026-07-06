@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-const TIER_LIMITS = { free: 2, starter: 5, pro: 20, premium: 999 } as const;
+const TIER_LIMITS = { free: 2, pro: 20, elite: 999 } as const;
 
 type Tier = keyof typeof TIER_LIMITS;
 type ExecMode = "off" | "paper" | "live";
@@ -45,12 +45,12 @@ const EXAMPLES = [
 ];
 
 export function StrategiesPanel() {
-  const { tier } = useProfile();
+  const { tier, hasElite } = useProfile();
   const qc = useQueryClient();
   const generateFn = useServerFn(generateStrategyFromPrompt);
   const [prompt, setPrompt] = useState("");
 
-  const limit = TIER_LIMITS[(tier as Tier) ?? "free"] ?? TIER_LIMITS.free;
+  const limit = TIER_LIMITS[tier] ?? TIER_LIMITS.free;
 
   const strategiesQ = useQuery({
     queryKey: ["strategies"],
@@ -104,8 +104,8 @@ export function StrategiesPanel() {
 
   const setMode = useMutation({
     mutationFn: async ({ id, mode }: { id: string; mode: ExecMode }) => {
-      if (mode === "live" && tier !== "premium") {
-        throw new Error("Live execution requires Premium tier.");
+      if (mode === "live" && !hasElite) {
+        throw new Error("Live execution requires Elite tier.");
       }
       const { error } = await supabase.from("strategies").update({ execution_mode: mode }).eq("id", id);
       if (error) throw error;
@@ -222,7 +222,7 @@ function StrategyCard({
   onToggleActive: () => void;
   onDelete: () => void;
 }) {
-  const liveLocked = tier !== "premium";
+  const liveLocked = tier !== "elite";
   const sj = s.strategy_json ?? {};
   const entry = sj.entry?.conditions ?? [];
   const exit = sj.exit?.conditions ?? [];

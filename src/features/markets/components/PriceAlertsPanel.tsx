@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Bell, Trash2, Plus, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useProfile } from "@/hooks/use-profile";
+import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 
 type AlertRow = {
@@ -23,8 +24,23 @@ type AlertRow = {
 };
 
 export function PriceAlertsPanel() {
-  const { userId, alertLimit, tier } = useProfile();
+  const { userId, alertLimit, tier, hasPro } = useProfile();
   const qc = useQueryClient();
+
+  if (!hasPro) {
+    return (
+      <PremiumLock
+        requiredTier="pro"
+        title="Price Alerts"
+        description="Configure real-time price alerts on stocks and crypto. Included with Pro."
+        perks={[
+          "Up to 20 concurrent alerts (unlimited on Elite)",
+          "Above/below triggers with instant notification",
+          "Track fills and trigger history",
+        ]}
+      />
+    );
+  }
 
   const { data: alerts = [] } = useQuery({
     queryKey: ["price_alerts", userId],

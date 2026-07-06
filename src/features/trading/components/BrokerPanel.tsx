@@ -21,8 +21,8 @@ import {
 } from "@/lib/broker.functions";
 
 export function BrokerPanel() {
-  const { tier } = useProfile();
-  const isPremium = tier === "premium";
+  const { hasElite } = useProfile();
+  const isPremium = hasElite;
   const qc = useQueryClient();
 
   const list = useServerFn(listBrokerConnections);

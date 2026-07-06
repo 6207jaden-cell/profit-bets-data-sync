@@ -6,9 +6,11 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { Bot, Link2, Loader2, PlugZap, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 import {
   getRobinhoodConnection,
@@ -25,6 +27,7 @@ const SUGGESTED = [
 
 export function AgentPanel() {
   const qc = useQueryClient();
+  const { hasElite, loading: profileLoading } = useProfile();
   const search = useSearch({ strict: false }) as { connected?: string };
   const navigate = useNavigate();
   const [input, setInput] = useState("");
@@ -103,11 +106,26 @@ export function AgentPanel() {
     await chat.sendMessage({ text: prompt.trim() });
   }
 
-  if (!authTokenReady) {
+  if (profileLoading || !authTokenReady) {
     return (
       <Card className="p-12 flex justify-center bg-card border-border">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </Card>
+    );
+  }
+
+  if (!hasElite) {
+    return (
+      <PremiumLock
+        requiredTier="elite"
+        title="Robinhood Agent"
+        description="The live AI trading agent — with direct access to your Robinhood account via MCP — is included in the Elite membership."
+        perks={[
+          "Live read of holdings, buying power, and orders",
+          "Real-time position analysis with tool calls",
+          "Propose trades that Robinhood confirms on their side",
+        ]}
+      />
     );
   }
 

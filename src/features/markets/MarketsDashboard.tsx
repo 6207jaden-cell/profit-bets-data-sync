@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   LineChart, Sidebar as SidebarIcon, Bell, Eye, Briefcase, History, Newspaper, Calendar,
-  Activity, TrendingUp, LogOut, Zap, Sparkles, Brain,
+  Activity, TrendingUp, LogOut, Zap, Sparkles, Brain, ShieldCheck,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -42,7 +42,7 @@ type SignalRow = {
 };
 
 export default function MarketsDashboard() {
-  const { tier, email, userId, loading } = useProfile();
+  const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -128,6 +128,11 @@ export default function MarketsDashboard() {
           <Link to="/trading" className="flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-sidebar-accent/50">
             <Brain className="h-4 w-4" /> AI Trading
           </Link>
+          {isAdmin && (
+            <Link to="/admin" className="flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-sidebar-accent/50">
+              <ShieldCheck className="h-4 w-4" /> Admin
+            </Link>
+          )}
           {[
             { icon: Eye, label: "Watchlist" },
             { icon: Briefcase, label: "Portfolio" },
@@ -142,7 +147,10 @@ export default function MarketsDashboard() {
         <div className="border-t border-sidebar-border pt-3 text-xs">
           <div className="text-muted-foreground truncate">{email}</div>
           <div className="flex items-center justify-between mt-1">
-            <span className="uppercase tracking-wider text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary font-semibold">{tier}</span>
+            <span className={cn(
+              "uppercase tracking-wider text-[10px] px-1.5 py-0.5 rounded font-semibold",
+              tier === "elite" ? "bg-amber-500/15 text-amber-500" : tier === "pro" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
+            )}>{tierLabel}</span>
             <button onClick={signOut} className="text-muted-foreground hover:text-foreground"><LogOut className="h-3.5 w-3.5" /></button>
           </div>
         </div>
