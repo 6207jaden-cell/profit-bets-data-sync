@@ -504,6 +504,7 @@ export type Database = {
           market_type: Database["public"]["Enums"]["market_type"]
           name: string
           risk_level: Database["public"]["Enums"]["risk_level"]
+          source: string
           strategy_json: Json
           updated_at: string
           user_id: string
@@ -517,6 +518,7 @@ export type Database = {
           market_type?: Database["public"]["Enums"]["market_type"]
           name: string
           risk_level?: Database["public"]["Enums"]["risk_level"]
+          source?: string
           strategy_json?: Json
           updated_at?: string
           user_id: string
@@ -530,6 +532,7 @@ export type Database = {
           market_type?: Database["public"]["Enums"]["market_type"]
           name?: string
           risk_level?: Database["public"]["Enums"]["risk_level"]
+          source?: string
           strategy_json?: Json
           updated_at?: string
           user_id?: string
