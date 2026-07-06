@@ -87,7 +87,7 @@ export function AgentPanel() {
   const authUrl = typeof conn.data?.auth_url === "string" ? conn.data.auth_url : null;
   const currentAuthUrl = pendingAuthUrl ?? (authUrl && (() => {
     try {
-      return new URL(authUrl).pathname === "/mcp/trading" ? authUrl : null;
+      return new URL(authUrl).pathname === "/oauth" ? authUrl : null;
     } catch {
       return null;
     }
