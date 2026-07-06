@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 import {
+  completeRobinhoodConnection,
   getRobinhoodConnection,
   initiateRobinhoodConnection,
   disconnectRobinhood,
@@ -34,9 +35,13 @@ export function AgentPanel() {
   const [connecting, setConnecting] = useState(false);
   const [authTokenReady, setAuthTokenReady] = useState(false);
   const [pendingAuthUrl, setPendingAuthUrl] = useState<string | null>(null);
+  const [callbackInput, setCallbackInput] = useState("");
+  const [completing, setCompleting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const getConnFn = useServerFn(getRobinhoodConnection);
   const initFn = useServerFn(initiateRobinhoodConnection);
+  const completeFn = useServerFn(completeRobinhoodConnection);
   const disconnectFn = useServerFn(disconnectRobinhood);
 
   const conn = useQuery({
@@ -54,6 +59,8 @@ export function AgentPanel() {
   useEffect(() => {
     if (search.connected) {
       setPendingAuthUrl(null);
+      setCallbackInput("");
+      setConnectError(null);
       qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
       const params = new URLSearchParams(window.location.search);
       params.delete("connected");
@@ -96,6 +103,7 @@ export function AgentPanel() {
 
   async function handleConnect() {
     setConnecting(true);
+    setConnectError(null);
     try {
       const { auth_url } = await initFn({ data: { origin: window.location.origin } });
       setPendingAuthUrl(auth_url);
@@ -108,8 +116,28 @@ export function AgentPanel() {
     }
   }
 
+  async function handleCompleteConnection() {
+    if (!callbackInput.trim()) return;
+    setCompleting(true);
+    setConnectError(null);
+    try {
+      await completeFn({ data: { callback: callbackInput.trim() } });
+      setPendingAuthUrl(null);
+      setCallbackInput("");
+      await qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
+    } catch (e) {
+      const message = (e as Error).message;
+      setConnectError(message);
+      console.error(e);
+    } finally {
+      setCompleting(false);
+    }
+  }
+
   async function handleDisconnect() {
     setPendingAuthUrl(null);
+    setCallbackInput("");
+    setConnectError(null);
     await disconnectFn();
     qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
   }
@@ -194,7 +222,25 @@ export function AgentPanel() {
                 </Button>
               </div>
               <div className="text-[10px] text-muted-foreground">
-                If Robinhood opens as a blank page, close that tab and use Open Robinhood here.
+                Robinhood may land on localhost after approval. Copy that full browser URL and paste it below.
+              </div>
+              <div className="space-y-2 text-left">
+                <input
+                  value={callbackInput}
+                  onChange={(e) => setCallbackInput(e.target.value)}
+                  placeholder="http://localhost:1455/callback?code=…&state=…"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary"
+                />
+                <Button
+                  type="button"
+                  onClick={handleCompleteConnection}
+                  disabled={completing || !callbackInput.trim()}
+                  className="w-full"
+                >
+                  {completing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PlugZap className="h-4 w-4 mr-2" />}
+                  Finish connection
+                </Button>
+                {connectError && <div className="text-xs text-destructive text-center">{connectError}</div>}
               </div>
             </div>
           ) : (
