@@ -84,12 +84,12 @@ export function BacktestingPanel() {
 
   const content = (
     <div className="space-y-6">
-      <Card className="p-5 border-border bg-card">
-        <header className="flex items-center justify-between mb-4">
+      <Card className="p-4 sm:p-5 border-border bg-card">
+        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
           <h3 className="font-display font-semibold flex items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-primary" /> Historical Backtest
+            <FlaskConical className="h-4 w-4 shrink-0 text-primary" /> Historical Backtest
           </h3>
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge variant="outline" className="font-mono text-[10px] self-start sm:self-auto">
             POLYGON → ALPHA VANTAGE FALLBACK
           </Badge>
         </header>
