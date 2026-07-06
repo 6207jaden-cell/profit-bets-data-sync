@@ -147,22 +147,23 @@ export default function TradingDashboard() {
 
       <main className="flex-1 min-w-0">
         <header className="border-b border-border sticky top-0 z-10 bg-background/80 backdrop-blur">
-          <div className="px-6 py-4 flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-display font-semibold flex items-center gap-2">
-                <Brain className="h-5 w-5 text-primary" /> AI Trading Engine
+          <div className="px-4 sm:px-6 py-3 sm:py-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-display font-semibold flex items-center gap-2 truncate">
+                <Brain className="h-5 w-5 shrink-0 text-primary" />
+                <span className="truncate">AI Trading Engine</span>
               </h1>
-              <p className="text-xs text-muted-foreground mt-0.5">Paper-first execution. Live trading requires Premium &amp; broker connection.</p>
+              <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">Paper-first execution. Live trading requires Premium &amp; broker connection.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-end gap-1.5 shrink-0">
               <Badge variant="outline" className="border-primary/40 text-primary font-mono text-[10px]">
-                DRY RUN MODE
+                DRY RUN
               </Badge>
               <LiveStatus updatedAt={lastExec.data?.created_at} />
             </div>
           </div>
           {/* Stats bar */}
-          <div className="px-6 pb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="px-4 sm:px-6 pb-3 sm:pb-4 grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
             <Stat label="Paper equity" value={`$${equity.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
             <Stat label="P&L" value={`${positive ? "+" : ""}${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%)`} tone={positive ? "good" : "bad"} />
             <Stat label="Strategies" value={counts.data?.strategies ?? 0} />
@@ -170,7 +171,7 @@ export default function TradingDashboard() {
           </div>
         </header>
 
-        <Tabs defaultValue={typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview"} className="p-6">
+        <Tabs defaultValue={typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview"} className="p-4 sm:p-6">
           <TabsList className="mb-6 flex-wrap">
             <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
             <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
