@@ -189,13 +189,18 @@ export default function MarketsDashboard() {
           </div>
         </header>
 
-        <Tabs defaultValue="overview" className="p-6">
-          <TabsList className="mb-6">
+        <div className="px-4 sm:px-6 pt-3">
+          <LivePriceTicker />
+        </div>
+
+        <Tabs defaultValue="overview" className="p-4 sm:p-6">
+          <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
             <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
             <TabsTrigger value="alerts">Smart Alerts</TabsTrigger>
             <TabsTrigger value="history">Signal History</TabsTrigger>
+            <TabsTrigger value="consensus">Consensus</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
