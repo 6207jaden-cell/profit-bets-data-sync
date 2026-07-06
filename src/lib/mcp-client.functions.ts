@@ -57,6 +57,7 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
       state,
       scope: "internal",
       resource: ROBINHOOD_MCP_URL,
+      force_path: "/mcp/trading",
     });
 
     const { error } = await context.supabase
