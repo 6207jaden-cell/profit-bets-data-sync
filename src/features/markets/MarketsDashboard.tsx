@@ -368,9 +368,41 @@ export default function MarketsDashboard() {
           <TabsContent value="portfolio"><PortfolioPanel /></TabsContent>
           <TabsContent value="alerts"><SmartAlertsPanel /></TabsContent>
           <TabsContent value="history"><SignalHistoryPanel /></TabsContent>
+          <TabsContent value="consensus" className="space-y-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={consensusAsset}
+                onChange={(e) => setConsensusAsset(e.target.value.toUpperCase())}
+                placeholder="Asset (BTC, AAPL…)"
+                className="h-9 px-3 rounded-md text-sm bg-card border border-border font-num w-36 focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <div className="flex bg-secondary rounded-md p-0.5">
+                {(["crypto", "stock"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setConsensusType(t)}
+                    className={cn(
+                      "px-3 py-1.5 rounded text-xs font-semibold capitalize transition-all",
+                      consensusType === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <MultiTimeframeConsensus asset={consensusAsset} assetType={consensusType} />
+          </TabsContent>
         </Tabs>
       </main>
       </div>
+
+      <AssetDetailDrawer
+        open={drawer.open}
+        onOpenChange={(o) => setDrawer((d) => ({ ...d, open: o }))}
+        asset={drawer.asset}
+        assetType={drawer.type}
+      />
     </div>
   );
 }
