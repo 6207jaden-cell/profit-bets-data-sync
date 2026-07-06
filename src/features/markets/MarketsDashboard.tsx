@@ -4,13 +4,13 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  getFearGreed, getMarketNews, getEarnings, getOptionsFlow, getMarketStats, generateMarketSignals,
+  getFearGreed, getMarketStats, generateMarketSignals,
 } from "@/lib/market.functions";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
-  LineChart, Sidebar as SidebarIcon, Bell, Eye, Briefcase, History, Newspaper, Calendar,
+  LineChart, Sidebar as SidebarIcon, Bell, Eye, Briefcase, History,
   Activity, TrendingUp, LogOut, Zap, Sparkles, Brain, ShieldCheck,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -29,6 +29,9 @@ import { PortfolioPanel } from "./components/PortfolioPanel";
 import { LivePriceTicker } from "./components/LivePriceTicker";
 import { AssetDetailDrawer } from "./components/AssetDetailDrawer";
 import { MultiTimeframeConsensus } from "./components/MultiTimeframeConsensus";
+import { NewsFeed } from "./components/NewsFeed";
+import { EarningsCalendar } from "./components/EarningsCalendar";
+import { SignalsFeed } from "./components/SignalsFeed";
 import { TopNav } from "@/components/TopNav";
 
 type SignalRow = {
