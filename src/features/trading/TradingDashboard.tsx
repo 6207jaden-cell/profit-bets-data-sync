@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
-  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck,
+  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
@@ -18,6 +18,7 @@ import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
 import { BrokerPanel } from "./components/BrokerPanel";
 import { AgentPanel } from "./components/AgentPanel";
+import { LeaderboardPanel } from "./components/LeaderboardPanel";
 import { TopNav } from "@/components/TopNav";
 
 export default function TradingDashboard() {
@@ -178,6 +179,7 @@ export default function TradingDashboard() {
             <TabsTrigger value="risk"><Shield className="h-3.5 w-3.5 mr-1.5" />Risk</TabsTrigger>
             <TabsTrigger value="broker"><Link2 className="h-3.5 w-3.5 mr-1.5" />Broker</TabsTrigger>
             <TabsTrigger value="agent"><Bot className="h-3.5 w-3.5 mr-1.5" />Agent</TabsTrigger>
+            <TabsTrigger value="leaderboard"><Trophy className="h-3.5 w-3.5 mr-1.5" />Leaderboard</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -279,6 +281,9 @@ export default function TradingDashboard() {
           </TabsContent>
           <TabsContent value="agent">
             <AgentPanel />
+          </TabsContent>
+          <TabsContent value="leaderboard">
+            <LeaderboardPanel userId={userId!} />
           </TabsContent>
         </Tabs>
       </main>

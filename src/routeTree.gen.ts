@@ -16,6 +16,7 @@ import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as AuthenticatedTradingRouteImport } from './routes/_authenticated/trading'
 import { Route as AuthenticatedMarketsRouteImport } from './routes/_authenticated/markets'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as ApiPublicGenerateStrategiesRouteImport } from './routes/api/public/generate-strategies'
 import { Route as ApiPublicEvaluateStrategiesRouteImport } from './routes/api/public/evaluate-strategies'
 import { Route as ApiPublicEvaluateAlertsRouteImport } from './routes/api/public/evaluate-alerts'
 import { Route as ApiPublicMcpRobinhoodCallbackRouteImport } from './routes/api/public/mcp/robinhood/callback'
@@ -54,6 +55,12 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiPublicGenerateStrategiesRoute =
+  ApiPublicGenerateStrategiesRouteImport.update({
+    id: '/api/public/generate-strategies',
+    path: '/api/public/generate-strategies',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicEvaluateStrategiesRoute =
   ApiPublicEvaluateStrategiesRouteImport.update({
     id: '/api/public/evaluate-strategies',
@@ -81,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
+  '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRoutesByTo {
@@ -92,6 +100,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
+  '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRoutesById {
@@ -105,6 +114,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
+  '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRouteTypes {
@@ -118,6 +128,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
+    | '/api/public/generate-strategies'
     | '/api/public/mcp/robinhood/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -129,6 +140,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
+    | '/api/public/generate-strategies'
     | '/api/public/mcp/robinhood/callback'
   id:
     | '__root__'
@@ -141,6 +153,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
+    | '/api/public/generate-strategies'
     | '/api/public/mcp/robinhood/callback'
   fileRoutesById: FileRoutesById
 }
@@ -151,6 +164,7 @@ export interface RootRouteChildren {
   ApiChatRoute: typeof ApiChatRoute
   ApiPublicEvaluateAlertsRoute: typeof ApiPublicEvaluateAlertsRoute
   ApiPublicEvaluateStrategiesRoute: typeof ApiPublicEvaluateStrategiesRoute
+  ApiPublicGenerateStrategiesRoute: typeof ApiPublicGenerateStrategiesRoute
   ApiPublicMcpRobinhoodCallbackRoute: typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 
@@ -205,6 +219,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/generate-strategies': {
+      id: '/api/public/generate-strategies'
+      path: '/api/public/generate-strategies'
+      fullPath: '/api/public/generate-strategies'
+      preLoaderRoute: typeof ApiPublicGenerateStrategiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/evaluate-strategies': {
       id: '/api/public/evaluate-strategies'
       path: '/api/public/evaluate-strategies'
@@ -251,6 +272,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatRoute: ApiChatRoute,
   ApiPublicEvaluateAlertsRoute: ApiPublicEvaluateAlertsRoute,
   ApiPublicEvaluateStrategiesRoute: ApiPublicEvaluateStrategiesRoute,
+  ApiPublicGenerateStrategiesRoute: ApiPublicGenerateStrategiesRoute,
   ApiPublicMcpRobinhoodCallbackRoute: ApiPublicMcpRobinhoodCallbackRoute,
 }
 export const routeTree = rootRouteImport
