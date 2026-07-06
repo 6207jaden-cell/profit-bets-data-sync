@@ -215,9 +215,19 @@ export default function TradingDashboard() {
                 <header className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold">Quick Actions</h3>
                 </header>
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <p>Build a strategy with AI, run a backtest, then auto-execute into your paper portfolio.</p>
-                  <p className="text-xs">Live trading unlocks at <span className="text-primary font-semibold">Premium</span>.</p>
+                <div className="space-y-1">
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("strategies")}>
+                    <Brain className="h-3.5 w-3.5 mr-2 text-primary" /> Build a strategy
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("backtest")}>
+                    <FlaskConical className="h-3.5 w-3.5 mr-2 text-primary" /> Run a backtest
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("agent")}>
+                    <Bot className="h-3.5 w-3.5 mr-2 text-primary" /> Ask the agent
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("leaderboard")}>
+                    <Trophy className="h-3.5 w-3.5 mr-2 text-primary" /> View leaderboard
+                  </Button>
                 </div>
               </Card>
             </section>
