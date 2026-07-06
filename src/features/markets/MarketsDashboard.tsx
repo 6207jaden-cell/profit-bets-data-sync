@@ -278,86 +278,11 @@ export default function MarketsDashboard() {
             )}
 
             {/* News */}
-            <Card className="p-5 border-border bg-card">
-              <header className="flex items-center justify-between mb-3">
-                <h2 className="font-display font-semibold flex items-center gap-2"><Newspaper className="h-4 w-4 text-primary" /> News Feed</h2>
-                <LiveBadge updatedAt={news.data?.updatedAt} />
-              </header>
-              {!news.data?.available ? (
-                <Empty msg={news.data?.reason === "missing_api_key" ? "Add a Finnhub API key to enable news." : "News unavailable right now."} />
-              ) : (
-                <ul className="divide-y divide-border max-h-96 overflow-y-auto">
-                  {news.data.data.map((n) => (
-                    <li key={n.id} className="py-2.5">
-                      <a href={n.url} target="_blank" rel="noreferrer" className="block group">
-                        <div className="flex items-center justify-between gap-3 mb-1">
-                          <span className={cn(
-                            "text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded",
-                            n.sentiment === "bullish" && "bg-bull/15 text-bull",
-                            n.sentiment === "bearish" && "bg-bear/15 text-bear",
-                            n.sentiment === "neutral" && "bg-muted text-muted-foreground"
-                          )}>{n.sentiment}</span>
-                          <span className="text-[11px] text-muted-foreground font-num shrink-0">{new Date(n.datetime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                        </div>
-                        <h3 className="text-sm group-hover:text-primary leading-snug">{n.headline}</h3>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{n.source}</p>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
+            <NewsFeed />
 
-            {/* Earnings + Options Flow */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="p-5 border-border bg-card">
-                <header className="flex items-center justify-between mb-3">
-                  <h2 className="font-display font-semibold flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> Earnings Calendar</h2>
-                </header>
-                {!earnings.data?.available ? (
-                  <Empty msg={earnings.data?.reason === "missing_api_key" ? "Add a Finnhub API key to enable earnings." : "Earnings unavailable."} />
-                ) : (
-                  <ul className="divide-y divide-border max-h-72 overflow-y-auto text-sm">
-                    {earnings.data.data.slice(0, 20).map((e, i) => (
-                      <li key={`${e.symbol}-${i}`} className="py-2 flex items-center justify-between">
-                        <div>
-                          <span className="font-display font-semibold">{e.symbol}</span>
-                          <span className="text-xs text-muted-foreground ml-2">{e.date} {e.hour && `· ${e.hour}`}</span>
-                        </div>
-                        <div className="text-xs font-num text-muted-foreground">
-                          EPS est: {e.epsEstimate != null ? e.epsEstimate.toFixed(2) : "—"}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
+            {/* Earnings */}
+            <EarningsCalendar />
 
-              <Card className="p-5 border-border bg-card">
-                <header className="flex items-center justify-between mb-3">
-                  <h2 className="font-display font-semibold flex items-center gap-2"><Activity className="h-4 w-4 text-primary" /> Options Flow</h2>
-                </header>
-                {!flow.data?.available ? (
-                  <Empty msg={flow.data?.reason === "missing_api_key" ? "Add a Polygon API key to enable options flow." : "Options flow unavailable."} />
-                ) : (
-                  <ul className="divide-y divide-border max-h-72 overflow-y-auto text-sm">
-                    {flow.data.data.slice(0, 15).map((f, i) => (
-                      <li key={`${f.symbol}-${i}`} className="py-2 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="font-display font-semibold truncate">{f.symbol}</div>
-                          <div className="text-[10px] text-muted-foreground font-num">{f.expiry} · ${f.strike}</div>
-                        </div>
-                        <span className={cn("text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded", f.type === "call" ? "bg-bull/15 text-bull" : "bg-bear/15 text-bear")}>{f.type}</span>
-                        <div className="text-right">
-                          <div className="text-xs font-num">${(f.premium / 1000).toFixed(1)}k</div>
-                          <div className="text-[10px] text-muted-foreground font-num">vol {f.volume.toLocaleString()}</div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-            </div>
 
             <PriceAlertsPanel />
           </TabsContent>
