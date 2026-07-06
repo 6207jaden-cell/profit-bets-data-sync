@@ -22,9 +22,10 @@ import { LiveBadge } from "./components/LiveBadge";
 import { BlurLock } from "./components/BlurLock";
 import { FearGreedGauge } from "./components/FearGreedGauge";
 import { PriceAlertsPanel } from "./components/PriceAlertsPanel";
+import { SmartAlertsPanel } from "./components/SmartAlertsPanel";
 import { WatchlistPanel } from "./components/WatchlistPanel";
-import { PortfolioPanel } from "./components/PortfolioPanel";
 import { SignalHistoryPanel } from "./components/SignalHistoryPanel";
+import { PortfolioPanel } from "./components/PortfolioPanel";
 import { TopNav } from "@/components/TopNav";
 
 type SignalRow = {
@@ -183,6 +184,7 @@ export default function MarketsDashboard() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
             <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
+            <TabsTrigger value="alerts">Smart Alerts</TabsTrigger>
             <TabsTrigger value="history">Signal History</TabsTrigger>
           </TabsList>
 
@@ -348,6 +350,7 @@ export default function MarketsDashboard() {
 
           <TabsContent value="watchlist"><WatchlistPanel /></TabsContent>
           <TabsContent value="portfolio"><PortfolioPanel /></TabsContent>
+          <TabsContent value="alerts"><SmartAlertsPanel /></TabsContent>
           <TabsContent value="history"><SignalHistoryPanel /></TabsContent>
         </Tabs>
       </main>
