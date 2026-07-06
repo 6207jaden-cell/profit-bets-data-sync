@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { useProfile } from "@/hooks/use-profile";
 import { cn } from "@/lib/utils";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { PortfolioCommentaryCard, type CommentaryPosition } from "./PortfolioCommentaryCard";
 
 type Pos = { id: string; asset: string; asset_type: "stock" | "crypto"; shares: number; cost_basis: number };
 
@@ -80,7 +81,20 @@ export function PortfolioPanel() {
 
   const pie = enriched.filter((r) => (r.value ?? r.cost) > 0).map((r) => ({ name: r.asset, value: r.value ?? r.cost }));
 
+  const commentaryPositions: CommentaryPosition[] = enriched.map((r) => ({
+    asset: r.asset,
+    asset_type: r.asset_type,
+    shares: r.shares,
+    cost_basis: r.cost_basis,
+    price: r.price,
+    value: r.value,
+    pnl: r.pnl,
+    pnl_pct: r.pnlPct,
+  }));
+
   return (
+    <>
+    <PortfolioCommentaryCard positions={commentaryPositions} />
     <Card className="p-5 border-border bg-card">
       <header className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
@@ -147,5 +161,6 @@ export function PortfolioPanel() {
         </div>
       )}
     </Card>
+    </>
   );
 }
