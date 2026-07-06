@@ -175,7 +175,7 @@ export default function TradingDashboard() {
           </div>
         </header>
 
-        <Tabs defaultValue={typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview"} className="p-4 sm:p-6">
+        <Tabs value={tab} onValueChange={setTab} className="p-4 sm:p-6">
           <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
             <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
             <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
