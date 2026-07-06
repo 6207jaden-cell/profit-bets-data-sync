@@ -6,9 +6,11 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { Bot, Link2, Loader2, PlugZap, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 import {
   getRobinhoodConnection,
