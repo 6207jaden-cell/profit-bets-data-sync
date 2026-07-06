@@ -27,7 +27,7 @@ type PerfRow = {
   roi: number | null;
   win_rate: number | null;
   sharpe: number | null;
-  created_at: string;
+  updated_at: string;
 };
 
 type TradeRow = { strategy_id: string | null; pnl: number | null };
@@ -55,8 +55,8 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
           supabase.from("strategies")
             .select("id, user_id, name, description, execution_mode, risk_level, active, source"),
           supabase.from("strategy_performance")
-            .select("strategy_id, roi, win_rate, sharpe, created_at")
-            .order("created_at", { ascending: false }),
+            .select("strategy_id, roi, win_rate, sharpe, updated_at")
+            .order("updated_at", { ascending: false }),
           supabase.from("paper_trades")
             .select("strategy_id, pnl").eq("is_open", false),
         ]);
