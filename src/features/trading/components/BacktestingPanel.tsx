@@ -147,12 +147,12 @@ export function BacktestingPanel() {
       {result && <BacktestResultView result={result} />}
 
       {history.data && history.data.length > 0 && (
-        <Card className="p-5 border-border bg-card">
+        <Card className="p-4 sm:p-5 border-border bg-card">
           <h3 className="font-display font-semibold mb-3">Recent Runs</h3>
           <ul className="divide-y divide-border text-sm">
             {history.data.map((h) => (
-              <li key={h.id} className="py-2 grid grid-cols-5 gap-2 font-mono text-xs">
-                <span className="text-muted-foreground">{new Date(h.updated_at).toLocaleString()}</span>
+              <li key={h.id} className="py-2 grid grid-cols-2 sm:grid-cols-5 gap-x-3 gap-y-1 font-mono text-xs">
+                <span className="text-muted-foreground col-span-2 sm:col-span-1 truncate">{new Date(h.updated_at).toLocaleString()}</span>
                 <span>ROI {Number(h.roi ?? 0).toFixed(2)}%</span>
                 <span>Win {Number(h.win_rate ?? 0).toFixed(1)}%</span>
                 <span>DD {Number(h.drawdown ?? 0).toFixed(2)}%</span>
