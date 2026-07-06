@@ -202,6 +202,34 @@ export default function MarketsDashboard() {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
+            {showAiTradingBanner && (
+              <Card className="p-3 sm:p-4 border-primary/30 bg-primary/5 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Brain className="h-4 w-4 text-primary shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-display font-semibold text-primary truncate">
+                      🤖 New: Autonomous AI trading strategies are live.
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      Build, backtest, and paper-trade with a single click.
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link to="/trading">
+                    <Button size="sm">Try AI Trading →</Button>
+                  </Link>
+                  <button
+                    onClick={() => setShowAiTradingBanner(false)}
+                    aria-label="Dismiss"
+                    className="h-8 w-8 flex items-center justify-center text-muted-foreground hover:text-foreground rounded-md"
+                  >
+                    ×
+                  </button>
+                </div>
+              </Card>
+            )}
+
             {/* Market Pulse */}
             <section aria-labelledby="market-pulse" className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <h2 id="market-pulse" className="sr-only">Market Pulse</h2>
