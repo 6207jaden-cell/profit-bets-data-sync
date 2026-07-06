@@ -282,6 +282,7 @@ export default function TradingDashboard() {
           </TabsContent>
         </Tabs>
       </main>
+      </div>
     </div>
   );
 }
