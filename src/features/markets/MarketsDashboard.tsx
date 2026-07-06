@@ -196,6 +196,7 @@ export default function MarketsDashboard() {
         <Tabs defaultValue="overview" className="p-4 sm:p-6">
           <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="signals">Signals</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
             <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
             <TabsTrigger value="alerts">Smart Alerts</TabsTrigger>
