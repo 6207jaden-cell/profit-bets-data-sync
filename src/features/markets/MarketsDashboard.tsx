@@ -115,7 +115,9 @@ export default function MarketsDashboard() {
   if (loading) return null;
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground">
+    <div className="min-h-screen flex flex-col bg-background text-foreground">
+      <TopNav />
+      <div className="flex flex-1 min-h-0">
       {/* Sidebar */}
       <aside className="hidden md:flex w-56 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground p-4 sticky top-0 h-screen">
         <div className="flex items-center gap-2 mb-8">
