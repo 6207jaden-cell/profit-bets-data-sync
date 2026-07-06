@@ -26,6 +26,9 @@ import { SmartAlertsPanel } from "./components/SmartAlertsPanel";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import { SignalHistoryPanel } from "./components/SignalHistoryPanel";
 import { PortfolioPanel } from "./components/PortfolioPanel";
+import { LivePriceTicker } from "./components/LivePriceTicker";
+import { AssetDetailDrawer } from "./components/AssetDetailDrawer";
+import { MultiTimeframeConsensus } from "./components/MultiTimeframeConsensus";
 import { TopNav } from "@/components/TopNav";
 
 type SignalRow = {
