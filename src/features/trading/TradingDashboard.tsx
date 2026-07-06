@@ -18,6 +18,7 @@ import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
 import { BrokerPanel } from "./components/BrokerPanel";
 import { AgentPanel } from "./components/AgentPanel";
+import { TopNav } from "@/components/TopNav";
 
 export default function TradingDashboard() {
   const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
