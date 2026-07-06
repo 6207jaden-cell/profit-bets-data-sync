@@ -235,24 +235,24 @@ export default function TradingDashboard() {
                           key={t.id}
                           initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: i * 0.03 }}
-                          className="px-5 py-3 flex items-center justify-between text-sm"
+                          className="px-4 sm:px-5 py-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-sm"
                         >
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-wrap">
                             <span className={cn(
-                              "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded font-mono",
+                              "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded font-mono shrink-0",
                               t.side === "buy" ? "bg-bull/15 text-bull" : "bg-bear/15 text-bear"
                             )}>{t.side}</span>
-                            <span className="font-display font-semibold">{t.asset}</span>
-                            <span className="text-xs text-muted-foreground font-mono">{Number(t.quantity).toFixed(4)} @ ${Number(t.entry_price).toFixed(2)}</span>
+                            <span className="font-display font-semibold truncate">{t.asset}</span>
+                            <span className="text-xs text-muted-foreground font-mono truncate">{Number(t.quantity).toFixed(4)} @ ${Number(t.entry_price).toFixed(2)}</span>
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                             {t.pnl != null && (
                               <span className={cn("font-mono text-xs flex items-center gap-1", tradePnl >= 0 ? "text-bull" : "text-bear")}>
                                 {tradePnl >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
                                 {tradePnl >= 0 ? "+" : ""}{tradePnl.toFixed(2)}
                               </span>
                             )}
-                            <span className="text-[10px] text-muted-foreground font-mono">
+                            <span className="text-[10px] text-muted-foreground font-mono hidden sm:inline">
                               {new Date(t.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </span>
                           </div>
