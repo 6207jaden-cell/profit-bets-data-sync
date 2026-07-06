@@ -26,6 +26,8 @@ const SUGGESTED = [
   "Show my buying power and recent orders.",
 ];
 
+const ROBINHOOD_MANUAL_REDIRECT_URI = "http://localhost:1455/callback";
+
 export function AgentPanel() {
   const qc = useQueryClient();
   const { hasElite, loading: profileLoading } = useProfile();
@@ -92,13 +94,16 @@ export function AgentPanel() {
   const ready = conn.data?.state === "ready";
   const authenticating = conn.data?.state === "authenticating";
   const authUrl = typeof conn.data?.auth_url === "string" ? conn.data.auth_url : null;
-  const currentAuthUrl = pendingAuthUrl ?? (authUrl && (() => {
+  const currentAuthUrl = (pendingAuthUrl ?? authUrl) && (() => {
     try {
-      return new URL(authUrl).pathname === "/oauth" ? authUrl : null;
+      const url = new URL((pendingAuthUrl ?? authUrl)!);
+      return url.pathname === "/oauth" && url.searchParams.get("redirect_uri") === ROBINHOOD_MANUAL_REDIRECT_URI
+        ? url.toString()
+        : null;
     } catch {
       return null;
     }
-  })());
+  })();
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
 
   async function handleConnect() {
