@@ -106,11 +106,26 @@ export function AgentPanel() {
     await chat.sendMessage({ text: prompt.trim() });
   }
 
-  if (!authTokenReady) {
+  if (profileLoading || !authTokenReady) {
     return (
       <Card className="p-12 flex justify-center bg-card border-border">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </Card>
+    );
+  }
+
+  if (!hasElite) {
+    return (
+      <PremiumLock
+        requiredTier="elite"
+        title="Robinhood Agent"
+        description="The live AI trading agent — with direct access to your Robinhood account via MCP — is included in the Elite membership."
+        perks={[
+          "Live read of holdings, buying power, and orders",
+          "Real-time position analysis with tool calls",
+          "Propose trades that Robinhood confirms on their side",
+        ]}
+      />
     );
   }
 
