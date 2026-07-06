@@ -236,7 +236,7 @@ export function AgentPanel() {
                 <input
                   value={callbackInput}
                   onChange={(e) => setCallbackInput(e.target.value)}
-                  placeholder="http://localhost:1455/callback?code=…&state=…"
+                  placeholder={`${ROBINHOOD_MANUAL_REDIRECT_URI}?code=…&state=…`}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary"
                 />
                 <Button
