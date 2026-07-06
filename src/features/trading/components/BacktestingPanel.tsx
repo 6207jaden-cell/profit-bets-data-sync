@@ -73,6 +73,7 @@ export function BacktestingPanel() {
       if (res.ok) {
         setResult(res);
         history.refetch();
+        qc.invalidateQueries({ queryKey: ["leaderboard"] });
       } else {
         setError(res.reason);
       }
