@@ -26,7 +26,10 @@ const SUGGESTED = [
   "Show my buying power and recent orders.",
 ];
 
-const ROBINHOOD_MANUAL_REDIRECT_URI = "http://localhost:1455/callback";
+const ROBINHOOD_MANUAL_REDIRECT_URI =
+  typeof window !== "undefined"
+    ? `${window.location.origin}/api/public/mcp/robinhood/callback`
+    : "http://localhost:1455/callback";
 
 export function AgentPanel() {
   const qc = useQueryClient();
