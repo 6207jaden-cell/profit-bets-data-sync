@@ -62,14 +62,33 @@ export async function discoverAuthServer(mcpUrl: string): Promise<OAuthServerMet
   // 3. Last-resort: assume same origin.
   if (!authServerBase) authServerBase = url.origin;
 
-  // Fetch AS metadata
-  const asMetaUrl = authServerBase.endsWith("/")
-    ? `${authServerBase}.well-known/oauth-authorization-server`
-    : `${authServerBase}/.well-known/oauth-authorization-server`;
-  const r = await fetch(asMetaUrl);
-  if (!r.ok) throw new Error(`OAuth server metadata not found at ${asMetaUrl}`);
-  return (await r.json()) as OAuthServerMetadata;
+  // Fetch AS metadata. RFC 8414 says for an issuer with a path, the metadata
+  // lives at origin + /.well-known/oauth-authorization-server + path. Some
+  // providers (e.g. Robinhood) instead publish it at the origin root. Try both,
+  // plus the naive "issuer + /.well-known/..." form.
+  const issuerUrl = new URL(authServerBase);
+  const candidates = Array.from(new Set([
+    // RFC 8414 §3.1: /.well-known inserted between host and issuer path
+    `${issuerUrl.origin}/.well-known/oauth-authorization-server${issuerUrl.pathname === "/" ? "" : issuerUrl.pathname}`,
+    // Root-hosted metadata (Robinhood-style)
+    `${issuerUrl.origin}/.well-known/oauth-authorization-server`,
+    // Naive suffix
+    authServerBase.replace(/\/$/, "") + "/.well-known/oauth-authorization-server",
+  ]));
+
+  let lastStatus = 0;
+  for (const asMetaUrl of candidates) {
+    const r = await fetch(asMetaUrl);
+    if (r.ok) {
+      return (await r.json()) as OAuthServerMetadata;
+    }
+    lastStatus = r.status;
+  }
+  throw new Error(
+    `OAuth server metadata not found (last HTTP ${lastStatus}). Tried: ${candidates.join(", ")}`,
+  );
 }
+
 
 export async function registerClient(
   registration_endpoint: string,
