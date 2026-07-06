@@ -27,8 +27,8 @@ const SUGGESTED = [
 
 export function AgentPanel() {
   const qc = useQueryClient();
-  const qc = useQueryClient();
   const { hasElite, loading: profileLoading } = useProfile();
+  const search = useSearch({ strict: false }) as { connected?: string };
   const navigate = useNavigate();
   const [input, setInput] = useState("");
   const [connecting, setConnecting] = useState(false);
