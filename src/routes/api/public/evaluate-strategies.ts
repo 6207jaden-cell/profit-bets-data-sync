@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchDailyCloses, buildContext, evalGroup } from "@/lib/indicators";
+import { fetchDailyCloses, buildContext, evalGroup, isCryptoSymbol } from "@/lib/indicators";
 
 /**
  * Autonomous paper-trading evaluator. Called by pg_cron every 5 minutes via
@@ -10,14 +10,37 @@ import { fetchDailyCloses, buildContext, evalGroup } from "@/lib/indicators";
 
 type Quote = { price: number; source: string };
 
+function cryptoBase(sym: string): string {
+  return sym.toUpperCase().replace(/[-/]USD[T]?$/, "");
+}
+
 async function fetchLiveQuote(symbol: string): Promise<Quote | null> {
   const S = symbol.toUpperCase();
-  const poly = process.env.POLYGON_API_KEY;
+  const isCrypto = isCryptoSymbol(S);
   const fin = process.env.FINNHUB_API_KEY;
+  const poly = process.env.POLYGON_API_KEY;
   const alpha = process.env.ALPHA_VANTAGE_API_KEY;
+  // Prefer Finnhub for stocks: 60 req/min free, no rate concern.
+  try {
+    if (fin && !isCrypto) {
+      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${S}&token=${fin}`);
+      if (r.ok) {
+        const j = (await r.json()) as { c?: number };
+        if (j.c) return { price: j.c, source: "finnhub" };
+      }
+    }
+    if (fin && isCrypto) {
+      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=BINANCE:${cryptoBase(S)}USDT&token=${fin}`);
+      if (r.ok) {
+        const j = (await r.json()) as { c?: number };
+        if (j.c) return { price: j.c, source: "finnhub" };
+      }
+    }
+  } catch { /* fall */ }
   try {
     if (poly) {
-      const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${S}/prev?apiKey=${poly}`);
+      const polySym = isCrypto ? `X:${cryptoBase(S)}USD` : S;
+      const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/prev?apiKey=${poly}`);
       if (r.ok) {
         const j = (await r.json()) as { results?: Array<{ c: number }> };
         const c = j.results?.[0]?.c;
@@ -26,16 +49,7 @@ async function fetchLiveQuote(symbol: string): Promise<Quote | null> {
     }
   } catch { /* fall */ }
   try {
-    if (fin) {
-      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${S}&token=${fin}`);
-      if (r.ok) {
-        const j = (await r.json()) as { c?: number };
-        if (j.c) return { price: j.c, source: "finnhub" };
-      }
-    }
-  } catch { /* fall */ }
-  try {
-    if (alpha) {
+    if (alpha && !isCrypto) {
       const r = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${S}&apikey=${alpha}`);
       if (r.ok) {
         const j = (await r.json()) as { ["Global Quote"]?: Record<string, string> };
@@ -46,6 +60,7 @@ async function fetchLiveQuote(symbol: string): Promise<Quote | null> {
   } catch { /* fall */ }
   return null;
 }
+
 
 type StrategyRow = {
   id: string;

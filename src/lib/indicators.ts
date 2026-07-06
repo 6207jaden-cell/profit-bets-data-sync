@@ -126,38 +126,61 @@ export function evalGroup(conds: string[], logic: "AND" | "OR", ctx: IndicatorCo
 
 // ---------- Live data ----------
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Detect crypto symbols like "BTC-USD" or "BTC/USD". */
+export function isCryptoSymbol(sym: string): boolean {
+  return /^[A-Z]{2,10}[-/]USD[T]?$/.test(sym.toUpperCase());
+}
+
+/** Extract base coin from "BTC-USD" / "BTC/USDT" -> "BTC". */
+function cryptoBase(sym: string): string {
+  return sym.toUpperCase().replace(/[-/]USD[T]?$/, "");
+}
+
 /**
- * Fetch ~220 recent daily closes for a symbol. Polygon first, Alpha Vantage
- * fallback. Returns oldest → newest.
+ * Fetch ~220 recent daily closes for a symbol. Handles both stocks and
+ * crypto (e.g. "BTC-USD"). Polygon first, Alpha Vantage fallback.
+ * Returns oldest → newest. Sleeps between provider calls to respect the
+ * Polygon 5 req/min free-tier limit.
  */
 export async function fetchDailyCloses(symbol: string, days = 220): Promise<number[] | null> {
   const S = symbol.toUpperCase();
+  const isCrypto = isCryptoSymbol(S);
   const poly = process.env.POLYGON_API_KEY;
   if (poly) {
     try {
       const to = new Date();
       const from = new Date(Date.now() - days * 86400_000);
       const fmt = (d: Date) => d.toISOString().slice(0, 10);
-      const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(S)}/range/1/day/${fmt(from)}/${fmt(to)}?adjusted=true&sort=asc&limit=5000&apiKey=${poly}`;
+      const polySym = isCrypto ? `X:${cryptoBase(S)}USD` : S;
+      const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/range/1/day/${fmt(from)}/${fmt(to)}?adjusted=true&sort=asc&limit=5000&apiKey=${poly}`;
       const r = await fetch(url);
       if (r.ok) {
-        const j = (await r.json()) as { results?: Array<{ c: number }> };
+        const j = (await r.json()) as { status?: string; results?: Array<{ c: number }> };
         const closes = (j.results ?? []).map((b) => b.c).filter((c) => Number.isFinite(c));
-        if (closes.length >= 50) return closes;
+        if (closes.length >= 50) {
+          await sleep(13_000); // stay under 5 req/min
+          return closes;
+        }
       }
     } catch { /* fall through */ }
   }
   const alpha = process.env.ALPHA_VANTAGE_API_KEY;
   if (alpha) {
     try {
-      const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(S)}&outputsize=full&apikey=${alpha}`;
+      const url = isCrypto
+        ? `https://www.alphavantage.co/query?function=DIGITAL_CURRENCY_DAILY&symbol=${cryptoBase(S)}&market=USD&apikey=${alpha}`
+        : `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(S)}&outputsize=full&apikey=${alpha}`;
       const r = await fetch(url);
       if (r.ok) {
-        const j = (await r.json()) as { "Time Series (Daily)"?: Record<string, Record<string, string>> };
-        const series = j["Time Series (Daily)"];
+        const j = (await r.json()) as Record<string, unknown>;
+        const seriesKey = isCrypto ? "Time Series (Digital Currency Daily)" : "Time Series (Daily)";
+        const series = j[seriesKey] as Record<string, Record<string, string>> | undefined;
         if (series) {
+          const closeKey = isCrypto ? "4a. close (USD)" : "4. close";
           const closes = Object.entries(series)
-            .map(([date, v]) => ({ t: new Date(date).getTime(), c: Number(v["4. close"]) }))
+            .map(([date, v]) => ({ t: new Date(date).getTime(), c: Number(v[closeKey] ?? v["4. close"]) }))
             .filter((b) => Number.isFinite(b.c))
             .sort((a, b) => a.t - b.t)
             .map((b) => b.c);
@@ -168,6 +191,7 @@ export async function fetchDailyCloses(symbol: string, days = 220): Promise<numb
   }
   return null;
 }
+
 
 /**
  * Build an IndicatorContext for the *last* bar of the closes array.
