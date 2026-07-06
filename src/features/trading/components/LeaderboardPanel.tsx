@@ -135,10 +135,10 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="font-display font-semibold flex items-center gap-2">
-            <Trophy className="h-4 w-4 text-primary" /> Strategy Leaderboard
+            <Trophy className="h-4 w-4 shrink-0 text-primary" /> Strategy Leaderboard
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Ranked across your strategies and the AI Lab. Live P&amp;L reflects closed paper trades only.
@@ -176,77 +176,84 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
         ) : (
           <ul className="divide-y divide-border">
             {sorted.map((row, idx) => (
-              <li key={row.strategy.id} className="px-4 py-3 grid grid-cols-12 items-center gap-3 text-sm">
-                <div className="col-span-1 font-mono font-semibold text-muted-foreground">
-                  #{idx + 1}
-                </div>
-                <div className="col-span-4 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-display font-semibold truncate">{row.strategy.name}</span>
-                    {row.strategy.source === "ai_lab" ? (
-                      <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px] font-mono">
-                        <Sparkles className="h-2.5 w-2.5 mr-1" />AI Lab
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px] font-mono">
-                        <User className="h-2.5 w-2.5 mr-1" />{row.isYours ? "Yours" : "User"}
-                      </Badge>
-                    )}
-                    <Badge variant="outline" className="text-[10px] font-mono border-border">
-                      {row.strategy.execution_mode}
-                    </Badge>
-                    <Badge variant="outline" className={cn(
-                      "text-[10px] font-mono",
-                      row.strategy.risk_level === "high" && "border-bear/40 text-bear",
-                      row.strategy.risk_level === "medium" && "border-amber-500/40 text-amber-500",
-                      row.strategy.risk_level === "low" && "border-bull/40 text-bull",
-                    )}>
-                      {row.strategy.risk_level}
-                    </Badge>
+              <li key={row.strategy.id} className="px-4 py-3 flex flex-col gap-3 md:grid md:grid-cols-12 md:items-center md:gap-3 text-sm">
+                <div className="flex items-start gap-3 md:contents">
+                  <div className="md:col-span-1 font-mono font-semibold text-muted-foreground shrink-0">
+                    #{idx + 1}
                   </div>
-                  {row.strategy.description && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{row.strategy.description}</p>
-                  )}
-                </div>
-
-                <Metric label="BT ROI" value={row.backtestRoi} suffix="%" />
-                <Metric label="BT Win" value={row.backtestWinRate} suffix="%" neutral />
-                <Metric label="Sharpe" value={row.backtestSharpe} digits={2} />
-                <Metric label="Live P&L" value={row.livePnl === 0 ? null : row.livePnl} prefix="$" digits={2} />
-                <div className="col-span-1 text-right">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Live</div>
-                  <div className="font-mono text-sm">
-                    {row.liveTradeCount === 0 ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      <span>{row.liveWinRate?.toFixed(0)}% · {row.liveTradeCount}</span>
+                  <div className="md:col-span-4 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-display font-semibold truncate">{row.strategy.name}</span>
+                      {row.strategy.source === "ai_lab" ? (
+                        <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px] font-mono">
+                          <Sparkles className="h-2.5 w-2.5 mr-1" />AI Lab
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px] font-mono">
+                          <User className="h-2.5 w-2.5 mr-1" />{row.isYours ? "Yours" : "User"}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-[10px] font-mono border-border">
+                        {row.strategy.execution_mode}
+                      </Badge>
+                      <Badge variant="outline" className={cn(
+                        "text-[10px] font-mono",
+                        row.strategy.risk_level === "high" && "border-bear/40 text-bear",
+                        row.strategy.risk_level === "medium" && "border-amber-500/40 text-amber-500",
+                        row.strategy.risk_level === "low" && "border-bull/40 text-bull",
+                      )}>
+                        {row.strategy.risk_level}
+                      </Badge>
+                    </div>
+                    {row.strategy.description && (
+                      <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{row.strategy.description}</p>
                     )}
                   </div>
                 </div>
 
-                <div className="col-span-1 flex items-center justify-end gap-1">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    disabled={backtestNow.isPending}
-                    onClick={() => backtestNow.mutate(row.strategy.id)}
-                    title="Run backtest now"
-                  >
-                    <FlaskConical className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    disabled={toggleActive.isPending}
-                    onClick={() => toggleActive.mutate({ id: row.strategy.id, active: !row.strategy.active })}
-                    title={row.strategy.active ? "Pause strategy" : "Activate strategy"}
-                  >
-                    {row.strategy.active
-                      ? <Pause className="h-3.5 w-3.5 text-bull" />
-                      : <Play className="h-3.5 w-3.5 text-muted-foreground" />}
-                  </Button>
+                <div className="grid grid-cols-4 gap-2 md:contents">
+                  <Metric label="BT ROI" value={row.backtestRoi} suffix="%" />
+                  <Metric label="BT Win" value={row.backtestWinRate} suffix="%" neutral />
+                  <Metric label="Sharpe" value={row.backtestSharpe} digits={2} />
+                  <Metric label="Live P&L" value={row.livePnl === 0 ? null : row.livePnl} prefix="$" digits={2} />
+                </div>
+
+                <div className="flex items-center justify-between md:contents">
+                  <div className="md:col-span-1 md:text-right">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Live</div>
+                    <div className="font-mono text-sm">
+                      {row.liveTradeCount === 0 ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <span>{row.liveWinRate?.toFixed(0)}% · {row.liveTradeCount}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-1 flex items-center md:justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      disabled={backtestNow.isPending}
+                      onClick={() => backtestNow.mutate(row.strategy.id)}
+                      title="Run backtest now"
+                    >
+                      <FlaskConical className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      disabled={toggleActive.isPending}
+                      onClick={() => toggleActive.mutate({ id: row.strategy.id, active: !row.strategy.active })}
+                      title={row.strategy.active ? "Pause strategy" : "Activate strategy"}
+                    >
+                      {row.strategy.active
+                        ? <Pause className="h-3.5 w-3.5 text-bull" />
+                        : <Play className="h-3.5 w-3.5 text-muted-foreground" />}
+                    </Button>
+                  </div>
                 </div>
               </li>
             ))}
@@ -265,9 +272,9 @@ function Metric({
     ? "text-muted-foreground"
     : value! > 0 ? "text-bull" : "text-bear";
   return (
-    <div className="col-span-1 text-right">
-      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</div>
-      <div className={cn("font-mono text-sm", tone)}>
+    <div className="text-left md:col-span-1 md:text-right min-w-0">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider truncate">{label}</div>
+      <div className={cn("font-mono text-sm truncate", tone)}>
         {isNull ? "—" : `${prefix}${value! > 0 && !prefix ? "+" : ""}${value!.toFixed(digits)}${suffix}`}
       </div>
     </div>

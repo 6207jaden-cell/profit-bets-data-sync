@@ -84,12 +84,12 @@ export function BacktestingPanel() {
 
   const content = (
     <div className="space-y-6">
-      <Card className="p-5 border-border bg-card">
-        <header className="flex items-center justify-between mb-4">
+      <Card className="p-4 sm:p-5 border-border bg-card">
+        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
           <h3 className="font-display font-semibold flex items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-primary" /> Historical Backtest
+            <FlaskConical className="h-4 w-4 shrink-0 text-primary" /> Historical Backtest
           </h3>
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge variant="outline" className="font-mono text-[10px] self-start sm:self-auto">
             POLYGON → ALPHA VANTAGE FALLBACK
           </Badge>
         </header>
@@ -131,14 +131,14 @@ export function BacktestingPanel() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mt-4">
-          <Button onClick={handleRun} disabled={running || !selectedId} className="font-mono">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mt-4">
+          <Button onClick={handleRun} disabled={running || !selectedId} className="font-mono w-full sm:w-auto">
             {running ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
             {running ? "RUNNING…" : "RUN BACKTEST"}
           </Button>
           {error && (
-            <span className="text-xs text-bear flex items-center gap-1">
-              <AlertCircle className="h-3 w-3" /> {error.replace(/_/g, " ")}
+            <span className="text-xs text-bear flex items-start gap-1 min-w-0 break-words">
+              <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" /> <span className="min-w-0 break-words">{error.replace(/_/g, " ")}</span>
             </span>
           )}
         </div>
@@ -147,12 +147,12 @@ export function BacktestingPanel() {
       {result && <BacktestResultView result={result} />}
 
       {history.data && history.data.length > 0 && (
-        <Card className="p-5 border-border bg-card">
+        <Card className="p-4 sm:p-5 border-border bg-card">
           <h3 className="font-display font-semibold mb-3">Recent Runs</h3>
           <ul className="divide-y divide-border text-sm">
             {history.data.map((h) => (
-              <li key={h.id} className="py-2 grid grid-cols-5 gap-2 font-mono text-xs">
-                <span className="text-muted-foreground">{new Date(h.updated_at).toLocaleString()}</span>
+              <li key={h.id} className="py-2 grid grid-cols-2 sm:grid-cols-5 gap-x-3 gap-y-1 font-mono text-xs">
+                <span className="text-muted-foreground col-span-2 sm:col-span-1 truncate">{new Date(h.updated_at).toLocaleString()}</span>
                 <span>ROI {Number(h.roi ?? 0).toFixed(2)}%</span>
                 <span>Win {Number(h.win_rate ?? 0).toFixed(1)}%</span>
                 <span>DD {Number(h.drawdown ?? 0).toFixed(2)}%</span>
