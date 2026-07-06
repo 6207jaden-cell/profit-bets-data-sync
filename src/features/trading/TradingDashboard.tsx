@@ -19,6 +19,7 @@ import { RiskPanel } from "./components/RiskPanel";
 import { BrokerPanel } from "./components/BrokerPanel";
 import { AgentPanel } from "./components/AgentPanel";
 import { LeaderboardPanel } from "./components/LeaderboardPanel";
+import { OptionsFlowPanel } from "./components/OptionsFlowPanel";
 import { TopNav } from "@/components/TopNav";
 
 export default function TradingDashboard() {
