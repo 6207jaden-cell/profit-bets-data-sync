@@ -25,6 +25,7 @@ import { PriceAlertsPanel } from "./components/PriceAlertsPanel";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import { PortfolioPanel } from "./components/PortfolioPanel";
 import { SignalHistoryPanel } from "./components/SignalHistoryPanel";
+import { TopNav } from "@/components/TopNav";
 
 type SignalRow = {
   id: string;
