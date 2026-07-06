@@ -86,7 +86,6 @@ export function BrokerPanel() {
   return (
     <BlurLock active={!isPremium} label="Live broker requires Premium">
       <div className="space-y-6">
-      <div className="space-y-6">
         <Card className="p-5 border-border bg-card">
           <header className="mb-3">
             <h3 className="font-display font-semibold flex items-center gap-2">
