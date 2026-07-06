@@ -610,6 +610,30 @@ export type Database = {
         }
         Relationships: []
       }
+      user_tiers: {
+        Row: {
+          created_at: string
+          granted_by: string | null
+          tier: Database["public"]["Enums"]["app_tier"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          granted_by?: string | null
+          tier?: Database["public"]["Enums"]["app_tier"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          granted_by?: string | null
+          tier?: Database["public"]["Enums"]["app_tier"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -622,10 +646,22 @@ export type Database = {
         }
         Returns: boolean
       }
+      has_tier: {
+        Args: {
+          _min: Database["public"]["Enums"]["app_tier"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      tier_rank: {
+        Args: { _tier: Database["public"]["Enums"]["app_tier"] }
+        Returns: number
+      }
     }
     Enums: {
       alert_direction: "above" | "below"
       app_role: "admin" | "user"
+      app_tier: "free" | "pro" | "elite"
       asset_type: "stock" | "crypto"
       broker_provider: "paper" | "alpaca" | "ibkr"
       execution_mode: "off" | "paper" | "live"
@@ -766,6 +802,7 @@ export const Constants = {
     Enums: {
       alert_direction: ["above", "below"],
       app_role: ["admin", "user"],
+      app_tier: ["free", "pro", "elite"],
       asset_type: ["stock", "crypto"],
       broker_provider: ["paper", "alpaca", "ibkr"],
       execution_mode: ["off", "paper", "live"],
