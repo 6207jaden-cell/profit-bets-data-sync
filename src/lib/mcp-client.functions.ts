@@ -4,7 +4,9 @@ import { z } from "zod";
 
 const ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading";
 const ROBINHOOD_LABEL = "Robinhood";
-const ROBINHOOD_MANUAL_REDIRECT_URI = "http://localhost:1455/callback";
+const ROBINHOOD_MANUAL_REDIRECT_URI = process.env.PUBLIC_URL
+  ? `${process.env.PUBLIC_URL.replace(/\/$/, "")}/api/public/mcp/robinhood/callback`
+  : "http://localhost:1455/callback";
 
 export const getRobinhoodConnection = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
