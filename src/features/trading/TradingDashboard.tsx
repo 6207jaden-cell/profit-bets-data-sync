@@ -26,6 +26,9 @@ export default function TradingDashboard() {
   const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [tab, setTab] = useState<string>(() =>
+    typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview",
+  );
 
   // Ensure a paper portfolio exists for this user
   const portfolio = useQuery({
