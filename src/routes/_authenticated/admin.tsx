@@ -1,7 +1,7 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminTiersPanel } from "@/features/admin/AdminTiersPanel";
+import { TopNav } from "@/components/TopNav";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   ssr: false,
@@ -21,12 +21,10 @@ export const Route = createFileRoute("/_authenticated/admin")({
 function AdminPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <TopNav />
       <header className="border-b border-border">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-3">
-          <Link to="/markets" className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm">
-            <ArrowLeft className="h-4 w-4" /> Back
-          </Link>
-          <h1 className="font-display text-lg font-semibold ml-2">Admin</h1>
+        <div className="max-w-5xl mx-auto px-6 py-4">
+          <h1 className="font-display text-lg font-semibold">Admin</h1>
         </div>
       </header>
       <main className="max-w-5xl mx-auto px-6 py-8">
@@ -35,3 +33,4 @@ function AdminPage() {
     </div>
   );
 }
+
