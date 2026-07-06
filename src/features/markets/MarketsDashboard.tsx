@@ -258,6 +258,7 @@ export default function MarketsDashboard() {
                       stopPrice={s.stop_price}
                       expectedEdgePct={s.expected_edge_pct}
                       thesis={s.thesis}
+                      onDetailsClick={openDrawer}
                     />
                   ))}
                 </div>
