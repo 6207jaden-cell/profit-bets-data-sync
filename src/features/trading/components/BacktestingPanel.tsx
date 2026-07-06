@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
 import { FlaskConical, Play, TrendingUp, TrendingDown, Activity, AlertCircle, Loader2 } from "lucide-react";
@@ -22,6 +22,7 @@ type SuccessResult = Extract<BacktestResponse, { ok: true }>;
 
 export function BacktestingPanel() {
   const { hasPro, userId } = useProfile();
+  const qc = useQueryClient();
   const runFn = useServerFn(runBacktest);
   const allowed = hasPro;
 
@@ -72,6 +73,7 @@ export function BacktestingPanel() {
       if (res.ok) {
         setResult(res);
         history.refetch();
+        qc.invalidateQueries({ queryKey: ["leaderboard"] });
       } else {
         setError(res.reason);
       }

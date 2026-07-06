@@ -14,6 +14,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Link } from "@tanstack/react-router";
+import { Bot } from "lucide-react";
 import { BlurLock } from "@/features/markets/components/BlurLock";
 import { useProfile } from "@/hooks/use-profile";
 import {
@@ -84,6 +86,22 @@ export function BrokerPanel() {
   return (
     <BlurLock active={!isPremium} label="Live broker requires Premium">
       <div className="space-y-6">
+        <Card className="p-5 border-border bg-card">
+          <header className="mb-3">
+            <h3 className="font-display font-semibold flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-primary" /> Robinhood (via MCP)
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Robinhood is connected via the Agent tab using MCP OAuth. Use the Agent tab to connect, then ask the agent to trade on your behalf.
+            </p>
+          </header>
+          <Link to="/trading" search={{ tab: "agent" } as never}>
+            <Button size="sm" variant="outline" className="w-full sm:w-auto">
+              <Bot className="h-3.5 w-3.5 mr-1.5" /> Go to Agent →
+            </Button>
+          </Link>
+        </Card>
+
         <Card className="p-5 border-border bg-card">
           <header className="mb-4">
             <h3 className="font-display font-semibold flex items-center gap-2">

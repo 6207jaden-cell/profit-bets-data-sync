@@ -49,6 +49,7 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
 
   const data = useQuery({
     queryKey: ["leaderboard"],
+    refetchInterval: 30_000,
     queryFn: async (): Promise<LeaderRow[]> => {
       const [{ data: strategies, error: sErr }, { data: perf, error: pErr }, { data: trades, error: tErr }] =
         await Promise.all([

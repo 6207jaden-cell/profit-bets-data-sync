@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
@@ -9,6 +9,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,9 @@ export default function TradingDashboard() {
   const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [tab, setTab] = useState<string>(() =>
+    typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview",
+  );
 
   // Ensure a paper portfolio exists for this user
   const portfolio = useQuery({
@@ -172,7 +176,7 @@ export default function TradingDashboard() {
           </div>
         </header>
 
-        <Tabs defaultValue={typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview"} className="p-4 sm:p-6">
+        <Tabs value={tab} onValueChange={setTab} className="p-4 sm:p-6">
           <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
             <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
             <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
@@ -212,9 +216,19 @@ export default function TradingDashboard() {
                 <header className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold">Quick Actions</h3>
                 </header>
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <p>Build a strategy with AI, run a backtest, then auto-execute into your paper portfolio.</p>
-                  <p className="text-xs">Live trading unlocks at <span className="text-primary font-semibold">Premium</span>.</p>
+                <div className="space-y-1">
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("strategies")}>
+                    <Brain className="h-3.5 w-3.5 mr-2 text-primary" /> Build a strategy
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("backtest")}>
+                    <FlaskConical className="h-3.5 w-3.5 mr-2 text-primary" /> Run a backtest
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("agent")}>
+                    <Bot className="h-3.5 w-3.5 mr-2 text-primary" /> Ask the agent
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("leaderboard")}>
+                    <Trophy className="h-3.5 w-3.5 mr-2 text-primary" /> View leaderboard
+                  </Button>
                 </div>
               </Card>
             </section>

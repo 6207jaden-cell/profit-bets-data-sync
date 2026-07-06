@@ -26,7 +26,10 @@ const SUGGESTED = [
   "Show my buying power and recent orders.",
 ];
 
-const ROBINHOOD_MANUAL_REDIRECT_URI = "http://localhost:1455/callback";
+const ROBINHOOD_MANUAL_REDIRECT_URI =
+  typeof window !== "undefined"
+    ? `${window.location.origin}/api/public/mcp/robinhood/callback`
+    : "http://localhost:1455/callback";
 
 export function AgentPanel() {
   const qc = useQueryClient();
@@ -233,7 +236,7 @@ export function AgentPanel() {
                 <input
                   value={callbackInput}
                   onChange={(e) => setCallbackInput(e.target.value)}
-                  placeholder="http://localhost:1455/callback?code=…&state=…"
+                  placeholder={`${ROBINHOOD_MANUAL_REDIRECT_URI}?code=…&state=…`}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary"
                 />
                 <Button
