@@ -4,10 +4,7 @@ import { z } from "zod";
 
 const ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading";
 const ROBINHOOD_LABEL = "Robinhood";
-
-function callbackUrl(origin: string) {
-  return `${origin}/api/public/mcp/robinhood/callback`;
-}
+const ROBINHOOD_MANUAL_REDIRECT_URI = "http://localhost:1455/callback";
 
 export const getRobinhoodConnection = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -23,7 +20,7 @@ export const getRobinhoodConnection = createServerFn({ method: "GET" })
 export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ origin: z.string().url() }).parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ context }) => {
     const {
       discoverAuthServer,
       registerClient,
@@ -32,7 +29,7 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
     } = await import("@/lib/mcp-oauth.server");
 
     const meta = await discoverAuthServer(ROBINHOOD_MCP_URL);
-    const redirect_uri = callbackUrl(data.origin);
+    const redirect_uri = ROBINHOOD_MANUAL_REDIRECT_URI;
     let client_id: string | undefined;
     let client_secret: string | undefined;
     let dcr: unknown = null;
@@ -81,6 +78,64 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     return { auth_url };
+  });
+
+export const completeRobinhoodConnection = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ callback: z.string().min(1) }).parse(d))
+  .handler(async ({ data, context }) => {
+    let callback: URL;
+    try {
+      callback = new URL(data.callback.trim());
+    } catch {
+      throw new Error("Paste the full localhost callback URL from Robinhood.");
+    }
+
+    const code = callback.searchParams.get("code");
+    const state = callback.searchParams.get("state");
+    const error = callback.searchParams.get("error");
+    if (error) throw new Error(`Robinhood returned an error: ${error}`);
+    if (!code || !state) throw new Error("The callback URL is missing Robinhood's code or state.");
+    if (state !== context.userId) throw new Error("This Robinhood callback belongs to a different session.");
+
+    const { data: row, error: rowError } = await context.supabase
+      .from("mcp_connections")
+      .select("id, client_id, client_secret, code_verifier")
+      .eq("server_url", ROBINHOOD_MCP_URL)
+      .maybeSingle();
+    if (rowError) throw new Error(rowError.message);
+    if (!row?.client_id || !row.code_verifier) throw new Error("Connection state expired. Start over and reconnect Robinhood.");
+
+    const { discoverAuthServer, exchangeCode } = await import("@/lib/mcp-oauth.server");
+    const meta = await discoverAuthServer(ROBINHOOD_MCP_URL);
+    const tokens = await exchangeCode({
+      token_endpoint: meta.token_endpoint,
+      code,
+      redirect_uri: ROBINHOOD_MANUAL_REDIRECT_URI,
+      client_id: row.client_id,
+      client_secret: row.client_secret ?? undefined,
+      code_verifier: row.code_verifier,
+      resource: ROBINHOOD_MCP_URL,
+    });
+
+    const expires_at = tokens.expires_in
+      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+      : null;
+
+    const { error: updateError } = await context.supabase
+      .from("mcp_connections")
+      .update({
+        state: "ready",
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token ?? null,
+        expires_at,
+        auth_url: null,
+        code_verifier: null,
+      })
+      .eq("id", row.id);
+    if (updateError) throw new Error(updateError.message);
+
+    return { ok: true };
   });
 
 export const disconnectRobinhood = createServerFn({ method: "POST" })
