@@ -27,21 +27,6 @@ export function PriceAlertsPanel() {
   const { userId, alertLimit, tier, hasPro } = useProfile();
   const qc = useQueryClient();
 
-  if (!hasPro) {
-    return (
-      <PremiumLock
-        requiredTier="pro"
-        title="Price Alerts"
-        description="Configure real-time price alerts on stocks and crypto. Included with Pro."
-        perks={[
-          "Up to 20 concurrent alerts (unlimited on Elite)",
-          "Above/below triggers with instant notification",
-          "Track fills and trigger history",
-        ]}
-      />
-    );
-  }
-
   const { data: alerts = [] } = useQuery({
     queryKey: ["price_alerts", userId],
     queryFn: async () => {
@@ -49,7 +34,7 @@ export function PriceAlertsPanel() {
       if (error) throw error;
       return (data ?? []) as AlertRow[];
     },
-    enabled: !!userId,
+    enabled: hasPro && !!userId,
   });
 
   // Realtime
@@ -105,6 +90,21 @@ export function PriceAlertsPanel() {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["price_alerts", userId] }),
   });
+
+  if (!hasPro) {
+    return (
+      <PremiumLock
+        requiredTier="pro"
+        title="Price Alerts"
+        description="Configure real-time price alerts on stocks and crypto. Included with Pro."
+        perks={[
+          "Up to 20 concurrent alerts (unlimited on Elite)",
+          "Above/below triggers with instant notification",
+          "Track fills and trigger history",
+        ]}
+      />
+    );
+  }
 
   return (
     <Card className="p-5 border-border bg-card">
