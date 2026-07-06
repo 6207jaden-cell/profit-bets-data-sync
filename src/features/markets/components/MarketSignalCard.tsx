@@ -1,5 +1,7 @@
 import { motion } from "framer-motion";
+import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { robinhoodLinkForSignal } from "@/lib/robinhood-links";
 
 interface Props {
   asset: string;
@@ -13,6 +15,7 @@ interface Props {
   thesis?: string | null;
   index?: number;
   locked?: boolean;
+  onDetailsClick?: (asset: string, kind: "stock" | "crypto") => void;
 }
 
 export function MarketSignalCard(p: Props) {
