@@ -135,10 +135,10 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="font-display font-semibold flex items-center gap-2">
-            <Trophy className="h-4 w-4 text-primary" /> Strategy Leaderboard
+            <Trophy className="h-4 w-4 shrink-0 text-primary" /> Strategy Leaderboard
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Ranked across your strategies and the AI Lab. Live P&amp;L reflects closed paper trades only.
