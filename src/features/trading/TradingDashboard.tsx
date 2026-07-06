@@ -172,10 +172,10 @@ export default function TradingDashboard() {
         </header>
 
         <Tabs defaultValue={typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") ?? "overview") : "overview"} className="p-4 sm:p-6">
-          <TabsList className="mb-6 flex-wrap">
+          <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
             <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
             <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
-            <TabsTrigger value="backtest"><FlaskConical className="h-3.5 w-3.5 mr-1.5" />Backtesting</TabsTrigger>
+            <TabsTrigger value="backtest"><FlaskConical className="h-3.5 w-3.5 mr-1.5" />Backtest</TabsTrigger>
             <TabsTrigger value="execution"><Zap className="h-3.5 w-3.5 mr-1.5" />Execution</TabsTrigger>
             <TabsTrigger value="risk"><Shield className="h-3.5 w-3.5 mr-1.5" />Risk</TabsTrigger>
             <TabsTrigger value="broker"><Link2 className="h-3.5 w-3.5 mr-1.5" />Broker</TabsTrigger>
