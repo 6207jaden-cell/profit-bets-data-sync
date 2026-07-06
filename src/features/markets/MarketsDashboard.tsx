@@ -62,16 +62,10 @@ export default function MarketsDashboard() {
   const [consensusType, setConsensusType] = useState<"stock" | "crypto">("crypto");
 
   const fearGreedFn = useServerFn(getFearGreed);
-  const newsFn = useServerFn(getMarketNews);
-  const earningsFn = useServerFn(getEarnings);
-  const flowFn = useServerFn(getOptionsFlow);
   const statsFn = useServerFn(getMarketStats);
   const generateFn = useServerFn(generateMarketSignals);
 
   const fg = useQuery({ queryKey: ["fear-greed"], queryFn: () => fearGreedFn(), staleTime: 5 * 60_000 });
-  const news = useQuery({ queryKey: ["market-news"], queryFn: () => newsFn(), staleTime: 5 * 60_000 });
-  const earnings = useQuery({ queryKey: ["earnings"], queryFn: () => earningsFn(), staleTime: 30 * 60_000 });
-  const flow = useQuery({ queryKey: ["options-flow"], queryFn: () => flowFn(), staleTime: 5 * 60_000 });
   const stats = useQuery({ queryKey: ["market-stats"], queryFn: () => statsFn(), staleTime: 60_000 });
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
