@@ -447,7 +447,9 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   asset: "SYSTEM", side: "sell", quantity: 0, price: 0,
                   reason: `auto_retired: poor_live_performance win_rate=${winRate.toFixed(0)}% roi=${roi.toFixed(1)}% retired_name=${strat.name ?? ""}`,
                 });
+                await fireWebhook(userId, "strategy_retired", { strategy_id: strat.id, name: strat.name ?? "", win_rate: winRate, roi });
                 retired++;
+
                 // Trigger a replacement strategy generation
                 try {
                   const url = `https://project--a4cfc4c8-5d00-4bc0-a84a-408f0bcb34ad-dev.lovable.app/api/public/generate-strategies`;
