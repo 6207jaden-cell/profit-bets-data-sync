@@ -557,12 +557,14 @@ export type Database = {
           created_at: string
           description: string | null
           execution_mode: Database["public"]["Enums"]["execution_mode"]
+          explanation: string | null
           id: string
           market_type: Database["public"]["Enums"]["market_type"]
           name: string
           risk_level: Database["public"]["Enums"]["risk_level"]
           source: string
           strategy_json: Json
+          style: string | null
           updated_at: string
           user_id: string
         }
@@ -571,12 +573,14 @@ export type Database = {
           created_at?: string
           description?: string | null
           execution_mode?: Database["public"]["Enums"]["execution_mode"]
+          explanation?: string | null
           id?: string
           market_type?: Database["public"]["Enums"]["market_type"]
           name: string
           risk_level?: Database["public"]["Enums"]["risk_level"]
           source?: string
           strategy_json?: Json
+          style?: string | null
           updated_at?: string
           user_id: string
         }
@@ -585,12 +589,14 @@ export type Database = {
           created_at?: string
           description?: string | null
           execution_mode?: Database["public"]["Enums"]["execution_mode"]
+          explanation?: string | null
           id?: string
           market_type?: Database["public"]["Enums"]["market_type"]
           name?: string
           risk_level?: Database["public"]["Enums"]["risk_level"]
           source?: string
           strategy_json?: Json
+          style?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -691,6 +697,36 @@ export type Database = {
           tier?: Database["public"]["Enums"]["app_tier"]
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      user_webhooks: {
+        Row: {
+          active: boolean
+          created_at: string
+          events: string[]
+          id: string
+          updated_at: string
+          user_id: string
+          webhook_url: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          events?: string[]
+          id?: string
+          updated_at?: string
+          user_id: string
+          webhook_url: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          events?: string[]
+          id?: string
+          updated_at?: string
+          user_id?: string
+          webhook_url?: string
         }
         Relationships: []
       }
