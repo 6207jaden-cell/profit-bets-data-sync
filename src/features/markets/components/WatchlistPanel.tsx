@@ -103,7 +103,26 @@ export function WatchlistPanel() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Track assets to see live quotes. Crypto uses CoinGecko ids (e.g. "bitcoin", "ethereum").</p>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Add stocks (e.g. AAPL, TSLA) or crypto (use CoinGecko id: bitcoin, ethereum) to track live quotes and receive Smart Alerts.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: "AAPL", type: "stock" as const },
+              { label: "NVDA", type: "stock" as const },
+              { label: "bitcoin", type: "crypto" as const },
+            ].map((c) => (
+              <button
+                key={c.label}
+                onClick={() => { setAsset(c.label); setAssetType(c.type); }}
+                className="px-3 py-1 rounded-full text-xs bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 transition"
+              >
+                + {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
       ) : (
         <ul className="divide-y divide-border">
           {rows.map((r) => {
