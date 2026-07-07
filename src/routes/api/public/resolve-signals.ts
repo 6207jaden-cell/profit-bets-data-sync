@@ -76,7 +76,7 @@ export const Route = createFileRoute("/api/public/resolve-signals")({
           const isShort = dir === "sell" || dir === "put";
 
           if (s.created_at < fiveDaysAgo) {
-            await supabaseAdmin.from("market_signals").update({ result: "expired" }).eq("id", s.id);
+            await supabaseAdmin.from("market_signals").update({ result: "stale" }).eq("id", s.id);
             expired++;
             continue;
           }
