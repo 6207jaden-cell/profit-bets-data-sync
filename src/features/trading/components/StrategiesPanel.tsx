@@ -301,6 +301,11 @@ function StrategyCard({
               </Badge>
             )}
             <Badge variant="outline" className="text-[9px] font-mono uppercase">{s.market_type}</Badge>
+            {(s.style ?? s.strategy_json?.style) && (
+              <Badge className="bg-amber-500/15 text-amber-500 border-amber-500/30 text-[9px] font-mono uppercase">
+                {(s.style ?? s.strategy_json.style)!.replace("_", " ")}
+              </Badge>
+            )}
             <Badge
               variant="outline"
               className={cn("text-[9px] font-mono uppercase",
@@ -311,6 +316,7 @@ function StrategyCard({
               {s.risk_level} risk
             </Badge>
             {!s.active && <Badge variant="outline" className="text-[9px] font-mono">PAUSED</Badge>}
+
           </div>
           {s.description && <p className="text-xs text-muted-foreground">{s.description}</p>}
           {s.source === "ai_lab" && (
