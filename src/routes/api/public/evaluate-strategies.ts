@@ -328,6 +328,21 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   if (!entryCtx) continue;
                   if (!evalGroup(entryConds, entryLogic, entryCtx)) continue;
 
+                  // Earnings avoidance (stocks only)
+                  if (!symIsCrypto) {
+                    const er = await earningsWithin48h(symbol);
+                    if (er.blocked) {
+                      errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:earnings_proximity symbol=${symbol} earnings_date=${er.date}` });
+                      continue;
+                    }
+                    // News sentiment filter (fails open)
+                    const ns = await newsSentiment(symbol);
+                    if (ns && ns.sentiment === "negative" && ns.confidence >= 70) {
+                      errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:negative_news_sentiment symbol=${symbol} confidence=${ns.confidence} reason=${ns.reason}` });
+                      continue;
+                    }
+                  }
+
                   // Sector concentration guard
                   const sec = sectorFor(symbol);
                   const secCount = sectorCounts.get(sec) ?? 0;
@@ -335,6 +350,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:sector_concentration sector=${sec} (${secCount}/${totalOpen} positions)` });
                     continue;
                   }
+
 
                   let allocPct = Math.min(maxPositionPct, 10);
 
