@@ -200,6 +200,14 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
                   <div className="md:col-span-4 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-display font-semibold truncate">{row.strategy.name}</span>
+                      {row.liveTradeCount >= 20 && (row.liveWinRate ?? 0) >= 55 && (row.backtestSharpe ?? 0) >= 1.0 && row.livePnl > 0 && (
+                        <span
+                          title="This strategy has proven itself in paper trading. Consider enabling live mode in the Strategies tab."
+                          className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-bull/15 text-bull border border-bull/30 animate-pulse"
+                        >
+                          ✦ READY FOR LIVE
+                        </span>
+                      )}
                       {row.strategy.source === "ai_lab" ? (
                         <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px] font-mono">
                           <Sparkles className="h-2.5 w-2.5 mr-1" />AI Lab
