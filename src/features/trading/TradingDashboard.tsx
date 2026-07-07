@@ -329,3 +329,104 @@ function LiveStatus({ updatedAt }: { updatedAt?: string | null }) {
   );
 }
 
+function MobileTabSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  if (!isMobile) return null;
+  const current = TAB_ITEMS.find((t) => t.value === value) ?? TAB_ITEMS[0];
+  const CurrentIcon = current.Icon;
+  return (
+    <div className="mb-4 md:hidden">
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-full">
+          <span className="flex items-center gap-2">
+            <CurrentIcon className="h-4 w-4 text-primary" />
+            <span>{current.label}</span>
+          </span>
+        </SelectTrigger>
+        <SelectContent>
+          {TAB_ITEMS.map(({ value: v, label, Icon }) => (
+            <SelectItem key={v} value={v}>
+              <span className="flex items-center gap-2">
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function EquityCurveCard({ userId, equity, cash, start }: { userId: string | null; equity: number; cash: number; start: number }) {
+  const snaps = useQuery({
+    queryKey: ["equity-snapshots", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("portfolio_snapshots")
+        .select("equity, created_at")
+        .order("created_at", { ascending: true })
+        .limit(90);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const rows = snaps.data ?? [];
+  const positive = equity >= start;
+  const stroke = positive ? "hsl(var(--bull))" : "hsl(var(--bear))";
+  const chartData = rows.map((r) => ({
+    date: new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" }),
+    equity: Number(r.equity),
+  }));
+
+  return (
+    <Card className="p-4 sm:p-5 border-border bg-card">
+      <header className="flex items-center justify-between mb-3 gap-2">
+        <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate">
+          <LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio
+        </h3>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">simulated</span>
+      </header>
+      {chartData.length >= 2 ? (
+        <div className="h-40 mb-3">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="eq-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={stroke} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={stroke} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+              <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" domain={["auto", "auto"]} />
+              <RTooltip
+                contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                formatter={(v: number) => [`$${v.toFixed(2)}`, "Equity"]}
+              />
+              <Area type="monotone" dataKey="equity" stroke={stroke} fill="url(#eq-fill)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground mb-3">Chart builds after first daily snapshot.</p>
+      )}
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground">Equity</div>
+          <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${equity.toFixed(2)}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground">Cash</div>
+          <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${cash.toFixed(2)}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground">Starting</div>
+          <div className="font-mono text-lg sm:text-2xl font-semibold text-muted-foreground truncate">${start.toFixed(0)}</div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+
