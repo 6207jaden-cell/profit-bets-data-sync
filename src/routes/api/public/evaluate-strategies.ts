@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchDailyCloses, buildContext, evalGroup, isCryptoSymbol, atr } from "@/lib/indicators";
+import { fetchDailyCloses, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr } from "@/lib/indicators";
+import { fireWebhook } from "@/lib/webhook.functions";
+
 
 /**
  * Autonomous paper-trading evaluator. Called by pg_cron every 5 minutes.
