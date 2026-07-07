@@ -151,7 +151,7 @@ export function ExecutionPanel() {
             </p>
             <a href="/trading?tab=strategies" className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
               Go to Strategies →
-            </Link>
+            </a>
           </div>
         ) : (
           <ul className="divide-y divide-border">
