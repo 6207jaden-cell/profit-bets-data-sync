@@ -248,6 +248,11 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
 
             let cash = Number(portfolio.balance);
 
+            // Market regime (one-shot per user via SPY)
+            const spyCloses = await getCloses("SPY");
+            const regime = spyCloses ? detectMarketRegime(spyCloses) : "sideways";
+
+
             for (const strat of userStrats) {
               const sj = strat.strategy_json ?? {};
               const universe = (sj.universe ?? []).map((s) => String(s).toUpperCase()).filter(Boolean);
