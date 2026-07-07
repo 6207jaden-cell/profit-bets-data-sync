@@ -101,6 +101,57 @@ function sectorFor(sym: string): string {
   return SECTOR[sym.toUpperCase()] ?? "other";
 }
 
+/** Return true if the symbol has an earnings release in the next 48h. */
+async function earningsWithin48h(symbol: string): Promise<{ blocked: boolean; date?: string }> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) return { blocked: false };
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10);
+    const r = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${to}&symbol=${symbol}&token=${key}`);
+    if (!r.ok) return { blocked: false };
+    const j = (await r.json()) as { earningsCalendar?: Array<{ date: string; symbol: string }> };
+    for (const e of j.earningsCalendar ?? []) {
+      if (e.symbol.toUpperCase() !== symbol.toUpperCase()) continue;
+      const diffH = (new Date(e.date).getTime() - Date.now()) / 3600_000;
+      if (diffH >= 0 && diffH <= 48) return { blocked: true, date: e.date };
+    }
+    return { blocked: false };
+  } catch { return { blocked: false }; }
+}
+
+/** Simple AI sentiment on recent headlines. Fails open. */
+async function newsSentiment(symbol: string): Promise<{ sentiment: "positive" | "negative" | "neutral"; confidence: number; reason: string } | null> {
+  const finKey = process.env.FINNHUB_API_KEY;
+  const aiKey = process.env.LOVABLE_API_KEY;
+  if (!finKey || !aiKey) return null;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const yday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+    const nr = await fetch(`https://finnhub.io/api/v1/company-news?symbol=${symbol}&from=${yday}&to=${today}&token=${finKey}`);
+    if (!nr.ok) return null;
+    const nj = (await nr.json()) as Array<{ headline?: string }>;
+    const headlines = (nj ?? []).slice(0, 5).map((n) => n.headline ?? "").filter(Boolean);
+    if (headlines.length < 2) return null;
+    const prompt = `Given these recent news headlines for ${symbol}, respond with ONLY a JSON object: { "sentiment": "positive"|"negative"|"neutral", "confidence": 0-100, "reason": "one sentence" }. Headlines: ${headlines.join(" | ")}`;
+    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": aiKey, "X-Lovable-AIG-SDK": "direct" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!r.ok) return null;
+    const jj = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const parsed = JSON.parse(jj.choices?.[0]?.message?.content ?? "{}") as { sentiment?: string; confidence?: number; reason?: string };
+    const s = parsed.sentiment === "positive" || parsed.sentiment === "negative" ? parsed.sentiment : "neutral";
+    return { sentiment: s, confidence: Number(parsed.confidence ?? 0), reason: String(parsed.reason ?? "") };
+  } catch { return null; }
+}
+
+
 export const Route = createFileRoute("/api/public/evaluate-strategies")({
   server: {
     handlers: {
