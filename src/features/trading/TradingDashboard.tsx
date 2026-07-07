@@ -6,12 +6,15 @@ import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
   TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy, Sigma,
 } from "lucide-react";
+import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { StrategiesPanel } from "./components/StrategiesPanel";
 import { BacktestingPanel } from "./components/BacktestingPanel";
@@ -22,6 +25,18 @@ import { AgentPanel } from "./components/AgentPanel";
 import { LeaderboardPanel } from "./components/LeaderboardPanel";
 import { OptionsFlowPanel } from "./components/OptionsFlowPanel";
 import { TopNav } from "@/components/TopNav";
+
+const TAB_ITEMS = [
+  { value: "overview", label: "Overview", Icon: Activity },
+  { value: "strategies", label: "Strategies", Icon: Brain },
+  { value: "backtest", label: "Backtest", Icon: FlaskConical },
+  { value: "execution", label: "Execution", Icon: Zap },
+  { value: "risk", label: "Risk", Icon: Shield },
+  { value: "broker", label: "Broker", Icon: Link2 },
+  { value: "agent", label: "Agent", Icon: Bot },
+  { value: "leaderboard", label: "Leaderboard", Icon: Trophy },
+  { value: "options", label: "Options", Icon: Sigma },
+] as const;
 
 export default function TradingDashboard() {
   const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
