@@ -306,11 +306,13 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                       quantity: qty, price: quote.price,
                       reason: `auto_exit pnl=${pnl.toFixed(2)} via ${quote.source}`,
                     });
+                    await fireWebhook(userId, "trade_close", { strategy_id: strat.id, asset: symbol, side: trade.side === "buy" ? "sell" : "buy", quantity: qty, price: quote.price, pnl });
                     // Update sector counts (this asset just closed)
                     const sec = sectorFor(symbol);
                     sectorCounts.set(sec, Math.max(0, (sectorCounts.get(sec) ?? 1) - 1));
                     closed++;
                   }
+
 
                   // Entries
                   if (dailyLossHit || cooldownRemaining > 0) continue;
