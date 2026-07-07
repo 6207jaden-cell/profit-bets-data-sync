@@ -384,6 +384,49 @@ function StrategyCard({
           {s.execution_mode === "live" ? "● LIVE TRADING" : s.execution_mode === "paper" ? "● PAPER MODE" : "○ DISABLED"}
         </span>
       </div>
+      </div>
+
+      <StrategyExplanationSection strategy={s} />
     </Card>
   );
 }
+
+function StrategyExplanationSection({ strategy }: { strategy: Strategy }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState<string | null>(strategy.explanation ?? null);
+  const genFn = useServerFn(generateStrategyExplanation);
+  const gen = useMutation({
+    mutationFn: async () => {
+      const res = await genFn({ data: { strategy_id: strategy.id } });
+      if (!res.ok) throw new Error(res.reason);
+      return res.explanation;
+    },
+    onSuccess: (explanation) => {
+      setText(explanation);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+    },
+    onError: (e: Error) => toast.error(e.message.replace(/_/g, " ")),
+  });
+  return (
+    <div className="mt-3 pt-3 border-t border-border">
+      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        <BookOpen className="h-3 w-3" /> Strategy Thesis
+      </button>
+      {open && (
+        <div className="mt-2">
+          {text ? (
+            <p className="text-xs italic text-muted-foreground whitespace-pre-line bg-muted/30 rounded p-3">{text}</p>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => gen.mutate()} disabled={gen.isPending}>
+              {gen.isPending ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+              Generate Explanation
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
