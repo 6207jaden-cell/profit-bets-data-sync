@@ -103,3 +103,44 @@ Rules:
       },
     };
   });
+
+export const generateStrategyExplanation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { strategy_id: string }) => {
+    if (!input?.strategy_id) throw new Error("strategy_id_required");
+    return { strategy_id: String(input.strategy_id) };
+  })
+  .handler(async ({ data, context }): Promise<{ ok: true; explanation: string } | { ok: false; reason: string }> => {
+    const apiKey = process.env.LOVABLE_API_KEY;
+    if (!apiKey) return { ok: false, reason: "missing_lovable_api_key" };
+    const { supabase } = context;
+    const { data: strat, error } = await supabase
+      .from("strategies").select("name, description, strategy_json").eq("id", data.strategy_id).maybeSingle();
+    if (error || !strat) return { ok: false, reason: "strategy_not_found" };
+
+    const systemPrompt = "You are a quantitative trading educator. Given a trading strategy's rules, write a clear 4-paragraph explanation: (1) What market inefficiency or pattern this strategy exploits, (2) Why the chosen indicators work together for this purpose, (3) What market conditions will cause this strategy to fail, (4) What a trader should watch for to know if the strategy is working as intended. Be specific, honest about risks, and avoid hype. Max 200 words total.";
+
+    try {
+      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "direct" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: JSON.stringify({ name: strat.name, description: strat.description, rules: strat.strategy_json }) },
+          ],
+        }),
+      });
+      if (res.status === 429) return { ok: false, reason: "rate_limited" };
+      if (res.status === 402) return { ok: false, reason: "credits_exhausted" };
+      if (!res.ok) return { ok: false, reason: `gateway_${res.status}` };
+      const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const explanation = (j.choices?.[0]?.message?.content ?? "").trim();
+      if (!explanation) return { ok: false, reason: "empty_response" };
+      await supabase.from("strategies").update({ explanation }).eq("id", data.strategy_id);
+      return { ok: true, explanation };
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message : "gateway_failed" };
+    }
+  });

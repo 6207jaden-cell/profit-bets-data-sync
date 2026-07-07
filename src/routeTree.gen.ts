@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as AuthenticatedTradingRouteImport } from './routes/_authenticated/trading'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedMarketsRouteImport } from './routes/_authenticated/markets'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as ApiPublicSnapshotPortfolioRouteImport } from './routes/api/public/snapshot-portfolio'
@@ -46,6 +47,11 @@ const ApiChatRoute = ApiChatRouteImport.update({
 const AuthenticatedTradingRoute = AuthenticatedTradingRouteImport.update({
   id: '/trading',
   path: '/trading',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedMarketsRoute = AuthenticatedMarketsRouteImport.update({
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/markets': typeof AuthenticatedMarketsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/markets': typeof AuthenticatedMarketsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
@@ -135,6 +143,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/markets': typeof AuthenticatedMarketsRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/admin'
     | '/markets'
+    | '/settings'
     | '/trading'
     | '/api/chat'
     | '/api/public/daily-digest'
@@ -167,6 +177,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/admin'
     | '/markets'
+    | '/settings'
     | '/trading'
     | '/api/chat'
     | '/api/public/daily-digest'
@@ -183,6 +194,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/admin'
     | '/_authenticated/markets'
+    | '/_authenticated/settings'
     | '/_authenticated/trading'
     | '/api/chat'
     | '/api/public/daily-digest'
@@ -243,6 +255,13 @@ declare module '@tanstack/react-router' {
       path: '/trading'
       fullPath: '/trading'
       preLoaderRoute: typeof AuthenticatedTradingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/markets': {
@@ -314,12 +333,14 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedMarketsRoute: typeof AuthenticatedMarketsRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTradingRoute: typeof AuthenticatedTradingRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedMarketsRoute: AuthenticatedMarketsRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTradingRoute: AuthenticatedTradingRoute,
 }
 

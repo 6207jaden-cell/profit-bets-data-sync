@@ -2,18 +2,39 @@ import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion, AnimatePresence } from "framer-motion";
-import { Brain, Sparkles, Trash2, Loader2, Play, PauseCircle, Lock, User } from "lucide-react";
+import { Brain, Sparkles, Trash2, Loader2, Play, PauseCircle, Lock, User, BookOpen, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
-import { generateStrategyFromPrompt } from "@/lib/strategy.functions";
+import { generateStrategyFromPrompt, generateStrategyExplanation } from "@/lib/strategy.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+type TemplateT = { name: string; blurb: string; style: string; prompt: string };
+const TEMPLATES: TemplateT[] = [
+  { name: "Golden Cross", blurb: "SMA(50) crosses SMA(200)", style: "momentum",
+    prompt: "Momentum strategy: buy when SMA(50) crosses above SMA(200) on large-cap US stocks. Exit when SMA(50) crosses back below SMA(200). Universe: AAPL, MSFT, NVDA, GOOGL. Style: momentum." },
+  { name: "RSI Mean Reversion", blurb: "Buy oversold, sell recovery", style: "mean_reversion",
+    prompt: "Mean reversion: buy when RSI(14) drops below 30 (oversold), exit when RSI recovers above 55. Universe: SPY, QQQ, AAPL, TSLA. Style: mean_reversion." },
+  { name: "EMA Crossover", blurb: "12/26 EMA trend", style: "momentum",
+    prompt: "Trend following: enter long when EMA(12) crosses above EMA(26), exit when EMA(12) crosses back below EMA(26). Universe: MSFT, AMZN, META. Style: momentum." },
+  { name: "Crypto RSI Dip", blurb: "BTC/ETH oversold buys", style: "mean_reversion",
+    prompt: "Mean reversion on crypto: buy bitcoin and ethereum when RSI(14) falls below 35, sell when RSI exceeds 65. Style: mean_reversion." },
+  { name: "SMA200 Breakout", blurb: "Price breaks 200-day", style: "breakout",
+    prompt: "Breakout strategy: enter when price closes above SMA(200) for the first time in 20 days. Exit when price drops 5% below entry. Universe: SPY, QQQ, IWM. Style: breakout." },
+  { name: "Bollinger Reversion", blurb: "2 sigma below SMA(20)", style: "mean_reversion",
+    prompt: "Buy when price drops more than 2 standard deviations below SMA(20) (RSI < 35 confirms), exit when price returns to SMA(20). Universe: AAPL, NVDA, TSLA. Style: mean_reversion." },
+  { name: "MACD Momentum", blurb: "EMA cross + RSI filter", style: "momentum",
+    prompt: "Enter long when EMA(12) crosses above EMA(26) and RSI is above 50. Exit when EMA(12) crosses back below EMA(26). Universe: GOOGL, AMZN, META, MSFT. Style: momentum." },
+  { name: "Crypto Momentum", blurb: "BTC/ETH trend riding", style: "momentum",
+    prompt: "Momentum: enter BTC-USD and ETH-USD when price is above SMA(50) and RSI is between 50 and 70. Exit when RSI exceeds 80 or price drops below SMA(50). Style: momentum." },
+];
+
 
 const TIER_LIMITS = { free: 2, pro: 20, elite: 999 } as const;
 
@@ -30,14 +51,18 @@ type Strategy = {
     exit?:  { conditions: string[]; logic: "AND" | "OR" };
     timeframes?: string[];
     universe?: string[];
+    style?: string;
   };
   market_type: "stocks" | "crypto" | "both";
   risk_level: "low" | "medium" | "high";
   execution_mode: ExecMode;
   active: boolean;
   source: string;
+  style?: string | null;
+  explanation?: string | null;
   created_at: string;
 };
+
 
 const EXAMPLES = [
   "Momentum breakout on liquid tech stocks using RSI above 60 and price above 20-day EMA",
@@ -137,8 +162,38 @@ export function StrategiesPanel() {
 
   return (
     <div className="space-y-6">
+      {/* Templates */}
+      <Card className="p-5 border-border bg-card">
+        <header className="flex items-center gap-2 mb-3">
+          <BookOpen className="h-4 w-4 text-primary" />
+          <h2 className="font-display font-semibold">Templates</h2>
+          <span className="text-xs text-muted-foreground">One-click prompts, AI parses into strategy</span>
+        </header>
+        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+          {TEMPLATES.map((t) => (
+            <div key={t.name} className="min-w-[210px] shrink-0 rounded-md border border-border p-3 bg-background/40 flex flex-col gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-display font-semibold text-sm">{t.name}</span>
+                <Badge variant="outline" className="text-[9px] font-mono uppercase">{t.style.replace("_", " ")}</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground line-clamp-2">{t.blurb}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-auto"
+                disabled={generate.isPending || atLimit}
+                onClick={() => { setPrompt(t.prompt); generate.mutate(); }}
+              >
+                Use Template
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Card>
+
       {/* Builder */}
       <Card className="p-5 border-border bg-card">
+
         <header className="flex items-center justify-between mb-3">
           <h2 className="font-display font-semibold flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" /> Build a Strategy with AI
@@ -246,6 +301,11 @@ function StrategyCard({
               </Badge>
             )}
             <Badge variant="outline" className="text-[9px] font-mono uppercase">{s.market_type}</Badge>
+            {(s.style ?? s.strategy_json?.style) && (
+              <Badge className="bg-amber-500/15 text-amber-500 border-amber-500/30 text-[9px] font-mono uppercase">
+                {(s.style ?? s.strategy_json.style)!.replace("_", " ")}
+              </Badge>
+            )}
             <Badge
               variant="outline"
               className={cn("text-[9px] font-mono uppercase",
@@ -256,6 +316,7 @@ function StrategyCard({
               {s.risk_level} risk
             </Badge>
             {!s.active && <Badge variant="outline" className="text-[9px] font-mono">PAUSED</Badge>}
+
           </div>
           {s.description && <p className="text-xs text-muted-foreground">{s.description}</p>}
           {s.source === "ai_lab" && (
@@ -323,6 +384,49 @@ function StrategyCard({
           {s.execution_mode === "live" ? "● LIVE TRADING" : s.execution_mode === "paper" ? "● PAPER MODE" : "○ DISABLED"}
         </span>
       </div>
+
+      <StrategyExplanationSection strategy={s} />
     </Card>
+
   );
 }
+
+function StrategyExplanationSection({ strategy }: { strategy: Strategy }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState<string | null>(strategy.explanation ?? null);
+  const genFn = useServerFn(generateStrategyExplanation);
+  const gen = useMutation({
+    mutationFn: async () => {
+      const res = await genFn({ data: { strategy_id: strategy.id } });
+      if (!res.ok) throw new Error(res.reason);
+      return res.explanation;
+    },
+    onSuccess: (explanation) => {
+      setText(explanation);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+    },
+    onError: (e: Error) => toast.error(e.message.replace(/_/g, " ")),
+  });
+  return (
+    <div className="mt-3 pt-3 border-t border-border">
+      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        <BookOpen className="h-3 w-3" /> Strategy Thesis
+      </button>
+      {open && (
+        <div className="mt-2">
+          {text ? (
+            <p className="text-xs italic text-muted-foreground whitespace-pre-line bg-muted/30 rounded p-3">{text}</p>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => gen.mutate()} disabled={gen.isPending}>
+              {gen.isPending ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+              Generate Explanation
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+

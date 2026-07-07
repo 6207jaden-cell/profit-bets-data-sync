@@ -34,15 +34,18 @@ JSON shape:
   "description": "1-2 sentence summary",
   "market_type": "stocks" | "crypto" | "both",
   "risk_level": "low" | "medium" | "high",
+  "style": "momentum" | "mean_reversion" | "breakout" | "volatility",
   "strategy_json": {
     "indicators": [ { "name": "RSI"|"MACD"|"VWAP"|"SMA"|"EMA"|"BBANDS"|"ATR", "params": { ... } } ],
     "entry": { "conditions": ["RSI < 30", "price > SMA(50)"], "logic": "AND" },
     "exit":  { "conditions": ["RSI > 70", "price < entry * 0.97"], "logic": "OR" },
     "timeframes": ["1h", "1d"],
     "universe": ["AAPL","MSFT"],
+    "style": "momentum",
     "notes": "optional"
   }
 }`;
+
 
 type Bar = { t: number; c: number };
 
@@ -264,6 +267,11 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
           universe: (sjRaw.universe ?? []).slice(0, 10).map((u) => String(u).toUpperCase()),
           notes: sjRaw.notes ? String(sjRaw.notes).slice(0, 400) : undefined,
         };
+        const validStyles = ["momentum", "mean_reversion", "breakout", "volatility"];
+        const styleTop = typeof parsed.style === "string" && validStyles.includes(parsed.style) ? parsed.style : null;
+        const styleInner = typeof (sjRaw as { style?: unknown }).style === "string" && validStyles.includes(String((sjRaw as { style?: unknown }).style)) ? String((sjRaw as { style?: unknown }).style) : null;
+        const style = styleTop ?? styleInner;
+        if (style) (strategy_json as StrategyJSON & { style?: string }).style = style;
         const name = String(parsed.name ?? "AI Lab Strategy").slice(0, 60);
         const description = String(parsed.description ?? "").slice(0, 400);
         const market_type = (["stocks", "crypto", "both"].includes(mt) ? mt : "stocks") as "stocks" | "crypto" | "both";
@@ -279,6 +287,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
             market_type,
             risk_level,
             strategy_json,
+            style,
             source: "ai_lab",
             execution_mode: "paper",
             active: true,
@@ -287,6 +296,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
         if (insErr || !inserted) {
           return Response.json({ ok: false, error: insErr?.message ?? "insert_failed" }, { status: 500 });
         }
+
 
         // Backtest first symbol.
         const symbol = strategy_json.universe?.[0] ?? "AAPL";
@@ -316,7 +326,29 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
           }
         }
 
-        return Response.json({ ok: true, generated: 1, strategy_name: name, roi, win_rate, active });
+        // Auto-generate strategy explanation (best effort)
+        try {
+          const exPrompt = "You are a quantitative trading educator. Given a trading strategy's rules, write a clear 4-paragraph explanation: (1) What market inefficiency or pattern this strategy exploits, (2) Why the chosen indicators work together for this purpose, (3) What market conditions will cause this strategy to fail, (4) What a trader should watch for to know if the strategy is working as intended. Be specific, honest about risks, and avoid hype. Max 200 words total.";
+          const exRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "direct" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [
+                { role: "system", content: exPrompt },
+                { role: "user", content: JSON.stringify({ name, description, rules: strategy_json }) },
+              ],
+            }),
+          });
+          if (exRes.ok) {
+            const ej = (await exRes.json()) as { choices?: Array<{ message?: { content?: string } }> };
+            const explanation = (ej.choices?.[0]?.message?.content ?? "").trim();
+            if (explanation) await supabaseAdmin.from("strategies").update({ explanation }).eq("id", inserted.id);
+          }
+        } catch { /* best-effort */ }
+
+        return Response.json({ ok: true, generated: 1, strategy_name: name, style, roi, win_rate, active });
+
       },
     },
   },

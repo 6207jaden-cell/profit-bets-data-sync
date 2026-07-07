@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchDailyCloses, buildContext, evalGroup, isCryptoSymbol, atr } from "@/lib/indicators";
+import { fetchDailyCloses, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr } from "@/lib/indicators";
+import { fireWebhook } from "@/lib/webhook.functions";
+
 
 /**
  * Autonomous paper-trading evaluator. Called by pg_cron every 5 minutes.
@@ -88,16 +90,70 @@ type StrategyRow = {
   id: string;
   user_id: string;
   name?: string;
+  style?: string | null;
   strategy_json: {
     entry?: { conditions?: string[]; logic?: "AND" | "OR" };
     exit?: { conditions?: string[]; logic?: "AND" | "OR" };
     universe?: string[];
+    style?: string;
   };
 };
+
 
 function sectorFor(sym: string): string {
   return SECTOR[sym.toUpperCase()] ?? "other";
 }
+
+/** Return true if the symbol has an earnings release in the next 48h. */
+async function earningsWithin48h(symbol: string): Promise<{ blocked: boolean; date?: string }> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) return { blocked: false };
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10);
+    const r = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${to}&symbol=${symbol}&token=${key}`);
+    if (!r.ok) return { blocked: false };
+    const j = (await r.json()) as { earningsCalendar?: Array<{ date: string; symbol: string }> };
+    for (const e of j.earningsCalendar ?? []) {
+      if (e.symbol.toUpperCase() !== symbol.toUpperCase()) continue;
+      const diffH = (new Date(e.date).getTime() - Date.now()) / 3600_000;
+      if (diffH >= 0 && diffH <= 48) return { blocked: true, date: e.date };
+    }
+    return { blocked: false };
+  } catch { return { blocked: false }; }
+}
+
+/** Simple AI sentiment on recent headlines. Fails open. */
+async function newsSentiment(symbol: string): Promise<{ sentiment: "positive" | "negative" | "neutral"; confidence: number; reason: string } | null> {
+  const finKey = process.env.FINNHUB_API_KEY;
+  const aiKey = process.env.LOVABLE_API_KEY;
+  if (!finKey || !aiKey) return null;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const yday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+    const nr = await fetch(`https://finnhub.io/api/v1/company-news?symbol=${symbol}&from=${yday}&to=${today}&token=${finKey}`);
+    if (!nr.ok) return null;
+    const nj = (await nr.json()) as Array<{ headline?: string }>;
+    const headlines = (nj ?? []).slice(0, 5).map((n) => n.headline ?? "").filter(Boolean);
+    if (headlines.length < 2) return null;
+    const prompt = `Given these recent news headlines for ${symbol}, respond with ONLY a JSON object: { "sentiment": "positive"|"negative"|"neutral", "confidence": 0-100, "reason": "one sentence" }. Headlines: ${headlines.join(" | ")}`;
+    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": aiKey, "X-Lovable-AIG-SDK": "direct" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!r.ok) return null;
+    const jj = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const parsed = JSON.parse(jj.choices?.[0]?.message?.content ?? "{}") as { sentiment?: string; confidence?: number; reason?: string };
+    const s = parsed.sentiment === "positive" || parsed.sentiment === "negative" ? parsed.sentiment : "neutral";
+    return { sentiment: s, confidence: Number(parsed.confidence ?? 0), reason: String(parsed.reason ?? "") };
+  } catch { return null; }
+}
+
 
 export const Route = createFileRoute("/api/public/evaluate-strategies")({
   server: {
@@ -109,15 +165,17 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const ts = new Date().toISOString();
+        const marketOpen = isMarketOpen();
 
         const { data: strategies, error: sErr } = await supabaseAdmin
           .from("strategies")
-          .select("id, user_id, name, strategy_json")
+          .select("id, user_id, name, style, strategy_json")
           .eq("execution_mode", "paper").eq("active", true);
         if (sErr) return Response.json({ ok: false, error: sErr.message }, { status: 500 });
         if (!strategies || strategies.length === 0) {
-          return Response.json({ ok: true, evaluated: 0, opened: 0, closed: 0, errors: [], ts });
+          return Response.json({ ok: true, evaluated: 0, opened: 0, closed: 0, errors: [], ts, market_open: marketOpen });
         }
+
 
         const byUser = new Map<string, StrategyRow[]>();
         for (const s of strategies as StrategyRow[]) {
@@ -190,6 +248,11 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
 
             let cash = Number(portfolio.balance);
 
+            // Market regime (one-shot per user via SPY)
+            const spyCloses = await getCloses("SPY");
+            const regime = spyCloses ? detectMarketRegime(spyCloses) : "sideways";
+
+
             for (const strat of userStrats) {
               const sj = strat.strategy_json ?? {};
               const universe = (sj.universe ?? []).map((s) => String(s).toUpperCase()).filter(Boolean);
@@ -201,6 +264,11 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
               for (const symbol of universe) {
                 evaluated++;
                 try {
+                  const symIsCrypto = isCryptoSymbol(symbol);
+                  // Market hours guard — stocks skipped when closed
+                  if (!symIsCrypto && !marketOpen) {
+                    continue;
+                  }
                   const closes = await getCloses(symbol);
                   const quote = await getQuote(symbol);
                   if (!closes || !quote) {
@@ -208,6 +276,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     continue;
                   }
                   const liveCloses = [...closes, quote.price];
+
 
                   // Exits first
                   const { data: openTrades } = await supabaseAdmin
@@ -237,11 +306,13 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                       quantity: qty, price: quote.price,
                       reason: `auto_exit pnl=${pnl.toFixed(2)} via ${quote.source}`,
                     });
+                    await fireWebhook(userId, "trade_close", { strategy_id: strat.id, asset: symbol, side: trade.side === "buy" ? "sell" : "buy", quantity: qty, price: quote.price, pnl });
                     // Update sector counts (this asset just closed)
                     const sec = sectorFor(symbol);
                     sectorCounts.set(sec, Math.max(0, (sectorCounts.get(sec) ?? 1) - 1));
                     closed++;
                   }
+
 
                   // Entries
                   if (dailyLossHit || cooldownRemaining > 0) continue;
@@ -257,6 +328,21 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   if (!entryCtx) continue;
                   if (!evalGroup(entryConds, entryLogic, entryCtx)) continue;
 
+                  // Earnings avoidance (stocks only)
+                  if (!symIsCrypto) {
+                    const er = await earningsWithin48h(symbol);
+                    if (er.blocked) {
+                      errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:earnings_proximity symbol=${symbol} earnings_date=${er.date}` });
+                      continue;
+                    }
+                    // News sentiment filter (fails open)
+                    const ns = await newsSentiment(symbol);
+                    if (ns && ns.sentiment === "negative" && ns.confidence >= 70) {
+                      errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:negative_news_sentiment symbol=${symbol} confidence=${ns.confidence} reason=${ns.reason}` });
+                      continue;
+                    }
+                  }
+
                   // Sector concentration guard
                   const sec = sectorFor(symbol);
                   const secCount = sectorCounts.get(sec) ?? 0;
@@ -264,6 +350,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:sector_concentration sector=${sec} (${secCount}/${totalOpen} positions)` });
                     continue;
                   }
+
 
                   let allocPct = Math.min(maxPositionPct, 10);
 
@@ -298,6 +385,16 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   }
                   allocPct = Math.max(2, allocPct); // floor 2%
 
+                  // Market regime multiplier based on strategy style
+                  const style = strat.style ?? sj.style ?? null;
+                  let regimeMult = 1;
+                  if (style === "momentum") {
+                    regimeMult = regime === "bull" ? 1.25 : regime === "bear" ? 0.5 : 1;
+                  } else if (style === "mean_reversion") {
+                    regimeMult = regime === "sideways" ? 1.25 : 0.75;
+                  }
+                  allocPct = Math.min(maxPositionPct, allocPct * regimeMult);
+
                   const allocCash = (cash * allocPct) / 100;
                   if (allocCash <= 0) {
                     errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: "insufficient_cash" });
@@ -322,9 +419,11 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   await supabaseAdmin.from("signals_executions").insert({
                     user_id: userId, strategy_id: strat.id, execution_type: "paper", status: "filled",
                     asset: symbol, side: "buy", quantity, price: quote.price,
-                    reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""}`,
+                    reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""} regime=${regime}${style ? ` style=${style} mult=${regimeMult.toFixed(2)}` : ""}`,
                   });
+                  await fireWebhook(userId, "trade_open", { strategy_id: strat.id, asset: symbol, side: "buy", quantity, price: quote.price, alloc_pct: allocPct, regime, style });
                   opened++;
+
                 } catch (e) {
                   errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: e instanceof Error ? e.message : "symbol_eval_failed" });
                 }
@@ -348,7 +447,9 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   asset: "SYSTEM", side: "sell", quantity: 0, price: 0,
                   reason: `auto_retired: poor_live_performance win_rate=${winRate.toFixed(0)}% roi=${roi.toFixed(1)}% retired_name=${strat.name ?? ""}`,
                 });
+                await fireWebhook(userId, "strategy_retired", { strategy_id: strat.id, name: strat.name ?? "", win_rate: winRate, roi });
                 retired++;
+
                 // Trigger a replacement strategy generation
                 try {
                   const url = `https://project--a4cfc4c8-5d00-4bc0-a84a-408f0bcb34ad-dev.lovable.app/api/public/generate-strategies`;
@@ -365,7 +466,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
           }
         }
 
-        return Response.json({ ok: true, evaluated, opened, closed, retired, errors, ts });
+        return Response.json({ ok: true, evaluated, opened, closed, retired, errors, ts, market_open: marketOpen, regime: null });
       },
     },
   },

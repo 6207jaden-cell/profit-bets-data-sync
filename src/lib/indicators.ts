@@ -141,17 +141,47 @@ export function evalGroup(conds: string[], logic: "AND" | "OR", ctx: IndicatorCo
 
 // ---------- Live data ----------
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// ---------- Market regime & hours ----------
 
-/** Detect crypto symbols like "BTC-USD" or "BTC/USD". */
+/** True if the given symbol is a crypto pair (24/7 markets). */
 export function isCryptoSymbol(sym: string): boolean {
-  return /^[A-Z]{2,10}[-/]USD[T]?$/.test(sym.toUpperCase());
+  const s = sym.toUpperCase();
+  if (/^[A-Z]{2,10}[-/]USD[T]?$/.test(s)) return true;
+  return /^(BTC|ETH|SOL|BITCOIN|ETHEREUM|SOLANA)$/.test(s) || /USD$/.test(s) && /^(BTC|ETH|SOL)/.test(s);
 }
+
+/** True if US equity market is currently open (Mon-Fri, 9:30-16:00 ET, roughly). */
+export function isMarketOpen(now: Date = new Date()): boolean {
+  // Compute ET wall-clock via toLocaleString
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = et.getDay(); // 0 Sun, 6 Sat
+  if (day === 0 || day === 6) return false;
+  const hour = et.getHours();
+  const minute = et.getMinutes();
+  const mins = hour * 60 + minute;
+  return mins >= 9 * 60 + 30 && mins < 16 * 60;
+}
+
+/** Detect broad market regime from SPY closes. */
+export function detectMarketRegime(spyCloses: number[]): "bull" | "bear" | "sideways" {
+  if (!spyCloses || spyCloses.length < 200) return "sideways";
+  const sma50Arr = sma(spyCloses, 50);
+  const sma200Arr = sma(spyCloses, 200);
+  const i = spyCloses.length - 1;
+  const s50 = sma50Arr[i], s200 = sma200Arr[i], last = spyCloses[i];
+  if (s50 == null || s200 == null) return "sideways";
+  if (s50 > s200 && last > s50) return "bull";
+  if (s50 < s200 && last < s50) return "bear";
+  return "sideways";
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Extract base coin from "BTC-USD" / "BTC/USDT" -> "BTC". */
 function cryptoBase(sym: string): string {
   return sym.toUpperCase().replace(/[-/]USD[T]?$/, "");
 }
+
 
 /**
  * Fetch ~220 recent daily closes for a symbol. Handles both stocks and

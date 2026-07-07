@@ -59,10 +59,12 @@ export const Route = createFileRoute("/api/public/resolve-signals")({
 
         const { data: signals, error } = await supabaseAdmin
           .from("market_signals")
-          .select("id, asset, direction, entry_price, target_price, stop_price, created_at")
+          .select("id, asset, direction, entry_price, target_price, stop_price, created_at, user_id")
           .eq("result", "open")
           .lte("created_at", thirtyMinAgo);
         if (error) return Response.json({ ok: false, error: error.message }, { status: 500 });
+        const { fireWebhook } = await import("@/lib/webhook.functions");
+
 
         const priceCache = new Map<string, number | null>();
         let hit_target = 0, hit_stop = 0, expired = 0;
@@ -91,7 +93,9 @@ export const Route = createFileRoute("/api/public/resolve-signals")({
             await supabaseAdmin.from("market_signals").update({
               result: "hit_target", resolved_pnl_pct: pnl,
             }).eq("id", s.id);
+            if (s.user_id) await fireWebhook(String(s.user_id), "signal_hit", { signal_id: s.id, asset, direction: dir, entry, target: tgt, pnl_pct: pnl });
             hit_target++;
+
           } else if (stp != null && ((!isShort && price <= stp) || (isShort && price >= stp))) {
             const pnl = ((stp - entry) / entry) * 100 * dirMult;
             await supabaseAdmin.from("market_signals").update({
