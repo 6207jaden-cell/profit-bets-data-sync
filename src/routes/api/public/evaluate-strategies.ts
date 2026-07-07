@@ -264,6 +264,11 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
               for (const symbol of universe) {
                 evaluated++;
                 try {
+                  const symIsCrypto = isCryptoSymbol(symbol);
+                  // Market hours guard — stocks skipped when closed
+                  if (!symIsCrypto && !marketOpen) {
+                    continue;
+                  }
                   const closes = await getCloses(symbol);
                   const quote = await getQuote(symbol);
                   if (!closes || !quote) {
@@ -271,6 +276,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     continue;
                   }
                   const liveCloses = [...closes, quote.price];
+
 
                   // Exits first
                   const { data: openTrades } = await supabaseAdmin
