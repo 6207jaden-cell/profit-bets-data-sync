@@ -34,15 +34,18 @@ JSON shape:
   "description": "1-2 sentence summary",
   "market_type": "stocks" | "crypto" | "both",
   "risk_level": "low" | "medium" | "high",
+  "style": "momentum" | "mean_reversion" | "breakout" | "volatility",
   "strategy_json": {
     "indicators": [ { "name": "RSI"|"MACD"|"VWAP"|"SMA"|"EMA"|"BBANDS"|"ATR", "params": { ... } } ],
     "entry": { "conditions": ["RSI < 30", "price > SMA(50)"], "logic": "AND" },
     "exit":  { "conditions": ["RSI > 70", "price < entry * 0.97"], "logic": "OR" },
     "timeframes": ["1h", "1d"],
     "universe": ["AAPL","MSFT"],
+    "style": "momentum",
     "notes": "optional"
   }
 }`;
+
 
 type Bar = { t: number; c: number };
 
