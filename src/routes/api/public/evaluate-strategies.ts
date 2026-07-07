@@ -90,12 +90,15 @@ type StrategyRow = {
   id: string;
   user_id: string;
   name?: string;
+  style?: string | null;
   strategy_json: {
     entry?: { conditions?: string[]; logic?: "AND" | "OR" };
     exit?: { conditions?: string[]; logic?: "AND" | "OR" };
     universe?: string[];
+    style?: string;
   };
 };
+
 
 function sectorFor(sym: string): string {
   return SECTOR[sym.toUpperCase()] ?? "other";
