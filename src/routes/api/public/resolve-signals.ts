@@ -93,7 +93,9 @@ export const Route = createFileRoute("/api/public/resolve-signals")({
             await supabaseAdmin.from("market_signals").update({
               result: "hit_target", resolved_pnl_pct: pnl,
             }).eq("id", s.id);
+            if (s.user_id) await fireWebhook(String(s.user_id), "signal_hit", { signal_id: s.id, asset, direction: dir, entry, target: tgt, pnl_pct: pnl });
             hit_target++;
+
           } else if (stp != null && ((!isShort && price <= stp) || (isShort && price >= stp))) {
             const pnl = ((stp - entry) / entry) * 100 * dirMult;
             await supabaseAdmin.from("market_signals").update({
