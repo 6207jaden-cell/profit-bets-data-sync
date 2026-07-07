@@ -326,7 +326,29 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
           }
         }
 
-        return Response.json({ ok: true, generated: 1, strategy_name: name, roi, win_rate, active });
+        // Auto-generate strategy explanation (best effort)
+        try {
+          const exPrompt = "You are a quantitative trading educator. Given a trading strategy's rules, write a clear 4-paragraph explanation: (1) What market inefficiency or pattern this strategy exploits, (2) Why the chosen indicators work together for this purpose, (3) What market conditions will cause this strategy to fail, (4) What a trader should watch for to know if the strategy is working as intended. Be specific, honest about risks, and avoid hype. Max 200 words total.";
+          const exRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "direct" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [
+                { role: "system", content: exPrompt },
+                { role: "user", content: JSON.stringify({ name, description, rules: strategy_json }) },
+              ],
+            }),
+          });
+          if (exRes.ok) {
+            const ej = (await exRes.json()) as { choices?: Array<{ message?: { content?: string } }> };
+            const explanation = (ej.choices?.[0]?.message?.content ?? "").trim();
+            if (explanation) await supabaseAdmin.from("strategies").update({ explanation }).eq("id", inserted.id);
+          }
+        } catch { /* best-effort */ }
+
+        return Response.json({ ok: true, generated: 1, strategy_name: name, style, roi, win_rate, active });
+
       },
     },
   },
