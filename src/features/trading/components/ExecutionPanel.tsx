@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { Zap, X, TrendingUp, TrendingDown, Loader2, Bot, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
 import { toast } from "sonner";
