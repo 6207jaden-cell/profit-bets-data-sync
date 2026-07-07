@@ -162,8 +162,38 @@ export function StrategiesPanel() {
 
   return (
     <div className="space-y-6">
+      {/* Templates */}
+      <Card className="p-5 border-border bg-card">
+        <header className="flex items-center gap-2 mb-3">
+          <BookOpen className="h-4 w-4 text-primary" />
+          <h2 className="font-display font-semibold">Templates</h2>
+          <span className="text-xs text-muted-foreground">One-click prompts, AI parses into strategy</span>
+        </header>
+        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+          {TEMPLATES.map((t) => (
+            <div key={t.name} className="min-w-[210px] shrink-0 rounded-md border border-border p-3 bg-background/40 flex flex-col gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-display font-semibold text-sm">{t.name}</span>
+                <Badge variant="outline" className="text-[9px] font-mono uppercase">{t.style.replace("_", " ")}</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground line-clamp-2">{t.blurb}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-auto"
+                disabled={generate.isPending || atLimit}
+                onClick={() => { setPrompt(t.prompt); generate.mutate(); }}
+              >
+                Use Template
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Card>
+
       {/* Builder */}
       <Card className="p-5 border-border bg-card">
+
         <header className="flex items-center justify-between mb-3">
           <h2 className="font-display font-semibold flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" /> Build a Strategy with AI
