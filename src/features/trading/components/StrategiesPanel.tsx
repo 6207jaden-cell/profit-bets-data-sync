@@ -51,14 +51,18 @@ type Strategy = {
     exit?:  { conditions: string[]; logic: "AND" | "OR" };
     timeframes?: string[];
     universe?: string[];
+    style?: string;
   };
   market_type: "stocks" | "crypto" | "both";
   risk_level: "low" | "medium" | "high";
   execution_mode: ExecMode;
   active: boolean;
   source: string;
+  style?: string | null;
+  explanation?: string | null;
   created_at: string;
 };
+
 
 const EXAMPLES = [
   "Momentum breakout on liquid tech stocks using RSI above 60 and price above 20-day EMA",
