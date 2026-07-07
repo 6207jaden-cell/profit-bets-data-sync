@@ -175,8 +175,13 @@ export function detectMarketRegime(spyCloses: number[]): "bull" | "bear" | "side
   return "sideways";
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Extract base coin from "BTC-USD" / "BTC/USDT" -> "BTC". */
+function cryptoBase(sym: string): string {
   return sym.toUpperCase().replace(/[-/]USD[T]?$/, "");
 }
+
 
 /**
  * Fetch ~220 recent daily closes for a symbol. Handles both stocks and
