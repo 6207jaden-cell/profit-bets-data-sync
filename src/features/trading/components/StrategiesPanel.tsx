@@ -384,10 +384,10 @@ function StrategyCard({
           {s.execution_mode === "live" ? "● LIVE TRADING" : s.execution_mode === "paper" ? "● PAPER MODE" : "○ DISABLED"}
         </span>
       </div>
-      </div>
 
       <StrategyExplanationSection strategy={s} />
     </Card>
+
   );
 }
 
