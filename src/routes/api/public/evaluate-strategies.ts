@@ -165,15 +165,17 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const ts = new Date().toISOString();
+        const marketOpen = isMarketOpen();
 
         const { data: strategies, error: sErr } = await supabaseAdmin
           .from("strategies")
-          .select("id, user_id, name, strategy_json")
+          .select("id, user_id, name, style, strategy_json")
           .eq("execution_mode", "paper").eq("active", true);
         if (sErr) return Response.json({ ok: false, error: sErr.message }, { status: 500 });
         if (!strategies || strategies.length === 0) {
-          return Response.json({ ok: true, evaluated: 0, opened: 0, closed: 0, errors: [], ts });
+          return Response.json({ ok: true, evaluated: 0, opened: 0, closed: 0, errors: [], ts, market_open: marketOpen });
         }
+
 
         const byUser = new Map<string, StrategyRow[]>();
         for (const s of strategies as StrategyRow[]) {
