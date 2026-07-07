@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Brain, ShieldCheck, TrendingUp, LogOut, Bell } from "lucide-react";
+import { Activity, Brain, ShieldCheck, TrendingUp, LogOut, Bell, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProfile } from "@/hooks/use-profile";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,7 +10,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 const items = [
   { to: "/markets", label: "Markets", icon: Activity },
   { to: "/trading", label: "AI Trading", icon: Brain },
+  { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
+
 
 export function TopNav() {
   const { isAdmin, userId } = useProfile();
