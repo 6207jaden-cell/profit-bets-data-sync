@@ -192,41 +192,21 @@ export default function TradingDashboard() {
         </header>
 
         <Tabs value={tab} onValueChange={setTab} className="p-4 sm:p-6">
-          <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
-            <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
-            <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
-            <TabsTrigger value="backtest"><FlaskConical className="h-3.5 w-3.5 mr-1.5" />Backtest</TabsTrigger>
-            <TabsTrigger value="execution"><Zap className="h-3.5 w-3.5 mr-1.5" />Execution</TabsTrigger>
-            <TabsTrigger value="risk"><Shield className="h-3.5 w-3.5 mr-1.5" />Risk</TabsTrigger>
-            <TabsTrigger value="broker"><Link2 className="h-3.5 w-3.5 mr-1.5" />Broker</TabsTrigger>
-            <TabsTrigger value="agent"><Bot className="h-3.5 w-3.5 mr-1.5" />Agent</TabsTrigger>
-            <TabsTrigger value="leaderboard"><Trophy className="h-3.5 w-3.5 mr-1.5" />Leaderboard</TabsTrigger>
-            <TabsTrigger value="options"><Sigma className="h-3.5 w-3.5 mr-1.5" />Options</TabsTrigger>
+          <MobileTabSelect value={tab} onChange={setTab} />
+          <TabsList className="mb-6 hidden md:flex w-full flex-wrap gap-1 h-auto justify-start">
+            {TAB_ITEMS.map(({ value, label, Icon }) => (
+              <TabsTrigger key={value} value={value}>
+                <Icon className="h-3.5 w-3.5 mr-1.5" />{label}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
             <section aria-labelledby="paper-portfolio" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <h2 id="paper-portfolio" className="sr-only">Paper Portfolio</h2>
-              <Card className="p-4 sm:p-5 border-border bg-card lg:col-span-2">
-                <header className="flex items-center justify-between mb-4 gap-2">
-                  <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate"><LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio</h3>
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">simulated</span>
-                </header>
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">Equity</div>
-                    <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${equity.toFixed(2)}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">Cash</div>
-                    <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${Number(p?.balance ?? 0).toFixed(2)}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">Starting</div>
-                    <div className="font-mono text-lg sm:text-2xl font-semibold text-muted-foreground truncate">${start.toFixed(0)}</div>
-                  </div>
-                </div>
-              </Card>
+              <div className="lg:col-span-2">
+                <EquityCurveCard userId={userId} equity={equity} cash={Number(p?.balance ?? 0)} start={start} />
+              </div>
               <Card className="p-4 sm:p-5 border-border bg-card">
                 <header className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold">Quick Actions</h3>
