@@ -267,6 +267,11 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
           universe: (sjRaw.universe ?? []).slice(0, 10).map((u) => String(u).toUpperCase()),
           notes: sjRaw.notes ? String(sjRaw.notes).slice(0, 400) : undefined,
         };
+        const validStyles = ["momentum", "mean_reversion", "breakout", "volatility"];
+        const styleTop = typeof parsed.style === "string" && validStyles.includes(parsed.style) ? parsed.style : null;
+        const styleInner = typeof (sjRaw as { style?: unknown }).style === "string" && validStyles.includes(String((sjRaw as { style?: unknown }).style)) ? String((sjRaw as { style?: unknown }).style) : null;
+        const style = styleTop ?? styleInner;
+        if (style) (strategy_json as StrategyJSON & { style?: string }).style = style;
         const name = String(parsed.name ?? "AI Lab Strategy").slice(0, 60);
         const description = String(parsed.description ?? "").slice(0, 400);
         const market_type = (["stocks", "crypto", "both"].includes(mt) ? mt : "stocks") as "stocks" | "crypto" | "both";
@@ -282,6 +287,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
             market_type,
             risk_level,
             strategy_json,
+            style,
             source: "ai_lab",
             execution_mode: "paper",
             active: true,
@@ -290,6 +296,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
         if (insErr || !inserted) {
           return Response.json({ ok: false, error: insErr?.message ?? "insert_failed" }, { status: 500 });
         }
+
 
         // Backtest first symbol.
         const symbol = strategy_json.universe?.[0] ?? "AAPL";
