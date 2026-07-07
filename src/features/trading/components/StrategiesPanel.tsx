@@ -2,18 +2,39 @@ import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion, AnimatePresence } from "framer-motion";
-import { Brain, Sparkles, Trash2, Loader2, Play, PauseCircle, Lock, User } from "lucide-react";
+import { Brain, Sparkles, Trash2, Loader2, Play, PauseCircle, Lock, User, BookOpen, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
-import { generateStrategyFromPrompt } from "@/lib/strategy.functions";
+import { generateStrategyFromPrompt, generateStrategyExplanation } from "@/lib/strategy.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+type TemplateT = { name: string; blurb: string; style: string; prompt: string };
+const TEMPLATES: TemplateT[] = [
+  { name: "Golden Cross", blurb: "SMA(50) crosses SMA(200)", style: "momentum",
+    prompt: "Momentum strategy: buy when SMA(50) crosses above SMA(200) on large-cap US stocks. Exit when SMA(50) crosses back below SMA(200). Universe: AAPL, MSFT, NVDA, GOOGL. Style: momentum." },
+  { name: "RSI Mean Reversion", blurb: "Buy oversold, sell recovery", style: "mean_reversion",
+    prompt: "Mean reversion: buy when RSI(14) drops below 30 (oversold), exit when RSI recovers above 55. Universe: SPY, QQQ, AAPL, TSLA. Style: mean_reversion." },
+  { name: "EMA Crossover", blurb: "12/26 EMA trend", style: "momentum",
+    prompt: "Trend following: enter long when EMA(12) crosses above EMA(26), exit when EMA(12) crosses back below EMA(26). Universe: MSFT, AMZN, META. Style: momentum." },
+  { name: "Crypto RSI Dip", blurb: "BTC/ETH oversold buys", style: "mean_reversion",
+    prompt: "Mean reversion on crypto: buy bitcoin and ethereum when RSI(14) falls below 35, sell when RSI exceeds 65. Style: mean_reversion." },
+  { name: "SMA200 Breakout", blurb: "Price breaks 200-day", style: "breakout",
+    prompt: "Breakout strategy: enter when price closes above SMA(200) for the first time in 20 days. Exit when price drops 5% below entry. Universe: SPY, QQQ, IWM. Style: breakout." },
+  { name: "Bollinger Reversion", blurb: "2 sigma below SMA(20)", style: "mean_reversion",
+    prompt: "Buy when price drops more than 2 standard deviations below SMA(20) (RSI < 35 confirms), exit when price returns to SMA(20). Universe: AAPL, NVDA, TSLA. Style: mean_reversion." },
+  { name: "MACD Momentum", blurb: "EMA cross + RSI filter", style: "momentum",
+    prompt: "Enter long when EMA(12) crosses above EMA(26) and RSI is above 50. Exit when EMA(12) crosses back below EMA(26). Universe: GOOGL, AMZN, META, MSFT. Style: momentum." },
+  { name: "Crypto Momentum", blurb: "BTC/ETH trend riding", style: "momentum",
+    prompt: "Momentum: enter BTC-USD and ETH-USD when price is above SMA(50) and RSI is between 50 and 70. Exit when RSI exceeds 80 or price drops below SMA(50). Style: momentum." },
+];
+
 
 const TIER_LIMITS = { free: 2, pro: 20, elite: 999 } as const;
 
