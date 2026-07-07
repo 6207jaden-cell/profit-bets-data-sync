@@ -149,7 +149,7 @@ export function ExecutionPanel() {
               Your active strategies will automatically open positions every 5 minutes when their entry conditions are met.
               To get started: (1) Create a strategy in the Strategies tab, (2) Set it to PAPER mode, (3) Come back here to watch positions appear.
             </p>
-            <Link to="/trading" search={{ tab: "strategies" }} className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
+            <a href="/trading?tab=strategies" className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
               Go to Strategies →
             </Link>
           </div>
