@@ -59,10 +59,12 @@ export const Route = createFileRoute("/api/public/resolve-signals")({
 
         const { data: signals, error } = await supabaseAdmin
           .from("market_signals")
-          .select("id, asset, direction, entry_price, target_price, stop_price, created_at")
+          .select("id, asset, direction, entry_price, target_price, stop_price, created_at, user_id")
           .eq("result", "open")
           .lte("created_at", thirtyMinAgo);
         if (error) return Response.json({ ok: false, error: error.message }, { status: 500 });
+        const { fireWebhook } = await import("@/lib/webhook.functions");
+
 
         const priceCache = new Map<string, number | null>();
         let hit_target = 0, hit_stop = 0, expired = 0;
