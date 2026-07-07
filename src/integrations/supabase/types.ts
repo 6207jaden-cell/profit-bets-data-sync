@@ -212,6 +212,36 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          read: boolean
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          read?: boolean
+          title: string
+          type?: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          read?: boolean
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       paper_portfolios: {
         Row: {
           balance: number
@@ -304,6 +334,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      portfolio_snapshots: {
+        Row: {
+          cash: number
+          created_at: string
+          equity: number
+          id: string
+          open_positions: number
+          user_id: string
+        }
+        Insert: {
+          cash: number
+          created_at?: string
+          equity: number
+          id?: string
+          open_positions?: number
+          user_id: string
+        }
+        Update: {
+          cash?: number
+          created_at?: string
+          equity?: number
+          id?: string
+          open_positions?: number
+          user_id?: string
+        }
+        Relationships: []
       }
       price_alerts: {
         Row: {
