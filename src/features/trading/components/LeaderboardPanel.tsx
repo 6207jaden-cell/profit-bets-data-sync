@@ -171,8 +171,23 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
         {data.isLoading ? (
           <div className="p-8 text-center text-muted-foreground text-sm">Loading leaderboard…</div>
         ) : sorted.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-sm">
-            No strategies yet — create one in the Strategies tab or let the AI Lab generate some.
+          <div className="p-8 text-center text-muted-foreground text-sm space-y-3">
+            <p>No strategies yet.</p>
+            <p className="text-xs">
+              The AI Lab generates a new strategy every hour and backtests it automatically. Your strategies appear here too.
+              Create your first strategy in the Strategies tab or wait for the AI Lab to populate this list.
+            </p>
+            <div className="flex justify-center gap-2 pt-1">
+              <a href="/trading?tab=strategies" className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">
+                Create Strategy
+              </a>
+              <button
+                onClick={() => qc.invalidateQueries({ queryKey: ["leaderboard"] })}
+                className="px-3 py-1.5 rounded-md border border-border text-xs font-medium hover:bg-muted"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
         ) : (
           <ul className="divide-y divide-border">
