@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
-import { Zap, X, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
+import { Zap, X, TrendingUp, TrendingDown, Loader2, Bot, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
@@ -142,7 +142,16 @@ export function ExecutionPanel() {
           <h2 className="font-display font-semibold">Open Positions ({openTrades.data?.length ?? 0})</h2>
         </header>
         {(openTrades.data?.length ?? 0) === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-sm">No open paper positions.</div>
+          <div className="p-8 text-center text-muted-foreground text-sm space-y-3">
+            <p>No open paper positions.</p>
+            <p className="text-xs">
+              Your active strategies will automatically open positions every 5 minutes when their entry conditions are met.
+              To get started: (1) Create a strategy in the Strategies tab, (2) Set it to PAPER mode, (3) Come back here to watch positions appear.
+            </p>
+            <a href="/trading?tab=strategies" className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
+              Go to Strategies →
+            </a>
+          </div>
         ) : (
           <ul className="divide-y divide-border">
             {openTrades.data!.map((t, i) => {
@@ -177,6 +186,92 @@ export function ExecutionPanel() {
           </ul>
         )}
       </Card>
+
+      <TradeJournal userId={userId} />
     </div>
+  );
+}
+
+function TradeJournal({ userId }: { userId: string | null }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const journal = useQuery({
+    queryKey: ["trade-journal", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("signals_executions")
+        .select("id, created_at, asset, side, quantity, price, execution_type, status, reason")
+        .order("created_at", { ascending: false }).limit(50);
+      if (error) throw error;
+      return data ?? [];
+    },
+    refetchInterval: 30_000,
+  });
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+  return (
+    <Card className="border-border bg-card">
+      <header className="px-5 py-4 border-b border-border flex items-center gap-2">
+        <BookOpen className="h-4 w-4 text-primary" />
+        <h2 className="font-display font-semibold">Trade Journal</h2>
+        <span className="text-xs text-muted-foreground">last {journal.data?.length ?? 0}</span>
+      </header>
+      {(journal.data?.length ?? 0) === 0 ? (
+        <div className="p-6 text-center text-xs text-muted-foreground">
+          Nothing yet. The autonomous engine logs every entry, exit, and retirement here.
+        </div>
+      ) : (
+        <ul className="divide-y divide-border">
+          {journal.data!.map((r) => {
+            const reason = String(r.reason ?? "");
+            const auto = reason.includes("auto_entry") ? "entry" : reason.includes("auto_exit") ? "exit" : reason.includes("auto_retired") ? "retired" : null;
+            const isOpen = expanded.has(r.id);
+            const parts = reason.split(/\s+/).filter(Boolean);
+            return (
+              <li key={r.id} className="px-5 py-2.5 text-xs">
+                <button onClick={() => toggle(r.id)} className="w-full flex items-center gap-2 text-left">
+                  {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                  {auto === "entry" && <Bot className="h-3.5 w-3.5 text-bull shrink-0" />}
+                  {auto === "exit" && <Bot className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+                  {auto === "retired" && <Bot className="h-3.5 w-3.5 text-bear shrink-0" />}
+                  <span className="font-mono text-muted-foreground shrink-0 w-32 truncate">
+                    {new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <span className="font-display font-semibold shrink-0 w-16 truncate">{r.asset}</span>
+                  <span className={cn(
+                    "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded font-mono shrink-0",
+                    r.side === "buy" ? "bg-bull/15 text-bull" : "bg-bear/15 text-bear",
+                  )}>{r.side}</span>
+                  <span className="font-mono shrink-0 hidden sm:inline">{Number(r.quantity).toFixed(4)}</span>
+                  <span className="font-mono shrink-0 hidden sm:inline">${Number(r.price).toFixed(2)}</span>
+                  <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded border border-border text-muted-foreground shrink-0">{r.execution_type}</span>
+                  <span className={cn(
+                    "text-[10px] uppercase font-mono px-1.5 py-0.5 rounded shrink-0 ml-auto",
+                    r.status === "filled" ? "bg-bull/15 text-bull" : r.status === "cancelled" ? "bg-bear/15 text-bear" : "bg-muted text-muted-foreground",
+                  )}>{r.status}</span>
+                </button>
+                {isOpen && reason && (
+                  <div className="mt-2 ml-5 pl-3 border-l-2 border-border text-[11px] text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+                    {parts.map((p, i) => {
+                      const isKV = /^[a-z_]+=/i.test(p);
+                      return isKV ? (
+                        <span key={i}><strong className="text-foreground font-mono">{p}</strong></span>
+                      ) : (
+                        <span key={i}>{p}</span>
+                      );
+                    })}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }

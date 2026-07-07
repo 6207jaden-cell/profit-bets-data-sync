@@ -6,12 +6,15 @@ import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
   TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy, Sigma,
 } from "lucide-react";
+import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { StrategiesPanel } from "./components/StrategiesPanel";
 import { BacktestingPanel } from "./components/BacktestingPanel";
@@ -22,6 +25,18 @@ import { AgentPanel } from "./components/AgentPanel";
 import { LeaderboardPanel } from "./components/LeaderboardPanel";
 import { OptionsFlowPanel } from "./components/OptionsFlowPanel";
 import { TopNav } from "@/components/TopNav";
+
+const TAB_ITEMS = [
+  { value: "overview", label: "Overview", Icon: Activity },
+  { value: "strategies", label: "Strategies", Icon: Brain },
+  { value: "backtest", label: "Backtest", Icon: FlaskConical },
+  { value: "execution", label: "Execution", Icon: Zap },
+  { value: "risk", label: "Risk", Icon: Shield },
+  { value: "broker", label: "Broker", Icon: Link2 },
+  { value: "agent", label: "Agent", Icon: Bot },
+  { value: "leaderboard", label: "Leaderboard", Icon: Trophy },
+  { value: "options", label: "Options", Icon: Sigma },
+] as const;
 
 export default function TradingDashboard() {
   const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
@@ -177,41 +192,21 @@ export default function TradingDashboard() {
         </header>
 
         <Tabs value={tab} onValueChange={setTab} className="p-4 sm:p-6">
-          <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
-            <TabsTrigger value="overview"><Activity className="h-3.5 w-3.5 mr-1.5" />Overview</TabsTrigger>
-            <TabsTrigger value="strategies"><Brain className="h-3.5 w-3.5 mr-1.5" />Strategies</TabsTrigger>
-            <TabsTrigger value="backtest"><FlaskConical className="h-3.5 w-3.5 mr-1.5" />Backtest</TabsTrigger>
-            <TabsTrigger value="execution"><Zap className="h-3.5 w-3.5 mr-1.5" />Execution</TabsTrigger>
-            <TabsTrigger value="risk"><Shield className="h-3.5 w-3.5 mr-1.5" />Risk</TabsTrigger>
-            <TabsTrigger value="broker"><Link2 className="h-3.5 w-3.5 mr-1.5" />Broker</TabsTrigger>
-            <TabsTrigger value="agent"><Bot className="h-3.5 w-3.5 mr-1.5" />Agent</TabsTrigger>
-            <TabsTrigger value="leaderboard"><Trophy className="h-3.5 w-3.5 mr-1.5" />Leaderboard</TabsTrigger>
-            <TabsTrigger value="options"><Sigma className="h-3.5 w-3.5 mr-1.5" />Options</TabsTrigger>
+          <MobileTabSelect value={tab} onChange={setTab} />
+          <TabsList className="mb-6 hidden md:flex w-full flex-wrap gap-1 h-auto justify-start">
+            {TAB_ITEMS.map(({ value, label, Icon }) => (
+              <TabsTrigger key={value} value={value}>
+                <Icon className="h-3.5 w-3.5 mr-1.5" />{label}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
             <section aria-labelledby="paper-portfolio" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <h2 id="paper-portfolio" className="sr-only">Paper Portfolio</h2>
-              <Card className="p-4 sm:p-5 border-border bg-card lg:col-span-2">
-                <header className="flex items-center justify-between mb-4 gap-2">
-                  <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate"><LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio</h3>
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">simulated</span>
-                </header>
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">Equity</div>
-                    <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${equity.toFixed(2)}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">Cash</div>
-                    <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${Number(p?.balance ?? 0).toFixed(2)}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">Starting</div>
-                    <div className="font-mono text-lg sm:text-2xl font-semibold text-muted-foreground truncate">${start.toFixed(0)}</div>
-                  </div>
-                </div>
-              </Card>
+              <div className="lg:col-span-2">
+                <EquityCurveCard userId={userId} equity={equity} cash={Number(p?.balance ?? 0)} start={start} />
+              </div>
               <Card className="p-4 sm:p-5 border-border bg-card">
                 <header className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold">Quick Actions</h3>
@@ -333,4 +328,105 @@ function LiveStatus({ updatedAt }: { updatedAt?: string | null }) {
     </div>
   );
 }
+
+function MobileTabSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  if (!isMobile) return null;
+  const current = TAB_ITEMS.find((t) => t.value === value) ?? TAB_ITEMS[0];
+  const CurrentIcon = current.Icon;
+  return (
+    <div className="mb-4 md:hidden">
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-full">
+          <span className="flex items-center gap-2">
+            <CurrentIcon className="h-4 w-4 text-primary" />
+            <span>{current.label}</span>
+          </span>
+        </SelectTrigger>
+        <SelectContent>
+          {TAB_ITEMS.map(({ value: v, label, Icon }) => (
+            <SelectItem key={v} value={v}>
+              <span className="flex items-center gap-2">
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function EquityCurveCard({ userId, equity, cash, start }: { userId: string | null; equity: number; cash: number; start: number }) {
+  const snaps = useQuery({
+    queryKey: ["equity-snapshots", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("portfolio_snapshots")
+        .select("equity, created_at")
+        .order("created_at", { ascending: true })
+        .limit(90);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const rows = snaps.data ?? [];
+  const positive = equity >= start;
+  const stroke = positive ? "hsl(var(--bull))" : "hsl(var(--bear))";
+  const chartData = rows.map((r) => ({
+    date: new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" }),
+    equity: Number(r.equity),
+  }));
+
+  return (
+    <Card className="p-4 sm:p-5 border-border bg-card">
+      <header className="flex items-center justify-between mb-3 gap-2">
+        <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate">
+          <LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio
+        </h3>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">simulated</span>
+      </header>
+      {chartData.length >= 2 ? (
+        <div className="h-40 mb-3">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="eq-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={stroke} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={stroke} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+              <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" domain={["auto", "auto"]} />
+              <RTooltip
+                contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                formatter={(v: number) => [`$${v.toFixed(2)}`, "Equity"]}
+              />
+              <Area type="monotone" dataKey="equity" stroke={stroke} fill="url(#eq-fill)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground mb-3">Chart builds after first daily snapshot.</p>
+      )}
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground">Equity</div>
+          <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${equity.toFixed(2)}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground">Cash</div>
+          <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${cash.toFixed(2)}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground">Starting</div>
+          <div className="font-mono text-lg sm:text-2xl font-semibold text-muted-foreground truncate">${start.toFixed(0)}</div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 

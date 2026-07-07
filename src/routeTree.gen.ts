@@ -16,9 +16,12 @@ import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as AuthenticatedTradingRouteImport } from './routes/_authenticated/trading'
 import { Route as AuthenticatedMarketsRouteImport } from './routes/_authenticated/markets'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as ApiPublicSnapshotPortfolioRouteImport } from './routes/api/public/snapshot-portfolio'
+import { Route as ApiPublicResolveSignalsRouteImport } from './routes/api/public/resolve-signals'
 import { Route as ApiPublicGenerateStrategiesRouteImport } from './routes/api/public/generate-strategies'
 import { Route as ApiPublicEvaluateStrategiesRouteImport } from './routes/api/public/evaluate-strategies'
 import { Route as ApiPublicEvaluateAlertsRouteImport } from './routes/api/public/evaluate-alerts'
+import { Route as ApiPublicDailyDigestRouteImport } from './routes/api/public/daily-digest'
 import { Route as ApiPublicMcpRobinhoodCallbackRouteImport } from './routes/api/public/mcp/robinhood/callback'
 
 const AuthRoute = AuthRouteImport.update({
@@ -55,6 +58,17 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiPublicSnapshotPortfolioRoute =
+  ApiPublicSnapshotPortfolioRouteImport.update({
+    id: '/api/public/snapshot-portfolio',
+    path: '/api/public/snapshot-portfolio',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicResolveSignalsRoute = ApiPublicResolveSignalsRouteImport.update({
+  id: '/api/public/resolve-signals',
+  path: '/api/public/resolve-signals',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicGenerateStrategiesRoute =
   ApiPublicGenerateStrategiesRouteImport.update({
     id: '/api/public/generate-strategies',
@@ -72,6 +86,11 @@ const ApiPublicEvaluateAlertsRoute = ApiPublicEvaluateAlertsRouteImport.update({
   path: '/api/public/evaluate-alerts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicDailyDigestRoute = ApiPublicDailyDigestRouteImport.update({
+  id: '/api/public/daily-digest',
+  path: '/api/public/daily-digest',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicMcpRobinhoodCallbackRoute =
   ApiPublicMcpRobinhoodCallbackRouteImport.update({
     id: '/api/public/mcp/robinhood/callback',
@@ -86,9 +105,12 @@ export interface FileRoutesByFullPath {
   '/markets': typeof AuthenticatedMarketsRoute
   '/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
+  '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
+  '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRoutesByTo {
@@ -98,9 +120,12 @@ export interface FileRoutesByTo {
   '/markets': typeof AuthenticatedMarketsRoute
   '/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
+  '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
+  '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRoutesById {
@@ -112,9 +137,12 @@ export interface FileRoutesById {
   '/_authenticated/markets': typeof AuthenticatedMarketsRoute
   '/_authenticated/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
+  '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
+  '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRouteTypes {
@@ -126,9 +154,12 @@ export interface FileRouteTypes {
     | '/markets'
     | '/trading'
     | '/api/chat'
+    | '/api/public/daily-digest'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
     | '/api/public/generate-strategies'
+    | '/api/public/resolve-signals'
+    | '/api/public/snapshot-portfolio'
     | '/api/public/mcp/robinhood/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -138,9 +169,12 @@ export interface FileRouteTypes {
     | '/markets'
     | '/trading'
     | '/api/chat'
+    | '/api/public/daily-digest'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
     | '/api/public/generate-strategies'
+    | '/api/public/resolve-signals'
+    | '/api/public/snapshot-portfolio'
     | '/api/public/mcp/robinhood/callback'
   id:
     | '__root__'
@@ -151,9 +185,12 @@ export interface FileRouteTypes {
     | '/_authenticated/markets'
     | '/_authenticated/trading'
     | '/api/chat'
+    | '/api/public/daily-digest'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
     | '/api/public/generate-strategies'
+    | '/api/public/resolve-signals'
+    | '/api/public/snapshot-portfolio'
     | '/api/public/mcp/robinhood/callback'
   fileRoutesById: FileRoutesById
 }
@@ -162,9 +199,12 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiPublicDailyDigestRoute: typeof ApiPublicDailyDigestRoute
   ApiPublicEvaluateAlertsRoute: typeof ApiPublicEvaluateAlertsRoute
   ApiPublicEvaluateStrategiesRoute: typeof ApiPublicEvaluateStrategiesRoute
   ApiPublicGenerateStrategiesRoute: typeof ApiPublicGenerateStrategiesRoute
+  ApiPublicResolveSignalsRoute: typeof ApiPublicResolveSignalsRoute
+  ApiPublicSnapshotPortfolioRoute: typeof ApiPublicSnapshotPortfolioRoute
   ApiPublicMcpRobinhoodCallbackRoute: typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 
@@ -219,6 +259,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/snapshot-portfolio': {
+      id: '/api/public/snapshot-portfolio'
+      path: '/api/public/snapshot-portfolio'
+      fullPath: '/api/public/snapshot-portfolio'
+      preLoaderRoute: typeof ApiPublicSnapshotPortfolioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/resolve-signals': {
+      id: '/api/public/resolve-signals'
+      path: '/api/public/resolve-signals'
+      fullPath: '/api/public/resolve-signals'
+      preLoaderRoute: typeof ApiPublicResolveSignalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/generate-strategies': {
       id: '/api/public/generate-strategies'
       path: '/api/public/generate-strategies'
@@ -238,6 +292,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/evaluate-alerts'
       fullPath: '/api/public/evaluate-alerts'
       preLoaderRoute: typeof ApiPublicEvaluateAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/daily-digest': {
+      id: '/api/public/daily-digest'
+      path: '/api/public/daily-digest'
+      fullPath: '/api/public/daily-digest'
+      preLoaderRoute: typeof ApiPublicDailyDigestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/mcp/robinhood/callback': {
@@ -270,9 +331,12 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiPublicDailyDigestRoute: ApiPublicDailyDigestRoute,
   ApiPublicEvaluateAlertsRoute: ApiPublicEvaluateAlertsRoute,
   ApiPublicEvaluateStrategiesRoute: ApiPublicEvaluateStrategiesRoute,
   ApiPublicGenerateStrategiesRoute: ApiPublicGenerateStrategiesRoute,
+  ApiPublicResolveSignalsRoute: ApiPublicResolveSignalsRoute,
+  ApiPublicSnapshotPortfolioRoute: ApiPublicSnapshotPortfolioRoute,
   ApiPublicMcpRobinhoodCallbackRoute: ApiPublicMcpRobinhoodCallbackRoute,
 }
 export const routeTree = rootRouteImport

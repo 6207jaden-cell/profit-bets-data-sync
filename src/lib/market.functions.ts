@@ -198,7 +198,39 @@ export const generateMarketSignals = createServerFn({ method: "POST" }).handler(
   const { count } = await supabaseAdmin.from("market_signals").select("id", { count: "exact", head: true }).gte("created_at", since).is("user_id", null);
   if ((count ?? 0) >= 6) return { generated: 0, reason: "fresh_enough" };
 
-  const prompt = `You are a quantitative analyst. Generate 6 SHORT-TERM trade ideas for the US session, mixing 3 options-flow ideas (calls/puts) and 3 buy/sell stock ideas, on liquid large-cap tickers. Return STRICT JSON array. Each item:
+  // Fetch live prices for a fixed watchlist so signal entry prices are real.
+  const stockTickers = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "SPY", "QQQ"];
+  const cryptoIds = ["bitcoin", "ethereum", "solana"];
+  const cryptoAliases: Record<string, string> = { bitcoin: "BTC-USD", ethereum: "ETH-USD", solana: "SOL-USD" };
+  const poly = process.env.POLYGON_API_KEY;
+  const fin = process.env.FINNHUB_API_KEY;
+  const livePrices: Record<string, number> = {};
+  await Promise.all([
+    ...stockTickers.map(async (s) => {
+      try {
+        if (fin) {
+          const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${s}&token=${fin}`);
+          if (r.ok) { const j = (await r.json()) as { c?: number }; if (j.c) livePrices[s] = j.c; }
+        } else if (poly) {
+          const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${s}/prev?apiKey=${poly}`);
+          if (r.ok) { const j = (await r.json()) as { results?: Array<{ c: number }> }; if (j.results?.[0]?.c) livePrices[s] = j.results[0].c; }
+        }
+      } catch { /* skip */ }
+    }),
+    (async () => {
+      try {
+        const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${cryptoIds.join(",")}&vs_currencies=usd`);
+        if (r.ok) {
+          const j = (await r.json()) as Record<string, { usd: number }>;
+          for (const id of cryptoIds) if (j[id]?.usd) livePrices[cryptoAliases[id]] = j[id].usd;
+        }
+      } catch { /* skip */ }
+    })(),
+  ]);
+  const priceContext = Object.entries(livePrices).map(([k, v]) => `${k}: $${v.toFixed(2)}`).join(", ") || "prices unavailable";
+  const allowedList = Object.keys(livePrices).join(", ") || "AAPL, MSFT, NVDA, TSLA, SPY, QQQ, BTC-USD, ETH-USD";
+
+  const prompt = `You are a quantitative analyst. Current live prices: ${priceContext}. Generate 6 SHORT-TERM trade ideas for the US session, mixing 3 options-flow ideas (calls/puts) and 3 buy/sell stock/crypto ideas. Use ONLY these tickers: ${allowedList}. Use the provided live prices as entry_price. Targets and stops must be within realistic % moves (1-8% for stocks, 2-15% for crypto). Return STRICT JSON array. Each item:
 {
   "asset": "TICKER",
   "signal_type": "options_flow" | "buy_sell",
@@ -210,7 +242,7 @@ export const generateMarketSignals = createServerFn({ method: "POST" }).handler(
   "expected_edge_pct": number,
   "thesis": "one sentence rationale"
 }
-Use realistic prices for the chosen tickers. JSON ONLY, no commentary.`;
+JSON ONLY, no commentary.`;
 
   let text = "";
   try {

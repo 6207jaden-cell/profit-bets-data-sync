@@ -200,8 +200,18 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
         }
         if (!ownerId) return Response.json({ ok: false, error: "no_user_to_assign" }, { status: 500 });
 
+        // Optional context: retired strategy name to steer diversity
+        let retiredName = "";
+        try {
+          const body = await request.clone().json() as { retired_name?: string };
+          retiredName = String(body?.retired_name ?? "").slice(0, 80);
+        } catch { /* body optional */ }
+
         // Generate via Lovable AI gateway.
         const seed = SEED_PROMPTS[Math.floor(Math.random() * SEED_PROMPTS.length)];
+        const userMsg = retiredName
+          ? `${seed}\n\nContext: The strategy named "${retiredName}" was retired for poor performance. Generate something with a different approach and different universe.`
+          : seed;
         let text = "";
         try {
           const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -215,7 +225,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
               model: "google/gemini-2.5-flash",
               messages: [
                 { role: "system", content: SYSTEM_PROMPT },
-                { role: "user", content: seed },
+                { role: "user", content: userMsg },
               ],
               response_format: { type: "json_object" },
             }),
