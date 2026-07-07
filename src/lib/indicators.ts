@@ -68,6 +68,21 @@ export function rsi(values: number[], period = 14): Array<number | null> {
   return out;
 }
 
+/** Average True Range. Returns the latest ATR or null if insufficient data. */
+export function atr(highs: number[], lows: number[], closes: number[], period = 14): number | null {
+  const n = Math.min(highs.length, lows.length, closes.length);
+  if (n < period + 1) return null;
+  const trs: number[] = [];
+  for (let i = 1; i < n; i++) {
+    const h = highs[i], l = lows[i], pc = closes[i - 1];
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  if (trs.length < period) return null;
+  let a = trs.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
+  return a;
+}
+
 // ---------- Condition evaluators ----------
 
 export function evalCondition(cond: string, ctx: IndicatorContext): boolean {
