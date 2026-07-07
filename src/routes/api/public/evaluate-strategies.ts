@@ -466,7 +466,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
           }
         }
 
-        return Response.json({ ok: true, evaluated, opened, closed, retired, errors, ts });
+        return Response.json({ ok: true, evaluated, opened, closed, retired, errors, ts, market_open: marketOpen, regime: null });
       },
     },
   },
