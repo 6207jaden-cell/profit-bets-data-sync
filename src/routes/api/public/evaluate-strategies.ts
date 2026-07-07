@@ -385,6 +385,16 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   }
                   allocPct = Math.max(2, allocPct); // floor 2%
 
+                  // Market regime multiplier based on strategy style
+                  const style = strat.style ?? sj.style ?? null;
+                  let regimeMult = 1;
+                  if (style === "momentum") {
+                    regimeMult = regime === "bull" ? 1.25 : regime === "bear" ? 0.5 : 1;
+                  } else if (style === "mean_reversion") {
+                    regimeMult = regime === "sideways" ? 1.25 : 0.75;
+                  }
+                  allocPct = Math.min(maxPositionPct, allocPct * regimeMult);
+
                   const allocCash = (cash * allocPct) / 100;
                   if (allocCash <= 0) {
                     errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: "insufficient_cash" });
@@ -409,9 +419,11 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   await supabaseAdmin.from("signals_executions").insert({
                     user_id: userId, strategy_id: strat.id, execution_type: "paper", status: "filled",
                     asset: symbol, side: "buy", quantity, price: quote.price,
-                    reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""}`,
+                    reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""} regime=${regime}${style ? ` style=${style} mult=${regimeMult.toFixed(2)}` : ""}`,
                   });
+                  await fireWebhook(userId, "trade_open", { strategy_id: strat.id, asset: symbol, side: "buy", quantity, price: quote.price, alloc_pct: allocPct, regime, style });
                   opened++;
+
                 } catch (e) {
                   errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: e instanceof Error ? e.message : "symbol_eval_failed" });
                 }
