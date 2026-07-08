@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Play, Pause, Trophy, Sparkles, User } from "lucide-react";
+import { FlaskConical, Play, Pause, Trophy, Sparkles, User, ChevronDown, ChevronRight, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { runBacktest } from "@/lib/backtest.functions";
+
 
 type SortMode = "backtest_roi" | "live_pnl";
 
