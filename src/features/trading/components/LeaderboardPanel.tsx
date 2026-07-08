@@ -47,6 +47,12 @@ type LeaderRow = {
 export function LeaderboardPanel({ userId }: { userId: string }) {
   const qc = useQueryClient();
   const [sortMode, setSortMode] = useState<SortMode>("backtest_roi");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => setExpanded((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   const data = useQuery({
     queryKey: ["leaderboard"],
