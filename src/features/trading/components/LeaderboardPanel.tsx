@@ -266,6 +266,17 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
                       size="icon"
                       variant="ghost"
                       className="h-8 w-8"
+                      onClick={() => toggleExpand(row.strategy.id)}
+                      title="Show attribution"
+                    >
+                      {expanded.has(row.strategy.id)
+                        ? <ChevronDown className="h-3.5 w-3.5" />
+                        : <ChevronRight className="h-3.5 w-3.5" />}
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
                       disabled={backtestNow.isPending}
                       onClick={() => backtestNow.mutate(row.strategy.id)}
                       title="Run backtest now"
@@ -286,6 +297,11 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
                     </Button>
                   </div>
                 </div>
+                {expanded.has(row.strategy.id) && (
+                  <div className="md:col-span-12 mt-2 pt-3 border-t border-border">
+                    <AttributionPanel strategyId={row.strategy.id} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>
