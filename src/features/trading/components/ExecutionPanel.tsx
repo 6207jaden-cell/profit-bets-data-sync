@@ -187,6 +187,8 @@ export function ExecutionPanel() {
         )}
       </Card>
 
+      <SlippageTracker userId={userId} />
+
       <TradeJournal userId={userId} />
     </div>
   );
