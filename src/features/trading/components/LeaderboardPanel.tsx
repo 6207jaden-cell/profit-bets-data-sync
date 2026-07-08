@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Play, Pause, Trophy, Sparkles, User } from "lucide-react";
+import { FlaskConical, Play, Pause, Trophy, Sparkles, User, ChevronDown, ChevronRight, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { runBacktest } from "@/lib/backtest.functions";
+
 
 type SortMode = "backtest_roi" | "live_pnl";
 
@@ -46,6 +47,12 @@ type LeaderRow = {
 export function LeaderboardPanel({ userId }: { userId: string }) {
   const qc = useQueryClient();
   const [sortMode, setSortMode] = useState<SortMode>("backtest_roi");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => setExpanded((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   const data = useQuery({
     queryKey: ["leaderboard"],
@@ -259,6 +266,17 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
                       size="icon"
                       variant="ghost"
                       className="h-8 w-8"
+                      onClick={() => toggleExpand(row.strategy.id)}
+                      title="Show attribution"
+                    >
+                      {expanded.has(row.strategy.id)
+                        ? <ChevronDown className="h-3.5 w-3.5" />
+                        : <ChevronRight className="h-3.5 w-3.5" />}
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
                       disabled={backtestNow.isPending}
                       onClick={() => backtestNow.mutate(row.strategy.id)}
                       title="Run backtest now"
@@ -279,6 +297,11 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
                     </Button>
                   </div>
                 </div>
+                {expanded.has(row.strategy.id) && (
+                  <div className="md:col-span-12 mt-2 pt-3 border-t border-border">
+                    <AttributionPanel strategyId={row.strategy.id} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -304,3 +327,112 @@ function Metric({
     </div>
   );
 }
+
+function AttributionPanel({ strategyId }: { strategyId: string }) {
+  const q = useQuery({
+    queryKey: ["strategy-attribution", strategyId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("paper_trades")
+        .select("asset, side, quantity, entry_price, exit_price, pnl, created_at, closed_at, is_open")
+        .eq("strategy_id", strategyId)
+        .eq("is_open", false)
+        .order("closed_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  if (q.isLoading) return <div className="text-xs text-muted-foreground p-2">Loading attribution…</div>;
+  const trades = q.data ?? [];
+  if (trades.length === 0) {
+    return (
+      <div className="text-xs text-muted-foreground p-2 flex items-center gap-2">
+        <BarChart3 className="h-3 w-3" /> No closed trades yet — attribution appears after this strategy fires.
+      </div>
+    );
+  }
+
+  const pnls = trades.map((t) => Number(t.pnl ?? 0));
+  const total = pnls.reduce((a, b) => a + b, 0);
+  const wins = pnls.filter((p) => p > 0);
+  const losses = pnls.filter((p) => p <= 0);
+  const avgWin = wins.length ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
+  const avgLoss = losses.length ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
+  const best = trades.reduce((m, t) => (Number(t.pnl ?? -Infinity) > Number(m.pnl ?? -Infinity) ? t : m), trades[0]);
+  const worst = trades.reduce((m, t) => (Number(t.pnl ?? Infinity) < Number(m.pnl ?? Infinity) ? t : m), trades[0]);
+
+  // By asset
+  const byAsset = new Map<string, { pnl: number; count: number }>();
+  for (const t of trades) {
+    const cur = byAsset.get(t.asset) ?? { pnl: 0, count: 0 };
+    cur.pnl += Number(t.pnl ?? 0);
+    cur.count++;
+    byAsset.set(t.asset, cur);
+  }
+  const assets = [...byAsset.entries()]
+    .map(([asset, v]) => ({ asset, ...v }))
+    .sort((a, b) => b.pnl - a.pnl);
+
+  // Avg hold hours
+  const holds = trades
+    .filter((t) => t.closed_at && t.created_at)
+    .map((t) => (new Date(t.closed_at!).getTime() - new Date(t.created_at).getTime()) / 3_600_000);
+  const avgHold = holds.length ? holds.reduce((a, b) => a + b, 0) / holds.length : 0;
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <BarChart3 className="h-3.5 w-3.5" />
+        <span className="font-mono uppercase tracking-wider text-[10px]">Attribution · {trades.length} closed trades</span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono">
+        <MiniStat label="Net P&L" value={`$${total.toFixed(2)}`} tone={total >= 0 ? "good" : "bad"} />
+        <MiniStat label="Avg Win" value={`$${avgWin.toFixed(2)}`} tone="good" />
+        <MiniStat label="Avg Loss" value={`$${avgLoss.toFixed(2)}`} tone="bad" />
+        <MiniStat label="Avg Hold" value={avgHold >= 24 ? `${(avgHold / 24).toFixed(1)}d` : `${avgHold.toFixed(1)}h`} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="border border-border rounded-md p-3 bg-background/40">
+          <div className="text-[10px] uppercase text-muted-foreground mb-2 font-mono">Best & Worst Trade</div>
+          <div className="space-y-1 font-mono">
+            <div className="flex justify-between gap-2">
+              <span className="truncate">🟢 {best.asset} · {best.side}</span>
+              <span className="text-bull">+${Number(best.pnl ?? 0).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="truncate">🔴 {worst.asset} · {worst.side}</span>
+              <span className="text-bear">${Number(worst.pnl ?? 0).toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="border border-border rounded-md p-3 bg-background/40">
+          <div className="text-[10px] uppercase text-muted-foreground mb-2 font-mono">P&L by Asset</div>
+          <ul className="space-y-1 font-mono max-h-32 overflow-auto">
+            {assets.slice(0, 8).map((a) => (
+              <li key={a.asset} className="flex justify-between gap-2">
+                <span className="truncate">{a.asset} <span className="text-muted-foreground">×{a.count}</span></span>
+                <span className={a.pnl >= 0 ? "text-bull" : "text-bear"}>
+                  {a.pnl >= 0 ? "+" : ""}${a.pnl.toFixed(2)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
+  return (
+    <div className="border border-border rounded-md p-2 bg-background/40">
+      <div className="text-[10px] uppercase text-muted-foreground tracking-wider">{label}</div>
+      <div className={cn("text-sm font-semibold", tone === "good" && "text-bull", tone === "bad" && "text-bear")}>{value}</div>
+    </div>
+  );
+}
+

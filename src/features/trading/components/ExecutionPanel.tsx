@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
-import { Zap, X, TrendingUp, TrendingDown, Loader2, Bot, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
+import { Zap, X, TrendingUp, TrendingDown, Loader2, Bot, ChevronDown, ChevronRight, BookOpen, Gauge } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
@@ -187,6 +187,8 @@ export function ExecutionPanel() {
         )}
       </Card>
 
+      <SlippageTracker userId={userId} />
+
       <TradeJournal userId={userId} />
     </div>
   );
@@ -275,3 +277,128 @@ function TradeJournal({ userId }: { userId: string | null }) {
     </Card>
   );
 }
+
+function SlippageTracker({ userId }: { userId: string | null }) {
+  const q = useQuery({
+    queryKey: ["slippage-tracker", userId],
+    enabled: !!userId,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+      const [tradesRes, signalsRes] = await Promise.all([
+        supabase
+          .from("paper_trades")
+          .select("id, asset, side, strategy_id, entry_price, created_at")
+          .not("strategy_id", "is", null)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase
+          .from("market_signals")
+          .select("asset, direction, entry_price, user_id, created_at")
+          .not("entry_price", "is", null)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(500),
+      ]);
+      if (tradesRes.error) throw tradesRes.error;
+      if (signalsRes.error) throw signalsRes.error;
+      const signals = signalsRes.data ?? [];
+      // Match each trade to the most recent same-asset signal within 6h before the fill.
+      const window = 6 * 3_600_000;
+      const rows = (tradesRes.data ?? [])
+        .map((t) => {
+          const tt = new Date(t.created_at).getTime();
+          const candidates = signals.filter((s) => {
+            if (s.asset !== t.asset || s.entry_price == null) return false;
+            const st = new Date(s.created_at).getTime();
+            return st <= tt && tt - st <= window;
+          });
+          if (candidates.length === 0) return null;
+          const signal = candidates[0]; // most recent (list is desc)
+          const expected = Number(signal.entry_price);
+          const actual = Number(t.entry_price);
+          if (!expected || !actual) return null;
+          // Slippage as basis points relative to expected. Positive = worse for the trader.
+          const raw = ((actual - expected) / expected) * 10000;
+          const bps = t.side === "buy" ? raw : -raw;
+          return { id: t.id, asset: t.asset, side: t.side, expected, actual, bps, at: t.created_at };
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+      return rows;
+    },
+  });
+
+  const rows = q.data ?? [];
+  const avgBps = rows.length ? rows.reduce((a, r) => a + r.bps, 0) / rows.length : 0;
+  const worst = rows.length ? rows.reduce((m, r) => (r.bps > m.bps ? r : m), rows[0]) : null;
+  const best = rows.length ? rows.reduce((m, r) => (r.bps < m.bps ? r : m), rows[0]) : null;
+
+  return (
+    <Card className="border-border bg-card">
+      <header className="px-5 py-4 border-b border-border flex items-center gap-2">
+        <Gauge className="h-4 w-4 text-primary" />
+        <h2 className="font-display font-semibold">Slippage Tracker</h2>
+        <span className="text-xs text-muted-foreground">signal → fill · last 30d</span>
+      </header>
+      {q.isLoading ? (
+        <div className="p-6 text-center text-xs text-muted-foreground">Loading fills…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-6 text-center text-xs text-muted-foreground">
+          No matched fills yet. Trades executed from a strategy signal will show slippage vs. the signal's entry price here.
+        </div>
+      ) : (
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-3 gap-3 text-xs">
+            <SlipStat label="Avg Slippage" bps={avgBps} />
+            <SlipStat label="Worst Fill" bps={worst?.bps ?? 0} suffix={worst ? ` · ${worst.asset}` : ""} />
+            <SlipStat label="Best Fill" bps={best?.bps ?? 0} suffix={best ? ` · ${best.asset}` : ""} />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs font-mono">
+              <thead className="text-[10px] uppercase text-muted-foreground border-b border-border">
+                <tr>
+                  <th className="text-left py-2">When</th>
+                  <th className="text-left py-2">Asset</th>
+                  <th className="text-left py-2">Side</th>
+                  <th className="text-right py-2">Signal $</th>
+                  <th className="text-right py-2">Fill $</th>
+                  <th className="text-right py-2">Slippage</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(0, 25).map((r) => (
+                  <tr key={r.id} className="border-b border-border/50">
+                    <td className="py-2 text-muted-foreground">
+                      {new Date(r.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </td>
+                    <td className="py-2 font-semibold">{r.asset}</td>
+                    <td className={cn("py-2 uppercase text-[10px] font-bold", r.side === "buy" ? "text-bull" : "text-bear")}>{r.side}</td>
+                    <td className="py-2 text-right">${r.expected.toFixed(2)}</td>
+                    <td className="py-2 text-right">${r.actual.toFixed(2)}</td>
+                    <td className={cn("py-2 text-right font-semibold", r.bps > 5 ? "text-bear" : r.bps < -5 ? "text-bull" : "text-muted-foreground")}>
+                      {r.bps >= 0 ? "+" : ""}{r.bps.toFixed(1)} bps
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function SlipStat({ label, bps, suffix = "" }: { label: string; bps: number; suffix?: string }) {
+  const tone = bps > 5 ? "text-bear" : bps < -5 ? "text-bull" : "text-muted-foreground";
+  return (
+    <div className="border border-border rounded-md p-2 bg-background/40">
+      <div className="text-[10px] uppercase text-muted-foreground tracking-wider">{label}</div>
+      <div className={cn("font-mono text-sm font-semibold", tone)}>
+        {bps >= 0 ? "+" : ""}{bps.toFixed(1)} bps<span className="text-muted-foreground text-[10px] font-normal">{suffix}</span>
+      </div>
+    </div>
+  );
+}
+
