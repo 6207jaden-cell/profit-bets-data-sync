@@ -735,6 +735,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_strategy_trade_stats: {
+        Args: { p_user_id: string }
+        Returns: {
+          strategy_id: string
+          total_pnl: number
+          trade_count: number
+          win_count: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
