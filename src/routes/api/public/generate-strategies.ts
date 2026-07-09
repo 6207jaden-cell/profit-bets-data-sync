@@ -263,7 +263,8 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
 
         // Backtest first symbol.
         const symbol = strategy_json.universe?.[0] ?? "AAPL";
-        const bars = await fetchBars(symbol, 365);
+        const raw = await fetchBars(symbol, 365);
+        const bars: Bar[] | null = raw ? raw.times.map((t, i) => ({ t, c: raw.closes[i] })) : null;
         let roi = 0, win_rate = 0, active = true;
         if (bars && bars.length >= 50) {
           const bt = backtest(bars, strategy_json);
@@ -288,6 +289,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
             await supabaseAdmin.from("strategies").update({ active: false }).eq("id", inserted.id);
           }
         }
+
 
         // Auto-generate strategy explanation (best effort)
         try {
