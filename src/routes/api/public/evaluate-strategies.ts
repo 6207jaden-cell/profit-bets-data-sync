@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchDailyCloses, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr } from "@/lib/indicators";
+import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, type Bars } from "@/lib/indicators";
 import { fireWebhook } from "@/lib/webhook.functions";
+
 
 
 /**
