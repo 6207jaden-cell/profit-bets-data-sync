@@ -169,13 +169,16 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
         let evaluated = 0, opened = 0, closed = 0, retired = 0;
         const errors: Array<{ user_id?: string; strategy_id?: string; symbol?: string; reason: string }> = [];
 
-        const closesCache = new Map<string, number[] | null>();
+        // ---------- Per-run shared caches ----------
+        const barsCache = new Map<string, Bars | null>();
         const quoteCache = new Map<string, Quote | null>();
-        const ohlcCache = new Map<string, { highs: number[]; lows: number[]; closes: number[] } | null>();
-        const getCloses = async (sym: string) => {
-          if (closesCache.has(sym)) return closesCache.get(sym)!;
-          const v = await fetchDailyCloses(sym, 220);
-          closesCache.set(sym, v);
+        const earningsCache = new Map<string, { blocked: boolean; date?: string }>();
+        const sentimentCache = new Map<string, { sentiment: "positive" | "negative" | "neutral"; confidence: number; reason: string } | null>();
+
+        const getBars = async (sym: string) => {
+          if (barsCache.has(sym)) return barsCache.get(sym)!;
+          const v = await fetchBars(sym, 220);
+          barsCache.set(sym, v);
           return v;
         };
         const getQuote = async (sym: string) => {
@@ -184,56 +187,86 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
           quoteCache.set(sym, v);
           return v;
         };
-        const getOHLC = async (sym: string) => {
-          if (ohlcCache.has(sym)) return ohlcCache.get(sym)!;
-          const v = await fetchOHLC(sym, 60);
-          ohlcCache.set(sym, v);
+        const getEarnings = async (sym: string) => {
+          if (earningsCache.has(sym)) return earningsCache.get(sym)!;
+          const v = await earningsWithin48h(sym);
+          earningsCache.set(sym, v);
+          return v;
+        };
+        const getSentiment = async (sym: string) => {
+          if (sentimentCache.has(sym)) return sentimentCache.get(sym)!;
+          const v = await newsSentiment(sym);
+          sentimentCache.set(sym, v);
           return v;
         };
 
+        // Fetch SPY once for the whole run and derive regime once.
+        const spyBars = await getBars("SPY");
+        const regime = spyBars ? detectMarketRegime(spyBars.closes) : "sideways";
+
         for (const [userId, userStrats] of byUser) {
           try {
-            const { data: portfolio } = await supabaseAdmin
-              .from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
+            // Parallelize all per-user setup queries.
+            const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+            const [
+              portfolioRes,
+              limitsRes,
+              todayTradesRes,
+              lastExecRes,
+              openAllRes,
+              closedTradesRes,
+            ] = await Promise.all([
+              supabaseAdmin.from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle(),
+              supabaseAdmin.from("risk_limits").select("*").eq("user_id", userId).maybeSingle(),
+              supabaseAdmin.from("paper_trades").select("pnl")
+                .eq("user_id", userId).eq("is_open", false)
+                .gte("closed_at", dayStart.toISOString()),
+              supabaseAdmin.from("signals_executions").select("created_at")
+                .eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+              // Batch ALL open trades once — indexed by strategy_id+asset for later lookup.
+              supabaseAdmin.from("paper_trades").select("*")
+                .eq("user_id", userId).eq("is_open", true),
+              // Single closed-trades pull covers both the retirement check and any per-strategy stats.
+              supabaseAdmin.from("paper_trades")
+                .select("strategy_id, pnl")
+                .eq("user_id", userId).eq("is_open", false),
+            ]);
+
+            const portfolio = portfolioRes.data;
             if (!portfolio) { errors.push({ user_id: userId, reason: "no_portfolio" }); continue; }
-            const { data: limits } = await supabaseAdmin
-              .from("risk_limits").select("*").eq("user_id", userId).maybeSingle();
+            const limits = limitsRes.data;
             const maxDailyLossPct = Number(limits?.max_daily_loss_pct ?? 5);
             const maxPositionPct = Number(limits?.max_position_pct ?? 10);
             const cooldown = Number(limits?.cooldown_seconds ?? 30);
 
-            const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-            const { data: todayTrades } = await supabaseAdmin
-              .from("paper_trades").select("pnl")
-              .eq("user_id", userId).eq("is_open", false)
-              .gte("closed_at", dayStart.toISOString());
-            const dayPnl = (todayTrades ?? []).reduce((a, t) => a + Number(t.pnl ?? 0), 0);
+            const dayPnl = (todayTradesRes.data ?? []).reduce((a, t) => a + Number(t.pnl ?? 0), 0);
             const startBal = Number(portfolio.starting_balance);
             const dailyLossHit = startBal > 0 && (-dayPnl / startBal) * 100 >= maxDailyLossPct;
 
-            const { data: lastExec } = await supabaseAdmin
-              .from("signals_executions").select("created_at")
-              .eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+            const lastExec = lastExecRes.data;
             const cooldownRemaining = lastExec
               ? Math.max(0, cooldown - (Date.now() - new Date(lastExec.created_at).getTime()) / 1000)
               : 0;
 
-            // Sector snapshot of currently open positions
-            const { data: openAll } = await supabaseAdmin
-              .from("paper_trades").select("asset").eq("user_id", userId).eq("is_open", true);
+            // Index open trades by strategy_id+asset for O(1) lookup during the loop.
+            const openAll = openAllRes.data ?? [];
+            const openByKey = new Map<string, typeof openAll>();
             const sectorCounts = new Map<string, number>();
-            for (const t of openAll ?? []) {
+            for (const t of openAll) {
+              const key = `${t.strategy_id}:${String(t.asset).toUpperCase()}`;
+              const arr = openByKey.get(key) ?? [];
+              arr.push(t);
+              openByKey.set(key, arr);
               const sec = sectorFor(String(t.asset));
               sectorCounts.set(sec, (sectorCounts.get(sec) ?? 0) + 1);
             }
-            const totalOpen = openAll?.length ?? 0;
+            let totalOpen = openAll.length;
 
             let cash = Number(portfolio.balance);
+            let portfolioDirty = false;
 
-            // Market regime (one-shot per user via SPY)
-            const spyCloses = await getCloses("SPY");
-            const regime = spyCloses ? detectMarketRegime(spyCloses) : "sideways";
-
+            // Buffer batch inserts.
+            const executionsBuffer: Array<Record<string, unknown>> = [];
 
             for (const strat of userStrats) {
               const sj = strat.strategy_json ?? {};
@@ -247,26 +280,20 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                 evaluated++;
                 try {
                   const symIsCrypto = isCryptoSymbol(symbol);
-                  // Market hours guard — stocks skipped when closed
-                  if (!symIsCrypto && !marketOpen) {
-                    continue;
-                  }
-                  const closes = await getCloses(symbol);
-                  const quote = await getQuote(symbol);
-                  if (!closes || !quote) {
+                  if (!symIsCrypto && !marketOpen) continue;
+
+                  // Fetch bars + quote in parallel.
+                  const [bars, quote] = await Promise.all([getBars(symbol), getQuote(symbol)]);
+                  if (!bars || !quote) {
                     errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: "market_data_unavailable" });
                     continue;
                   }
-                  const liveCloses = [...closes, quote.price];
+                  const liveCloses = [...bars.closes, quote.price];
 
-
-                  // Exits first
-                  const { data: openTrades } = await supabaseAdmin
-                    .from("paper_trades").select("*")
-                    .eq("user_id", userId).eq("strategy_id", strat.id)
-                    .eq("asset", symbol).eq("is_open", true);
-
-                  for (const trade of openTrades ?? []) {
+                  // Exits — use batched open positions.
+                  const key = `${strat.id}:${symbol}`;
+                  const openTrades = openByKey.get(key) ?? [];
+                  for (const trade of openTrades) {
                     const exitCtx = buildContext(liveCloses, Number(trade.entry_price));
                     if (!exitCtx || exitConds.length === 0) continue;
                     if (!evalGroup(exitConds, exitLogic, exitCtx)) continue;
@@ -279,53 +306,44 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                       is_open: false, exit_price: quote.price, pnl, closed_at: new Date().toISOString(),
                     }).eq("id", trade.id);
                     cash += proceeds;
-                    await supabaseAdmin.from("paper_portfolios").update({
-                      balance: cash, equity: cash, updated_at: new Date().toISOString(),
-                    }).eq("id", portfolio.id);
-                    await supabaseAdmin.from("signals_executions").insert({
+                    portfolioDirty = true;
+                    executionsBuffer.push({
                       user_id: userId, strategy_id: strat.id, execution_type: "paper", status: "filled",
                       asset: symbol, side: trade.side === "buy" ? "sell" : "buy",
                       quantity: qty, price: quote.price,
                       reason: `auto_exit pnl=${pnl.toFixed(2)} via ${quote.source}`,
                     });
                     await fireWebhook(userId, "trade_close", { strategy_id: strat.id, asset: symbol, side: trade.side === "buy" ? "sell" : "buy", quantity: qty, price: quote.price, pnl });
-                    // Update sector counts (this asset just closed)
                     const sec = sectorFor(symbol);
                     sectorCounts.set(sec, Math.max(0, (sectorCounts.get(sec) ?? 1) - 1));
+                    totalOpen = Math.max(0, totalOpen - 1);
                     closed++;
                   }
-
+                  openByKey.delete(key);
 
                   // Entries
                   if (dailyLossHit || cooldownRemaining > 0) continue;
                   if (entryConds.length === 0) continue;
-
-                  const { count: openCount } = await supabaseAdmin
-                    .from("paper_trades").select("id", { count: "exact", head: true })
-                    .eq("user_id", userId).eq("strategy_id", strat.id)
-                    .eq("asset", symbol).eq("is_open", true);
-                  if ((openCount ?? 0) > 0) continue;
+                  // Skip if any open position exists for this strategy+symbol (already handled above).
+                  if ((openByKey.get(key)?.length ?? 0) > 0) continue;
 
                   const entryCtx = buildContext(liveCloses, null);
                   if (!entryCtx) continue;
                   if (!evalGroup(entryConds, entryLogic, entryCtx)) continue;
 
-                  // Earnings avoidance (stocks only)
+                  // Earnings + sentiment in parallel (both cached per symbol; fail-open).
                   if (!symIsCrypto) {
-                    const er = await earningsWithin48h(symbol);
+                    const [er, ns] = await Promise.all([getEarnings(symbol), getSentiment(symbol)]);
                     if (er.blocked) {
                       errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:earnings_proximity symbol=${symbol} earnings_date=${er.date}` });
                       continue;
                     }
-                    // News sentiment filter (fails open)
-                    const ns = await newsSentiment(symbol);
                     if (ns && ns.sentiment === "negative" && ns.confidence >= 70) {
                       errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:negative_news_sentiment symbol=${symbol} confidence=${ns.confidence} reason=${ns.reason}` });
                       continue;
                     }
                   }
 
-                  // Sector concentration guard
                   const sec = sectorFor(symbol);
                   const secCount = sectorCounts.get(sec) ?? 0;
                   if (totalOpen >= 3 && (secCount + 1) / (totalOpen + 1) >= 0.4) {
@@ -333,10 +351,8 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     continue;
                   }
 
-
                   let allocPct = Math.min(maxPositionPct, 10);
 
-                  // Confidence-based sizing from recent market signal
                   const sixHoursAgo = new Date(Date.now() - 6 * 3600_000).toISOString();
                   const { data: sig } = await supabaseAdmin
                     .from("market_signals")
@@ -354,20 +370,16 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     else if (confidence < 80) allocPct *= 0.75;
                   }
 
-                  // Volatility-adjusted sizing (ATR)
-                  const ohlc = await getOHLC(symbol);
+                  // ATR volatility sizing — reuse the same Bars fetched above.
                   let volPct: number | null = null;
-                  if (ohlc) {
-                    const a = atr(ohlc.highs, ohlc.lows, ohlc.closes, 14);
-                    if (a && quote.price) {
-                      volPct = (a / quote.price) * 100;
-                      if (volPct > 10) allocPct *= 0.25;
-                      else if (volPct > 5) allocPct *= 0.5;
-                    }
+                  const a = atr(bars.highs, bars.lows, bars.closes, 14);
+                  if (a && quote.price) {
+                    volPct = (a / quote.price) * 100;
+                    if (volPct > 10) allocPct *= 0.25;
+                    else if (volPct > 5) allocPct *= 0.5;
                   }
-                  allocPct = Math.max(2, allocPct); // floor 2%
+                  allocPct = Math.max(2, allocPct);
 
-                  // Market regime multiplier based on strategy style
                   const style = strat.style ?? sj.style ?? null;
                   let regimeMult = 1;
                   if (style === "momentum") {
@@ -394,11 +406,10 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     continue;
                   }
                   cash -= allocCash;
+                  portfolioDirty = true;
                   sectorCounts.set(sec, secCount + 1);
-                  await supabaseAdmin.from("paper_portfolios").update({
-                    balance: cash, equity: cash, updated_at: new Date().toISOString(),
-                  }).eq("id", portfolio.id);
-                  await supabaseAdmin.from("signals_executions").insert({
+                  totalOpen++;
+                  executionsBuffer.push({
                     user_id: userId, strategy_id: strat.id, execution_type: "paper", status: "filled",
                     asset: symbol, side: "buy", quantity, price: quote.price,
                     reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""} regime=${regime}${style ? ` style=${style} mult=${regimeMult.toFixed(2)}` : ""}`,
@@ -412,16 +423,32 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
               }
             }
 
-            // Auto-retire poor performers for this user
+            // Deferred writes: one portfolio update + one bulk executions insert per user.
+            if (portfolioDirty) {
+              await supabaseAdmin.from("paper_portfolios").update({
+                balance: cash, equity: cash, updated_at: new Date().toISOString(),
+              }).eq("id", portfolio.id);
+            }
+            if (executionsBuffer.length > 0) {
+              await supabaseAdmin.from("signals_executions").insert(executionsBuffer);
+            }
+
+            // Auto-retire poor performers — computed from the single closed-trades pull above.
+            const closedByStrat = new Map<string, { count: number; wins: number; pnl: number }>();
+            for (const t of closedTradesRes.data ?? []) {
+              if (!t.strategy_id) continue;
+              const cur = closedByStrat.get(t.strategy_id) ?? { count: 0, wins: 0, pnl: 0 };
+              const p = Number(t.pnl ?? 0);
+              cur.count++;
+              if (p > 0) cur.wins++;
+              cur.pnl += p;
+              closedByStrat.set(t.strategy_id, cur);
+            }
             for (const strat of userStrats) {
-              const { data: closedTrades } = await supabaseAdmin
-                .from("paper_trades").select("pnl").eq("user_id", userId).eq("strategy_id", strat.id).eq("is_open", false);
-              const rows = closedTrades ?? [];
-              if (rows.length < 10) continue;
-              const wins = rows.filter((r) => Number(r.pnl ?? 0) > 0).length;
-              const winRate = (wins / rows.length) * 100;
-              const totalPnl = rows.reduce((a, r) => a + Number(r.pnl ?? 0), 0);
-              const roi = startBal > 0 ? (totalPnl / startBal) * 100 : 0;
+              const s = closedByStrat.get(strat.id);
+              if (!s || s.count < 10) continue;
+              const winRate = (s.wins / s.count) * 100;
+              const roi = startBal > 0 ? (s.pnl / startBal) * 100 : 0;
               if (winRate < 35 || roi < -10) {
                 await supabaseAdmin.from("strategies").update({ active: false }).eq("id", strat.id);
                 await supabaseAdmin.from("signals_executions").insert({
@@ -431,8 +458,6 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                 });
                 await fireWebhook(userId, "strategy_retired", { strategy_id: strat.id, name: strat.name ?? "", win_rate: winRate, roi });
                 retired++;
-
-                // Trigger a replacement strategy generation
                 try {
                   const url = `https://project--a4cfc4c8-5d00-4bc0-a84a-408f0bcb34ad-dev.lovable.app/api/public/generate-strategies`;
                   await fetch(url, {
@@ -448,8 +473,9 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
           }
         }
 
-        return Response.json({ ok: true, evaluated, opened, closed, retired, errors, ts, market_open: marketOpen, regime: null });
+        return Response.json({ ok: true, evaluated, opened, closed, retired, errors, ts, market_open: marketOpen, regime });
       },
     },
   },
 });
+
