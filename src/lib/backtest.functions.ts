@@ -5,6 +5,7 @@ import {
   ema,
   rsi,
   evalGroup,
+  fetchBars,
   type IndicatorContext,
 } from "@/lib/indicators";
 
@@ -28,49 +29,15 @@ type BacktestResult =
     }
   | { ok: false; reason: string };
 
-async function fetchPolygon(symbol: string, days: number): Promise<Bar[] | null> {
-  const key = process.env.POLYGON_API_KEY;
-  if (!key) return null;
-  const to = new Date();
-  const from = new Date(Date.now() - days * 86400_000);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${fmt(from)}/${fmt(to)}?adjusted=true&sort=asc&limit=5000&apiKey=${key}`;
-  try {
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const j = (await r.json()) as { results?: Array<{ t: number; o: number; h: number; l: number; c: number; v: number }> };
-    if (!j.results || j.results.length === 0) return null;
-    return j.results.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
-  } catch {
-    return null;
-  }
+async function loadBarsInternal(symbol: string, days: number): Promise<{ bars: Bar[] | null; source: "polygon" | "alpha_vantage" }> {
+  const b = await fetchBars(symbol, days);
+  if (!b) return { bars: null, source: "polygon" };
+  const bars: Bar[] = b.times.map((t, i) => ({ t, o: b.opens[i], h: b.highs[i], l: b.lows[i], c: b.closes[i], v: b.volumes[i] }));
+  // Provider identity is best-effort now that both go through fetchBars; report polygon when key present.
+  const source: "polygon" | "alpha_vantage" = process.env.POLYGON_API_KEY ? "polygon" : "alpha_vantage";
+  return { bars, source };
 }
 
-async function fetchAlphaVantage(symbol: string): Promise<Bar[] | null> {
-  const key = process.env.ALPHA_VANTAGE_API_KEY;
-  if (!key) return null;
-  const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol)}&outputsize=full&apikey=${key}`;
-  try {
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const j = (await r.json()) as { "Time Series (Daily)"?: Record<string, Record<string, string>> };
-    const series = j["Time Series (Daily)"];
-    if (!series) return null;
-    const bars = Object.entries(series)
-      .map(([date, v]) => ({
-        t: new Date(date).getTime(),
-        o: Number(v["1. open"]),
-        h: Number(v["2. high"]),
-        l: Number(v["3. low"]),
-        c: Number(v["4. close"]),
-        v: Number(v["5. volume"] ?? 0),
-      }))
-      .sort((a, b) => a.t - b.t);
-    return bars.length ? bars : null;
-  } catch {
-    return null;
-  }
-}
 
 export const runBacktest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -96,15 +63,11 @@ export const runBacktest = createServerFn({ method: "POST" })
     };
     const symbol = data.symbol ?? sj.universe?.[0] ?? "AAPL";
 
-    // Fetch bars with fallback chain
-    let bars = await fetchPolygon(symbol, data.days);
-    let source: "polygon" | "alpha_vantage" = "polygon";
-    if (!bars || bars.length < 50) {
-      bars = await fetchAlphaVantage(symbol);
-      source = "alpha_vantage";
-      if (bars && bars.length > data.days) bars = bars.slice(-data.days);
-    }
+    const loaded = await loadBarsInternal(symbol, data.days);
+    const bars = loaded.bars;
+    const source = loaded.source;
     if (!bars || bars.length < 50) return { ok: false, reason: "insufficient_data" };
+
 
     const closes = bars.map((b) => b.c);
     const rsiArr = rsi(closes, 14);
@@ -305,16 +268,8 @@ function simulate(bars: Bar[], sj: { entry: { conditions: string[]; logic: "AND"
   };
 }
 
-async function loadBars(symbol: string, days: number): Promise<{ bars: Bar[] | null; source: "polygon" | "alpha_vantage" }> {
-  let bars = await fetchPolygon(symbol, days);
-  let source: "polygon" | "alpha_vantage" = "polygon";
-  if (!bars || bars.length < 50) {
-    bars = await fetchAlphaVantage(symbol);
-    source = "alpha_vantage";
-    if (bars && bars.length > days) bars = bars.slice(-days);
-  }
-  return { bars, source };
-}
+const loadBars = loadBarsInternal;
+
 
 export const runWalkForwardBacktest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

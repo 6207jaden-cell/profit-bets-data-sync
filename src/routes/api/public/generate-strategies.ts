@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { sma, ema, rsi, evalGroup, type IndicatorContext } from "@/lib/indicators";
+import { sma, ema, rsi, evalGroup, fetchBars, type IndicatorContext } from "@/lib/indicators";
 
 /**
  * AI Strategy Lab. Called hourly by pg_cron.
@@ -46,45 +46,8 @@ JSON shape:
   }
 }`;
 
-
 type Bar = { t: number; c: number };
 
-async function fetchBars(symbol: string, days: number): Promise<Bar[] | null> {
-  const S = symbol.toUpperCase();
-  const poly = process.env.POLYGON_API_KEY;
-  if (poly) {
-    try {
-      const to = new Date();
-      const from = new Date(Date.now() - days * 86400_000);
-      const fmt = (d: Date) => d.toISOString().slice(0, 10);
-      const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(S)}/range/1/day/${fmt(from)}/${fmt(to)}?adjusted=true&sort=asc&limit=5000&apiKey=${poly}`;
-      const r = await fetch(url);
-      if (r.ok) {
-        const j = (await r.json()) as { results?: Array<{ t: number; c: number }> };
-        if (j.results?.length) return j.results.map((b) => ({ t: b.t, c: b.c }));
-      }
-    } catch { /* fall */ }
-  }
-  const alpha = process.env.ALPHA_VANTAGE_API_KEY;
-  if (alpha) {
-    try {
-      const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(S)}&outputsize=full&apikey=${alpha}`;
-      const r = await fetch(url);
-      if (r.ok) {
-        const j = (await r.json()) as { "Time Series (Daily)"?: Record<string, Record<string, string>> };
-        const series = j["Time Series (Daily)"];
-        if (series) {
-          const bars = Object.entries(series)
-            .map(([date, v]) => ({ t: new Date(date).getTime(), c: Number(v["4. close"]) }))
-            .filter((b) => Number.isFinite(b.c))
-            .sort((a, b) => a.t - b.t);
-          if (bars.length) return bars.slice(-days);
-        }
-      }
-    } catch { /* fall */ }
-  }
-  return null;
-}
 
 function backtest(bars: Bar[], sj: StrategyJSON): { roi: number; win_rate: number; drawdown: number; sharpe: number; trade_count: number; equity_curve: Array<{ t: string; equity: number }> } {
   const closes = bars.map((b) => b.c);
@@ -300,7 +263,8 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
 
         // Backtest first symbol.
         const symbol = strategy_json.universe?.[0] ?? "AAPL";
-        const bars = await fetchBars(symbol, 365);
+        const raw = await fetchBars(symbol, 365);
+        const bars: Bar[] | null = raw ? raw.times.map((t, i) => ({ t, c: raw.closes[i] })) : null;
         let roi = 0, win_rate = 0, active = true;
         if (bars && bars.length >= 50) {
           const bt = backtest(bars, strategy_json);
@@ -325,6 +289,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
             await supabaseAdmin.from("strategies").update({ active: false }).eq("id", inserted.id);
           }
         }
+
 
         // Auto-generate strategy explanation (best effort)
         try {

@@ -31,7 +31,7 @@ type PerfRow = {
   updated_at: string;
 };
 
-type TradeRow = { strategy_id: string | null; pnl: number | null };
+type TradeStatRow = { strategy_id: string; total_pnl: number | string | null; trade_count: number | string; win_count: number | string };
 
 type LeaderRow = {
   strategy: StrategyRow;
@@ -58,40 +58,36 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
     queryKey: ["leaderboard"],
     refetchInterval: 30_000,
     queryFn: async (): Promise<LeaderRow[]> => {
-      const [{ data: strategies, error: sErr }, { data: perf, error: pErr }, { data: trades, error: tErr }] =
+      const [{ data: strategies, error: sErr }, { data: perf, error: pErr }, { data: stats, error: tErr }] =
         await Promise.all([
           supabase.from("strategies")
             .select("id, user_id, name, description, execution_mode, risk_level, active, source"),
           supabase.from("strategy_performance")
             .select("strategy_id, roi, win_rate, sharpe, updated_at")
             .order("updated_at", { ascending: false }),
-          supabase.from("paper_trades")
-            .select("strategy_id, pnl").eq("is_open", false),
+          // Aggregated on the server — one row per strategy instead of every closed trade.
+          supabase.rpc("get_strategy_trade_stats"),
         ]);
       if (sErr) throw sErr;
       if (pErr) throw pErr;
       if (tErr) throw tErr;
 
-      // Latest perf row per strategy
       const perfMap = new Map<string, PerfRow>();
       for (const p of (perf ?? []) as PerfRow[]) {
         if (!perfMap.has(p.strategy_id)) perfMap.set(p.strategy_id, p);
       }
-      // Aggregate closed trades per strategy
-      const tradeAgg = new Map<string, { pnl: number; wins: number; count: number }>();
-      for (const t of (trades ?? []) as TradeRow[]) {
-        if (!t.strategy_id) continue;
-        const cur = tradeAgg.get(t.strategy_id) ?? { pnl: 0, wins: 0, count: 0 };
-        const pnl = Number(t.pnl ?? 0);
-        cur.pnl += pnl;
-        if (pnl > 0) cur.wins++;
-        cur.count++;
-        tradeAgg.set(t.strategy_id, cur);
+      const statsMap = new Map<string, { pnl: number; wins: number; count: number }>();
+      for (const s of (stats ?? []) as TradeStatRow[]) {
+        statsMap.set(s.strategy_id, {
+          pnl: Number(s.total_pnl ?? 0),
+          wins: Number(s.win_count ?? 0),
+          count: Number(s.trade_count ?? 0),
+        });
       }
 
       return ((strategies ?? []) as StrategyRow[]).map((s) => {
         const p = perfMap.get(s.id);
-        const a = tradeAgg.get(s.id);
+        const a = statsMap.get(s.id);
         return {
           strategy: s,
           backtestRoi: p?.roi != null ? Number(p.roi) : null,

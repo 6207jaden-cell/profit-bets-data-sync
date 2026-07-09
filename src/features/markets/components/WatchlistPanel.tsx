@@ -39,11 +39,15 @@ export function WatchlistPanel() {
     queryKey: ["watch-stock-q", stocks, refreshAt],
     queryFn: () => stockQuotes({ data: { symbols: stocks } }),
     enabled: stocks.length > 0,
+    staleTime: 45_000,
+    gcTime: 5 * 60_000,
   });
   const { data: cryptoData } = useQuery({
     queryKey: ["watch-crypto-q", cryptos, refreshAt],
     queryFn: () => cryptoQuotes({ data: { ids: cryptos } }),
     enabled: cryptos.length > 0,
+    staleTime: 45_000,
+    gcTime: 5 * 60_000,
   });
 
   useEffect(() => {
