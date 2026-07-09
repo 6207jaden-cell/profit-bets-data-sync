@@ -65,27 +65,8 @@ async function fetchLiveQuote(symbol: string): Promise<Quote | null> {
   return null;
 }
 
-/** Fetch daily OHLC bars for ATR from Polygon. */
-async function fetchOHLC(symbol: string, days = 60): Promise<{ highs: number[]; lows: number[]; closes: number[] } | null> {
-  const poly = process.env.POLYGON_API_KEY;
-  if (!poly) return null;
-  const S = symbol.toUpperCase();
-  const isCrypto = isCryptoSymbol(S);
-  const polySym = isCrypto ? `X:${cryptoBase(S)}USD` : S;
-  const to = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
-  try {
-    const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=500&apiKey=${poly}`);
-    if (!r.ok) return null;
-    const j = (await r.json()) as { results?: Array<{ h: number; l: number; c: number }> };
-    if (!j.results?.length) return null;
-    return {
-      highs: j.results.map((b) => b.h),
-      lows: j.results.map((b) => b.l),
-      closes: j.results.map((b) => b.c),
-    };
-  } catch { return null; }
-}
+// fetchOHLC removed — shared fetchBars from indicators.ts now provides {highs, lows, closes, ...}
+
 
 type StrategyRow = {
   id: string;
