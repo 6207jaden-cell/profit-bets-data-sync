@@ -266,7 +266,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
             let portfolioDirty = false;
 
             // Buffer batch inserts.
-            const executionsBuffer: Array<{ user_id: string; strategy_id: string; execution_type: "paper"; status: string; asset: string; side: "buy" | "sell"; quantity: number; price: number; reason: string }> = [];
+            const executionsBuffer: Array<{ user_id: string; strategy_id: string; execution_type: "paper"; status: "filled"; asset: string; side: "buy" | "sell"; quantity: number; price: number; reason: string }> = [];
 
             for (const strat of userStrats) {
               const sj = strat.strategy_json ?? {};
