@@ -268,16 +268,8 @@ function simulate(bars: Bar[], sj: { entry: { conditions: string[]; logic: "AND"
   };
 }
 
-async function loadBars(symbol: string, days: number): Promise<{ bars: Bar[] | null; source: "polygon" | "alpha_vantage" }> {
-  let bars = await fetchPolygon(symbol, days);
-  let source: "polygon" | "alpha_vantage" = "polygon";
-  if (!bars || bars.length < 50) {
-    bars = await fetchAlphaVantage(symbol);
-    source = "alpha_vantage";
-    if (bars && bars.length > days) bars = bars.slice(-days);
-  }
-  return { bars, source };
-}
+const loadBars = loadBarsInternal;
+
 
 export const runWalkForwardBacktest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
