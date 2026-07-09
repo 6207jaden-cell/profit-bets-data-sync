@@ -736,7 +736,7 @@ export type Database = {
     }
     Functions: {
       get_strategy_trade_stats: {
-        Args: { p_user_id: string }
+        Args: never
         Returns: {
           strategy_id: string
           total_pnl: number
