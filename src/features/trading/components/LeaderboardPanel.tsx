@@ -31,7 +31,7 @@ type PerfRow = {
   updated_at: string;
 };
 
-type TradeRow = { strategy_id: string | null; pnl: number | null };
+type TradeStatRow = { strategy_id: string; total_pnl: number | string | null; trade_count: number | string; win_count: number | string };
 
 type LeaderRow = {
   strategy: StrategyRow;
