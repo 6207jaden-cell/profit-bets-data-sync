@@ -63,15 +63,11 @@ export const runBacktest = createServerFn({ method: "POST" })
     };
     const symbol = data.symbol ?? sj.universe?.[0] ?? "AAPL";
 
-    // Fetch bars with fallback chain
-    let bars = await fetchPolygon(symbol, data.days);
-    let source: "polygon" | "alpha_vantage" = "polygon";
-    if (!bars || bars.length < 50) {
-      bars = await fetchAlphaVantage(symbol);
-      source = "alpha_vantage";
-      if (bars && bars.length > data.days) bars = bars.slice(-data.days);
-    }
+    const loaded = await loadBarsInternal(symbol, data.days);
+    const bars = loaded.bars;
+    const source = loaded.source;
     if (!bars || bars.length < 50) return { ok: false, reason: "insufficient_data" };
+
 
     const closes = bars.map((b) => b.c);
     const rsiArr = rsi(closes, 14);
