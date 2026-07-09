@@ -183,13 +183,22 @@ function cryptoBase(sym: string): string {
 }
 
 
+export type Bars = {
+  times: number[];
+  opens: number[];
+  highs: number[];
+  lows: number[];
+  closes: number[];
+  volumes: number[];
+};
+
 /**
- * Fetch ~220 recent daily closes for a symbol. Handles both stocks and
- * crypto (e.g. "BTC-USD"). Polygon first, Alpha Vantage fallback.
- * Returns oldest → newest. Sleeps between provider calls to respect the
- * Polygon 5 req/min free-tier limit.
+ * Fetch ~`days` recent daily OHLCV bars. Handles stocks and crypto (e.g. "BTC-USD").
+ * Polygon first, Alpha Vantage fallback. Returns oldest → newest.
+ * Sleeps between Polygon calls to respect the free-tier limit.
+ * All callers (backtester, live evaluator, generator) go through this one function.
  */
-export async function fetchDailyCloses(symbol: string, days = 220): Promise<number[] | null> {
+export async function fetchBars(symbol: string, days = 220): Promise<Bars | null> {
   const S = symbol.toUpperCase();
   const isCrypto = isCryptoSymbol(S);
   const poly = process.env.POLYGON_API_KEY;
@@ -202,11 +211,18 @@ export async function fetchDailyCloses(symbol: string, days = 220): Promise<numb
       const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/range/1/day/${fmt(from)}/${fmt(to)}?adjusted=true&sort=asc&limit=5000&apiKey=${poly}`;
       const r = await fetch(url);
       if (r.ok) {
-        const j = (await r.json()) as { status?: string; results?: Array<{ c: number }> };
-        const closes = (j.results ?? []).map((b) => b.c).filter((c) => Number.isFinite(c));
-        if (closes.length >= 50) {
-          await sleep(13_000); // stay under 5 req/min
-          return closes;
+        const j = (await r.json()) as { results?: Array<{ t: number; o: number; h: number; l: number; c: number; v: number }> };
+        const rows = (j.results ?? []).filter((b) => Number.isFinite(b.c));
+        if (rows.length >= 50) {
+          await sleep(13_000);
+          return {
+            times: rows.map((b) => b.t),
+            opens: rows.map((b) => b.o),
+            highs: rows.map((b) => b.h),
+            lows: rows.map((b) => b.l),
+            closes: rows.map((b) => b.c),
+            volumes: rows.map((b) => b.v),
+          };
         }
       }
     } catch { /* fall through */ }
@@ -223,18 +239,43 @@ export async function fetchDailyCloses(symbol: string, days = 220): Promise<numb
         const seriesKey = isCrypto ? "Time Series (Digital Currency Daily)" : "Time Series (Daily)";
         const series = j[seriesKey] as Record<string, Record<string, string>> | undefined;
         if (series) {
-          const closeKey = isCrypto ? "4a. close (USD)" : "4. close";
-          const closes = Object.entries(series)
-            .map(([date, v]) => ({ t: new Date(date).getTime(), c: Number(v[closeKey] ?? v["4. close"]) }))
+          const oKey = isCrypto ? "1a. open (USD)" : "1. open";
+          const hKey = isCrypto ? "2a. high (USD)" : "2. high";
+          const lKey = isCrypto ? "3a. low (USD)" : "3. low";
+          const cKey = isCrypto ? "4a. close (USD)" : "4. close";
+          const rows = Object.entries(series)
+            .map(([date, v]) => ({
+              t: new Date(date).getTime(),
+              o: Number(v[oKey] ?? v["1. open"]),
+              h: Number(v[hKey] ?? v["2. high"]),
+              l: Number(v[lKey] ?? v["3. low"]),
+              c: Number(v[cKey] ?? v["4. close"]),
+              v: Number(v["5. volume"] ?? 0),
+            }))
             .filter((b) => Number.isFinite(b.c))
             .sort((a, b) => a.t - b.t)
-            .map((b) => b.c);
-          if (closes.length >= 50) return closes.slice(-days);
+            .slice(-days);
+          if (rows.length >= 50) {
+            return {
+              times: rows.map((b) => b.t),
+              opens: rows.map((b) => b.o),
+              highs: rows.map((b) => b.h),
+              lows: rows.map((b) => b.l),
+              closes: rows.map((b) => b.c),
+              volumes: rows.map((b) => b.v),
+            };
+          }
         }
       }
     } catch { /* fall through */ }
   }
   return null;
+}
+
+/** Back-compat: fetch just the close series through the shared bar fetcher. */
+export async function fetchDailyCloses(symbol: string, days = 220): Promise<number[] | null> {
+  const b = await fetchBars(symbol, days);
+  return b?.closes ?? null;
 }
 
 
