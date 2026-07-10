@@ -279,7 +279,7 @@ Respond with ONLY valid JSON matching this exact schema — no prose, no markdow
   });
   await supabaseAdmin.from("agent_decisions").insert({
     user_id: userId, session_type: sessionType, regime,
-    market_assessment: ai.market_assessment, payload: ai as unknown as Record<string, unknown>,
+    market_assessment: ai.market_assessment, payload: ai as never,
     trades_opened: opened,
   });
   // Note execution_mode influence (paper-only for now; live path would call broker)
