@@ -340,7 +340,6 @@ export function AgentPanel() {
     </div>
   );
 }
-}
 
 function MessageView({ message }: { message: ReturnType<typeof useChat>["messages"][number] }) {
   const isUser = message.role === "user";
