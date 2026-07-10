@@ -178,7 +178,7 @@ export function detectMarketRegime(spyCloses: number[]): "bull" | "bear" | "side
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Extract base coin from "BTC-USD" / "BTC/USDT" -> "BTC". */
-function cryptoBase(sym: string): string {
+export function cryptoBase(sym: string): string {
   return sym.toUpperCase().replace(/[-/]USD[T]?$/, "");
 }
 
