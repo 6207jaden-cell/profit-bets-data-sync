@@ -259,7 +259,7 @@ Respond with ONLY valid JSON matching this exact schema — no prose, no markdow
       stop_loss_pct: t.stop_loss_pct,
       take_profit_pct: t.take_profit_pct,
       instrument: t.instrument,
-      options_details: t.options_details ?? null,
+      options_details: (t.options_details ?? null) as never,
       rationale: t.rationale,
     });
     if (error) { console.error("[autonomous] insert trade", error); continue; }
