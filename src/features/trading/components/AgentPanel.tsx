@@ -337,7 +337,9 @@ export function AgentPanel() {
         </Button>
       </form>
     </div>
+    </div>
   );
+}
 }
 
 function MessageView({ message }: { message: ReturnType<typeof useChat>["messages"][number] }) {
