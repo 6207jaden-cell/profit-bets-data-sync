@@ -23,6 +23,7 @@ import { Route as ApiPublicGenerateStrategiesRouteImport } from './routes/api/pu
 import { Route as ApiPublicEvaluateStrategiesRouteImport } from './routes/api/public/evaluate-strategies'
 import { Route as ApiPublicEvaluateAlertsRouteImport } from './routes/api/public/evaluate-alerts'
 import { Route as ApiPublicDailyDigestRouteImport } from './routes/api/public/daily-digest'
+import { Route as ApiPublicAutonomousExitCheckRouteImport } from './routes/api/public/autonomous-exit-check'
 import { Route as ApiPublicAutonomousAgentRouteImport } from './routes/api/public/autonomous-agent'
 import { Route as ApiPublicMcpRobinhoodCallbackRouteImport } from './routes/api/public/mcp/robinhood/callback'
 
@@ -98,6 +99,12 @@ const ApiPublicDailyDigestRoute = ApiPublicDailyDigestRouteImport.update({
   path: '/api/public/daily-digest',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAutonomousExitCheckRoute =
+  ApiPublicAutonomousExitCheckRouteImport.update({
+    id: '/api/public/autonomous-exit-check',
+    path: '/api/public/autonomous-exit-check',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicAutonomousAgentRoute =
   ApiPublicAutonomousAgentRouteImport.update({
     id: '/api/public/autonomous-agent',
@@ -120,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
   '/api/public/autonomous-agent': typeof ApiPublicAutonomousAgentRoute
+  '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
@@ -137,6 +145,7 @@ export interface FileRoutesByTo {
   '/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
   '/api/public/autonomous-agent': typeof ApiPublicAutonomousAgentRoute
+  '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
@@ -156,6 +165,7 @@ export interface FileRoutesById {
   '/_authenticated/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
   '/api/public/autonomous-agent': typeof ApiPublicAutonomousAgentRoute
+  '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
     | '/trading'
     | '/api/chat'
     | '/api/public/autonomous-agent'
+    | '/api/public/autonomous-exit-check'
     | '/api/public/daily-digest'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
@@ -192,6 +203,7 @@ export interface FileRouteTypes {
     | '/trading'
     | '/api/chat'
     | '/api/public/autonomous-agent'
+    | '/api/public/autonomous-exit-check'
     | '/api/public/daily-digest'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
@@ -210,6 +222,7 @@ export interface FileRouteTypes {
     | '/_authenticated/trading'
     | '/api/chat'
     | '/api/public/autonomous-agent'
+    | '/api/public/autonomous-exit-check'
     | '/api/public/daily-digest'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
@@ -225,6 +238,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiPublicAutonomousAgentRoute: typeof ApiPublicAutonomousAgentRoute
+  ApiPublicAutonomousExitCheckRoute: typeof ApiPublicAutonomousExitCheckRoute
   ApiPublicDailyDigestRoute: typeof ApiPublicDailyDigestRoute
   ApiPublicEvaluateAlertsRoute: typeof ApiPublicEvaluateAlertsRoute
   ApiPublicEvaluateStrategiesRoute: typeof ApiPublicEvaluateStrategiesRoute
@@ -334,6 +348,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicDailyDigestRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/autonomous-exit-check': {
+      id: '/api/public/autonomous-exit-check'
+      path: '/api/public/autonomous-exit-check'
+      fullPath: '/api/public/autonomous-exit-check'
+      preLoaderRoute: typeof ApiPublicAutonomousExitCheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/autonomous-agent': {
       id: '/api/public/autonomous-agent'
       path: '/api/public/autonomous-agent'
@@ -374,6 +395,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiChatRoute: ApiChatRoute,
   ApiPublicAutonomousAgentRoute: ApiPublicAutonomousAgentRoute,
+  ApiPublicAutonomousExitCheckRoute: ApiPublicAutonomousExitCheckRoute,
   ApiPublicDailyDigestRoute: ApiPublicDailyDigestRoute,
   ApiPublicEvaluateAlertsRoute: ApiPublicEvaluateAlertsRoute,
   ApiPublicEvaluateStrategiesRoute: ApiPublicEvaluateStrategiesRoute,
