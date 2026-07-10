@@ -34,7 +34,7 @@ const ROBINHOOD_MANUAL_REDIRECT_URI =
 
 export function AgentPanel() {
   const qc = useQueryClient();
-  const { hasElite, loading: profileLoading } = useProfile();
+  const { hasElite, loading: profileLoading, userId } = useProfile();
   const search = useSearch({ strict: false }) as { connected?: string };
   const navigate = useNavigate();
   const [input, setInput] = useState("");
