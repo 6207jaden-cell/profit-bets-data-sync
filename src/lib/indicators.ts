@@ -304,3 +304,44 @@ export function buildContext(closes: number[], entryPrice: number | null = null)
     entry_price: entryPrice,
   };
 }
+
+/** Fetch a live quote price for a symbol. Finnhub → Polygon → Alpha Vantage. */
+export async function fetchQuotePrice(symbol: string): Promise<number | null> {
+  const S = symbol.toUpperCase();
+  const isCrypto = isCryptoSymbol(S);
+  const fin = process.env.FINNHUB_API_KEY;
+  const poly = process.env.POLYGON_API_KEY;
+  const alpha = process.env.ALPHA_VANTAGE_API_KEY;
+  try {
+    if (fin && !isCrypto) {
+      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${S}&token=${fin}`);
+      if (r.ok) { const j = (await r.json()) as { c?: number }; if (j.c) return j.c; }
+    }
+    if (fin && isCrypto) {
+      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=BINANCE:${cryptoBase(S)}USDT&token=${fin}`);
+      if (r.ok) { const j = (await r.json()) as { c?: number }; if (j.c) return j.c; }
+    }
+  } catch { /* fall */ }
+  try {
+    if (poly) {
+      const polySym = isCrypto ? `X:${cryptoBase(S)}USD` : S;
+      const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/prev?apiKey=${poly}`);
+      if (r.ok) {
+        const j = (await r.json()) as { results?: Array<{ c: number }> };
+        const c = j.results?.[0]?.c;
+        if (c) return c;
+      }
+    }
+  } catch { /* fall */ }
+  try {
+    if (alpha && !isCrypto) {
+      const r = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${S}&apikey=${alpha}`);
+      if (r.ok) {
+        const j = (await r.json()) as { ["Global Quote"]?: Record<string, string> };
+        const p = j["Global Quote"]?.["05. price"];
+        if (p) return Number(p);
+      }
+    }
+  } catch { /* fall */ }
+  return null;
+}
