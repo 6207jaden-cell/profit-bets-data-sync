@@ -10,6 +10,7 @@ import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 import {
@@ -33,7 +34,7 @@ const ROBINHOOD_MANUAL_REDIRECT_URI =
 
 export function AgentPanel() {
   const qc = useQueryClient();
-  const { hasElite, loading: profileLoading } = useProfile();
+  const { hasElite, loading: profileLoading, userId } = useProfile();
   const search = useSearch({ strict: false }) as { connected?: string };
   const navigate = useNavigate();
   const [input, setInput] = useState("");
@@ -181,7 +182,9 @@ export function AgentPanel() {
 
   if (!ready) {
     return (
-      <Card className="p-8 md:p-12 bg-card border-border">
+      <div className="space-y-4">
+        <AutonomousSection userId={userId} />
+        <Card className="p-8 md:p-12 bg-card border-border">
         <div className="max-w-md mx-auto text-center space-y-5">
           <div className="mx-auto h-14 w-14 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center">
             <Bot className="h-7 w-7 text-primary" />
@@ -262,11 +265,14 @@ export function AgentPanel() {
           </p>
         </div>
       </Card>
+      </div>
     );
   }
 
   return (
-    <div className="grid grid-rows-[auto_1fr_auto] gap-3 h-[calc(100vh-260px)] min-h-[500px]">
+    <div className="space-y-3">
+    <AutonomousSection userId={userId} />
+    <div className="grid grid-rows-[auto_1fr_auto] gap-3 h-[calc(100vh-320px)] min-h-[500px]">
       <Card className="px-4 py-2 flex items-center justify-between bg-card border-border">
         <div className="flex items-center gap-2 text-sm">
           <span className="h-2 w-2 rounded-full bg-bull animate-pulse" />
@@ -331,6 +337,7 @@ export function AgentPanel() {
         </Button>
       </form>
     </div>
+    </div>
   );
 }
 
@@ -370,6 +377,156 @@ function MessageView({ message }: { message: ReturnType<typeof useChat>["message
           }
           return null;
         })}
+      </div>
+    </div>
+  );
+}
+
+type AgentMsg = {
+  id: string; role: string; content: string;
+  is_autonomous: boolean; session_type: string | null; created_at: string;
+};
+
+function AutonomousSection({ userId }: { userId: string | null }) {
+  const qc = useQueryClient();
+
+  const settings = useQuery({
+    queryKey: ["user-settings", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await supabase.from("user_settings").select("*").eq("user_id", userId!).maybeSingle();
+      return data as { autonomous_mode: boolean; autonomous_execution_mode: string } | null;
+    },
+  });
+
+  const autonomous = settings.data?.autonomous_mode ?? false;
+  const execMode = settings.data?.autonomous_execution_mode ?? "paper";
+
+  const status = useQuery({
+    queryKey: ["autonomous-status", userId],
+    enabled: !!userId && autonomous,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const [{ data: lastDecision }, { count: openCount }, { data: portfolio }] = await Promise.all([
+        supabase.from("agent_decisions").select("created_at").eq("user_id", userId!).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("paper_trades").select("*", { count: "exact", head: true }).eq("user_id", userId!).eq("is_open", true),
+        supabase.from("paper_portfolios").select("balance, equity").eq("user_id", userId!).maybeSingle(),
+      ]);
+      const cashPct = portfolio && Number(portfolio.equity) > 0
+        ? (Number(portfolio.balance) / Number(portfolio.equity)) * 100 : 0;
+      return {
+        lastScan: lastDecision?.created_at as string | undefined,
+        openPositions: openCount ?? 0,
+        cashPct,
+      };
+    },
+  });
+
+  const messages = useQuery({
+    queryKey: ["agent-messages", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await supabase.from("agent_messages")
+        .select("id, role, content, is_autonomous, session_type, created_at")
+        .eq("user_id", userId!).order("created_at", { ascending: true }).limit(100);
+      return (data ?? []) as AgentMsg[];
+    },
+  });
+
+  useEffect(() => {
+    if (!userId) return;
+    const ch = supabase.channel(`agent_messages:${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "agent_messages", filter: `user_id=eq.${userId}` },
+        () => qc.invalidateQueries({ queryKey: ["agent-messages", userId] }))
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [userId, qc]);
+
+  async function toggleAutonomous(next: boolean) {
+    if (!userId) return;
+    await supabase.from("user_settings").upsert({
+      user_id: userId, autonomous_mode: next, autonomous_execution_mode: execMode,
+    });
+    qc.invalidateQueries({ queryKey: ["user-settings", userId] });
+  }
+  async function setExecMode(mode: "paper" | "live") {
+    if (!userId) return;
+    await supabase.from("user_settings").upsert({
+      user_id: userId, autonomous_mode: autonomous, autonomous_execution_mode: mode,
+    });
+    qc.invalidateQueries({ queryKey: ["user-settings", userId] });
+  }
+
+  const nextScan = (() => {
+    const now = new Date();
+    const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const target = new Date(et);
+    if (et.getHours() < 9 || (et.getHours() === 9 && et.getMinutes() < 30)) target.setHours(9, 30, 0, 0);
+    else if (et.getHours() < 12 || (et.getHours() === 12 && et.getMinutes() < 30)) target.setHours(12, 30, 0, 0);
+    else { target.setDate(target.getDate() + 1); target.setHours(9, 30, 0, 0); }
+    return target.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+  })();
+
+  const autonomousMsgs = (messages.data ?? []).filter((m) => m.is_autonomous);
+
+  return (
+    <Card className="p-4 bg-card border-border space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Bot className="h-4 w-4 text-primary" />
+          <span className="font-display font-semibold text-sm">Autonomous Agent</span>
+          <Badge variant="outline" className="border-primary/40 text-primary text-[10px]">BETA</Badge>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Autonomous</span>
+          <Switch checked={autonomous} onCheckedChange={toggleAutonomous} />
+        </div>
+      </div>
+      {autonomous && (
+        <>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-bull animate-pulse" />Active</span>
+            <span>Last scan: {status.data?.lastScan ? new Date(status.data.lastScan).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET" : "—"}</span>
+            <span>Next: {nextScan}</span>
+            <span>Open: {status.data?.openPositions ?? 0}</span>
+            <span>Cash: {(status.data?.cashPct ?? 0).toFixed(0)}%</span>
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                onClick={() => setExecMode("paper")}
+                className={cn("px-2 py-0.5 rounded", execMode === "paper" ? "bg-primary text-primary-foreground" : "border border-border")}
+              >Paper</button>
+              <button
+                onClick={() => setExecMode("live")}
+                className={cn("px-2 py-0.5 rounded", execMode === "live" ? "bg-primary text-primary-foreground" : "border border-border")}
+              >Live</button>
+            </div>
+          </div>
+          {autonomousMsgs.length > 0 && (
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {autonomousMsgs.slice(-8).map((m) => (
+                <AutonomousMessage key={m.id} m={m} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function AutonomousMessage({ m }: { m: AgentMsg }) {
+  const labelMap: Record<string, string> = {
+    morning_scan: "Morning Scan", midday_scan: "Midday Scan",
+    exit_check: "Exit Check", weekly_learning: "Weekly Review",
+  };
+  const label = labelMap[m.session_type ?? ""] ?? "Autonomous";
+  const time = new Date(m.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return (
+    <div className="flex gap-2">
+      <div className="h-7 w-7 rounded-full bg-purple-500/20 flex items-center justify-center text-sm shrink-0">🤖</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[10px] text-purple-400 mb-0.5">Autonomous Agent • {label} • {time}</div>
+        <div className="rounded-lg bg-purple-950/30 border border-purple-800/40 px-3 py-2 text-sm whitespace-pre-wrap">{m.content}</div>
       </div>
     </div>
   );
