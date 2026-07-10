@@ -265,11 +265,14 @@ export function AgentPanel() {
           </p>
         </div>
       </Card>
+      </div>
     );
   }
 
   return (
-    <div className="grid grid-rows-[auto_1fr_auto] gap-3 h-[calc(100vh-260px)] min-h-[500px]">
+    <div className="space-y-3">
+    <AutonomousSection userId={userId} />
+    <div className="grid grid-rows-[auto_1fr_auto] gap-3 h-[calc(100vh-320px)] min-h-[500px]">
       <Card className="px-4 py-2 flex items-center justify-between bg-card border-border">
         <div className="flex items-center gap-2 text-sm">
           <span className="h-2 w-2 rounded-full bg-bull animate-pulse" />
