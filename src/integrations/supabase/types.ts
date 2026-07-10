@@ -14,6 +14,111 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_decisions: {
+        Row: {
+          created_at: string
+          id: string
+          market_assessment: string | null
+          payload: Json
+          regime: string | null
+          session_type: string
+          trades_closed: number
+          trades_opened: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          market_assessment?: string | null
+          payload?: Json
+          regime?: string | null
+          session_type: string
+          trades_closed?: number
+          trades_opened?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          market_assessment?: string | null
+          payload?: Json
+          regime?: string | null
+          session_type?: string
+          trades_closed?: number
+          trades_opened?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_learnings: {
+        Row: {
+          adjustments: Json
+          analysis: string
+          avg_pnl_pct: number | null
+          created_at: string
+          id: string
+          key_insights: Json
+          trades_analyzed: number
+          user_id: string
+          week_start: string
+          win_rate: number | null
+        }
+        Insert: {
+          adjustments?: Json
+          analysis: string
+          avg_pnl_pct?: number | null
+          created_at?: string
+          id?: string
+          key_insights?: Json
+          trades_analyzed?: number
+          user_id: string
+          week_start: string
+          win_rate?: number | null
+        }
+        Update: {
+          adjustments?: Json
+          analysis?: string
+          avg_pnl_pct?: number | null
+          created_at?: string
+          id?: string
+          key_insights?: Json
+          trades_analyzed?: number
+          user_id?: string
+          week_start?: string
+          win_rate?: number | null
+        }
+        Relationships: []
+      }
+      agent_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          is_autonomous: boolean
+          role: string
+          session_type: string | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          is_autonomous?: boolean
+          role?: string
+          session_type?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          is_autonomous?: boolean
+          role?: string
+          session_type?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       broker_connections: {
         Row: {
           account_label: string | null
@@ -279,13 +384,19 @@ export type Database = {
           created_at: string
           entry_price: number
           exit_price: number | null
+          hold_duration: string | null
           id: string
+          instrument: string
           is_open: boolean
+          options_details: Json | null
           pnl: number | null
           portfolio_id: string
           quantity: number
+          rationale: string | null
           side: Database["public"]["Enums"]["trade_side"]
+          stop_loss_pct: number | null
           strategy_id: string | null
+          take_profit_pct: number | null
           user_id: string
         }
         Insert: {
@@ -294,13 +405,19 @@ export type Database = {
           created_at?: string
           entry_price: number
           exit_price?: number | null
+          hold_duration?: string | null
           id?: string
+          instrument?: string
           is_open?: boolean
+          options_details?: Json | null
           pnl?: number | null
           portfolio_id: string
           quantity: number
+          rationale?: string | null
           side: Database["public"]["Enums"]["trade_side"]
+          stop_loss_pct?: number | null
           strategy_id?: string | null
+          take_profit_pct?: number | null
           user_id: string
         }
         Update: {
@@ -309,13 +426,19 @@ export type Database = {
           created_at?: string
           entry_price?: number
           exit_price?: number | null
+          hold_duration?: string | null
           id?: string
+          instrument?: string
           is_open?: boolean
+          options_details?: Json | null
           pnl?: number | null
           portfolio_id?: string
           quantity?: number
+          rationale?: string | null
           side?: Database["public"]["Enums"]["trade_side"]
+          stop_loss_pct?: number | null
           strategy_id?: string | null
+          take_profit_pct?: number | null
           user_id?: string
         }
         Relationships: [
@@ -672,6 +795,30 @@ export type Database = {
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          autonomous_execution_mode: string
+          autonomous_mode: boolean
+          created_at: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          autonomous_execution_mode?: string
+          autonomous_mode?: boolean
+          created_at?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          autonomous_execution_mode?: string
+          autonomous_mode?: boolean
+          created_at?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
