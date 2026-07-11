@@ -79,7 +79,10 @@ export function useRealtimeExitWatch(
             const stopPct = Number(trade.stop_loss_pct ?? 7);
             const targetPct = Number(trade.take_profit_pct ?? 15);
 
-            const hitStop = pnlPct <= -stopPct;
+            // Check trailing stop if position is profitable
+            const trailingStopPrice = (trade as Record<string,unknown> & { options_details?: Record<string,unknown> }).options_details?.trailing_stop_price as number | undefined;
+            const hitTrailingStop = trailingStopPrice != null && isBuy && price <= trailingStopPrice;
+            const hitStop = hitTrailingStop || pnlPct <= -stopPct;
             const hitTarget = pnlPct >= targetPct;
 
             // Check intraday EOD
@@ -106,9 +109,10 @@ export function useRealtimeExitWatch(
       );
     }
 
-    // Run immediately then every 90 seconds
+    // Run immediately then every 20 seconds for stocks, 30s for crypto
+    // (crypto prices update continuously, stocks during market hours only)
     checkPrices();
-    const interval = setInterval(checkPrices, 90_000);
+    const interval = setInterval(checkPrices, 20_000);
 
     return () => {
       cancelled = true;

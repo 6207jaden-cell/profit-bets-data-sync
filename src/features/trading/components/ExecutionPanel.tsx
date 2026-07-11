@@ -20,6 +20,7 @@ import { openPaperTrade, closePaperTrade } from "@/lib/execution.functions";
 import { getStockQuotes, getCryptoQuotes } from "@/lib/market.functions";
 import { estimateOptionValue } from "@/lib/indicators";
 import { useRealtimeExitWatch } from "@/hooks/use-realtime-exit-watch";
+import { PortfolioHeatMap } from "./PortfolioHeatMap";
 
 const CRYPTO_ID: Record<string, string> = {
   "BTC-USD": "bitcoin", "ETH-USD": "ethereum", "SOL-USD": "solana",
@@ -66,7 +67,7 @@ export function ExecutionPanel() {
       if (error) throw error;
       return data ?? [];
     },
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,  // 15s refresh for near-real-time P&L
   });
 
   // Real-time stop-loss / take-profit watcher — fires emergency exit between cron runs
@@ -340,31 +341,13 @@ function OpenPositionsCard({
           </a>
         </div>
       ) : heatMap ? (
-        <div className="p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-          {rows.map((r) => {
-            const pct = r.unrealPct;
-            const bg = pct == null ? "hsl(var(--muted) / 0.4)"
-              : `hsl(var(--${pct >= 0 ? "bull" : "bear"}) / ${(0.15 + Math.min(1, Math.abs(Math.max(-10, Math.min(10, pct))) / 10) * 0.55).toFixed(2)})`;
-            return (
-              <button
-                key={r.t.id}
-                onClick={() => explain(r)}
-                style={{ background: bg }}
-                className="rounded-md border border-border/60 p-3 text-left transition hover:scale-[1.02]"
-              >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="font-display font-semibold text-sm truncate">{r.t.asset}</span>
-                  <span className="text-[10px] font-mono uppercase text-muted-foreground">{r.t.side}</span>
-                </div>
-                <div className={cn("font-mono text-base font-semibold mt-1", (pct ?? 0) >= 0 ? "text-bull" : "text-bear")}>
-                  {pct == null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`}
-                </div>
-                <div className="text-[10px] font-mono text-muted-foreground">
-                  {r.unreal == null ? "—" : `${r.unreal >= 0 ? "+" : ""}$${r.unreal.toFixed(2)}`}
-                </div>
-              </button>
-            );
-          })}
+        <div className="p-3">
+          <PortfolioHeatMap
+            onExplain={(asset, pnlPct) => {
+              const row = rows.find((r) => String(r.t.asset).toUpperCase() === asset.toUpperCase());
+              if (row) explain(row);
+            }}
+          />
         </div>
       ) : (
         <ul className="divide-y divide-border">

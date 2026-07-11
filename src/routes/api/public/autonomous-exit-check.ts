@@ -55,6 +55,29 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     const stop = t.stop_loss_pct ?? 7;
     const target = t.take_profit_pct ?? 15;
 
+    // Trailing stop: once position is profitable >5%, move stop up to lock in gains.
+    // Trailing stop = current_price × (1 - stop_pct/100) for longs.
+    // We store the "effective stop price" in metadata (options_details.trailing_stop_price).
+    if (pnlPct > 5 && t.side === "buy") {
+      const trailingStopPrice = price * (1 - stop / 100);
+      const existingTrailing = (t.options_details as Record<string,unknown> | null)?.trailing_stop_price as number | undefined;
+      // Only ratchet upward — never lower the stop
+      if (!existingTrailing || trailingStopPrice > existingTrailing) {
+        await supabaseAdmin.from("paper_trades").update({
+          options_details: { ...(t.options_details as Record<string,unknown> ?? {}), trailing_stop_price: trailingStopPrice },
+        }).eq("id", t.id);
+        // Use the updated trailing stop for this run
+        (t as Record<string,unknown>).options_details = { ...(t.options_details as Record<string,unknown> ?? {}), trailing_stop_price: trailingStopPrice };
+      }
+    }
+
+    // Check trailing stop (if set, use it instead of fixed stop for longs)
+    const trailingStop = (t.options_details as Record<string,unknown> | null)?.trailing_stop_price as number | undefined;
+    if (trailingStop && t.side === "buy" && price <= trailingStop) {
+      closures.push({ trade: t, exit_price: price, reason: "trailing_stop_hit" });
+      continue;
+    }
+
     if (pnlPct <= -stop) {
       closures.push({ trade: t, exit_price: price, reason: "stop_loss_hit" });
       continue;

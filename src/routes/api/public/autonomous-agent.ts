@@ -134,11 +134,22 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           ? ((spyBars.closes[spyBars.closes.length - 1] - spyBars.closes[spyBars.closes.length - 21]) / spyBars.closes[spyBars.closes.length - 21]) * 100
           : 0;
         let vixLevel: number | null = null;
+        let fearGreedValue: number | null = null;
+        let fearGreedLabel = "Unknown";
         try {
           const finKey = process.env.FINNHUB_API_KEY;
           if (finKey) {
             const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=VIX&token=${finKey}`);
             if (r.ok) { const j = (await r.json()) as { c?: number }; vixLevel = j.c ?? null; }
+          }
+        } catch { /* ignore */ }
+        // Fear & Greed Index (keyless, from alternative.me)
+        try {
+          const fgr = await fetch("https://api.alternative.me/fng/?limit=1");
+          if (fgr.ok) {
+            const fgj = (await fgr.json()) as { data?: Array<{ value: string; value_classification: string }> };
+            const d = fgj.data?.[0];
+            if (d) { fearGreedValue = Number(d.value); fearGreedLabel = d.value_classification; }
           }
         } catch { /* ignore */ }
 
@@ -288,13 +299,74 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
         }
 
         const sorted = session === "midday"
-          // Midday: remove RSI restriction, keep top opportunities across all conditions
-          ? allCandidates
-              .sort((a, b) => opportunityScore(b) - opportunityScore(a))
-              .slice(0, 15)
-          : allCandidates
-              .sort((a, b) => opportunityScore(b) - opportunityScore(a))
-              .slice(0, 25);
+          ? allCandidates.sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 15)
+          : allCandidates.sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 25);
+
+        // Multi-timeframe confirmation: for top 12 candidates, check 1h and daily alignment.
+        // Only worth doing for the cream of the crop to limit API calls.
+        const poly = process.env.POLYGON_API_KEY;
+        const mtfMap = new Map<string, { score: number; label: string }>();
+        if (poly && session !== "weekend_prep") {
+          const top12 = sorted.slice(0, 12);
+          await Promise.allSettled(top12.map(async (c) => {
+            try {
+              const sym = String(c.symbol);
+              const isCrypto = isCryptoSymbol(sym);
+              const polySym = isCrypto ? `X:${sym.replace(/-?USD.*$/i, "")}USD` : sym;
+
+              // Fetch 1h bars (last 7 days) and weekly bars (last 1 year)
+              const [hourlyRes, weeklyRes] = await Promise.all([
+                fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/range/1/hour/2024-01-01/${new Date().toISOString().slice(0,10)}?adjusted=true&sort=asc&limit=168&apiKey=${poly}`),
+                fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/range/1/week/2023-01-01/${new Date().toISOString().slice(0,10)}?adjusted=true&sort=asc&limit=52&apiKey=${poly}`),
+              ]);
+
+              let score = 0;
+              const labels: string[] = [];
+
+              if (hourlyRes.ok) {
+                const hj = (await hourlyRes.json()) as { results?: Array<{ c: number }> };
+                const hCloses = (hj.results ?? []).map((b) => b.c);
+                if (hCloses.length >= 20) {
+                  const { sma, rsi: rsiFunc } = await import("@/lib/indicators");
+                  const hSma20 = sma(hCloses, 20);
+                  const hRsi = rsiFunc(hCloses, 14);
+                  const hPrice = hCloses[hCloses.length - 1];
+                  const hSmaVal = hSma20[hSma20.length - 1];
+                  const hRsiVal = hRsi[hRsi.length - 1];
+                  if (hSmaVal && hPrice > hSmaVal && hRsiVal && hRsiVal > 45 && hRsiVal < 72) { score += 2; labels.push("1h↑"); }
+                  else if (hSmaVal && hPrice < hSmaVal && hRsiVal && hRsiVal < 55 && hRsiVal > 28) { score -= 2; labels.push("1h↓"); }
+                  else { labels.push("1h~"); }
+                }
+              }
+
+              if (weeklyRes.ok) {
+                const wj = (await weeklyRes.json()) as { results?: Array<{ c: number }> };
+                const wCloses = (wj.results ?? []).map((b) => b.c);
+                if (wCloses.length >= 10) {
+                  const { sma } = await import("@/lib/indicators");
+                  const wSma10 = sma(wCloses, 10);
+                  const wPrice = wCloses[wCloses.length - 1];
+                  const wSmaVal = wSma10[wSma10.length - 1];
+                  if (wSmaVal && wPrice > wSmaVal) { score += 1; labels.push("W↑"); }
+                  else if (wSmaVal && wPrice < wSmaVal) { score -= 1; labels.push("W↓"); }
+                  else { labels.push("W~"); }
+                }
+              }
+
+              mtfMap.set(sym, {
+                score,
+                label: labels.join(" ") || "no data",
+              });
+            } catch { /* skip */ }
+          }));
+        }
+
+        // Add MTF data to candidates and boost/reduce opportunity score
+        const sortedWithMtf = sorted.map((c) => {
+          const mtf = mtfMap.get(String(c.symbol));
+          const mtfBoost = mtf ? mtf.score * 3 : 0; // +6 if both TFs agree, -6 if both disagree
+          return { ...c, mtf_score: mtf?.score ?? 0, mtf_label: mtf?.label ?? "daily only", _finalScore: opportunityScore(c) + mtfBoost };
+        }).sort((a, b) => b._finalScore - a._finalScore);
 
         let totalOpened = 0;
         const skipped: Array<{ user: string; reason: string }> = [];
@@ -305,7 +377,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               userId: u.user_id,
               executionMode: u.autonomous_execution_mode ?? "paper",
               session, sessionType, regime, vixLevel,
-              candidates: sorted, supabaseAdmin, settings,
+              candidates: sortedWithMtf, supabaseAdmin, settings,
             });
             if (result.skipped) skipped.push({ user: u.user_id, reason: result.skipped });
             totalOpened += result.opened;
@@ -568,6 +640,7 @@ async function runForUser(args: {
     recent_ai_signals: signalContext,
     manual_strategies_firing: strategyBridgeContext,
     earnings_surprises: earningsContext,
+    fear_greed_index: fearGreedValue != null ? `${fearGreedValue}/100 (${fearGreedLabel})` : "unavailable",
     margin_available: false,
   };
 
@@ -596,8 +669,11 @@ HARD RULES — never violate these:
 - When vol_surge_pct > 50, that stock is moving on unusual volume — prioritize it.
 - When five_day_return shows strong momentum (>3% or <-3%), that is a high-quality signal.
 - When recent_ai_signals contains signals for a candidate, use them as additional evidence. Aligned signals increase conviction; contradicting signals decrease it.
+- fear_greed_index: <20 = Extreme Fear (buy quality names aggressively, high expected value), 20-40 = Fear (be opportunistic), 40-60 = Neutral, 60-80 = Greed (be selective, smaller positions), >80 = Extreme Greed (be very cautious, reduce sizes, take profits on existing positions).
+- mtf_label on each candidate shows multi-timeframe alignment (1h↑ = hourly bullish, W↑ = weekly bullish). Prefer candidates where 1h and W align with your intended direction. Heavily penalize trades where MTF is against you (e.g. going long on 1h↓ W↓).
 - When earnings_surprises shows a recent positive earnings beat (>5%), that stock has post-earnings drift momentum — weight it as +20 conviction for long positions. Negative surprises (<-5%) = +20 for short/put.
 - Use MACD histogram: positive = bullish momentum building (buy signal), negative and falling = bearish (short/put signal).
+- Trailing stops are automatically set at entry_price × (1 - stop_pct%) once a position gains >5%. When reviewing current_positions, if pnl_pct > 5% the position already has a trailing stop protecting profits — factor this into hold/exit decisions.
 - Use Bollinger Bands: bb_pct_b < 0.05 = near lower band (oversold, buy/call), bb_pct_b > 0.95 = near upper band (overbought, sell/put).
 - Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
@@ -655,6 +731,42 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       if (!sectorBullish) {
         console.log(`[autonomous] skip ${t.symbol}: sector ETF below SMA50`);
         continue;
+      }
+    }
+
+    // Scale-in: if conviction >= 85 and already have a winning position in this asset,
+    // add up to 50% more at the current price (pyramid into strength).
+    const existingWinner = openList.find((o) =>
+      String(o.asset).toUpperCase() === t.symbol.toUpperCase() &&
+      o.side === (t.direction === "long" ? "buy" : "sell") &&
+      o.strategy_id !== null
+    );
+    if (existingWinner && (t.conviction ?? 0) >= 85) {
+      const existingPrice = quotes.get(String(existingWinner.asset));
+      if (existingPrice) {
+        const existPnlPct = ((existingPrice - Number(existingWinner.entry_price)) / Number(existingWinner.entry_price)) * 100;
+        if (existPnlPct > 3) {
+          // Add half the normal allocation as a scale-in (pyramid up into strength)
+          const scaleAllocPct = Math.min(allocPct * 0.5, effectiveMaxPositionPct * 0.3);
+          const scaleCash = (cash * scaleAllocPct) / 100;
+          if (scaleCash > 10 && scaleCash < cashRemaining * 0.5) {
+            const scaleQty = scaleCash / price;
+            await supabaseAdmin.from("paper_trades").insert({
+              user_id: userId, portfolio_id: portfolio.id,
+              asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
+              quantity: scaleQty, entry_price: price, is_open: true,
+              hold_duration: t.hold_duration,
+              stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
+              take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
+              instrument: t.instrument, conviction: t.conviction ?? null,
+              rationale: `[SCALE-IN conviction:${t.conviction}] Adding to winning ${t.symbol} position (+${existPnlPct.toFixed(1)}%). ${t.rationale}`,
+            });
+            cashRemaining -= scaleCash;
+            opened++;
+            console.log(`[autonomous] scale-in ${t.symbol} +${existPnlPct.toFixed(1)}% conviction=${t.conviction}`);
+            continue; // Don't open a second full position, just scale in
+          }
+        }
       }
     }
 
