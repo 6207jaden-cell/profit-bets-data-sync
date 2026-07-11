@@ -14,8 +14,25 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { openPaperTrade, closePaperTrade } from "@/lib/execution.functions";
+import { getStockQuotes, getCryptoQuotes } from "@/lib/market.functions";
+import { estimateOptionValue } from "@/lib/indicators";
+
+const CRYPTO_ID: Record<string, string> = {
+  "BTC-USD": "bitcoin", "ETH-USD": "ethereum", "SOL-USD": "solana",
+};
+function isCrypto(sym: string): boolean {
+  return /[-/]USD[T]?$/i.test(sym) || Object.prototype.hasOwnProperty.call(CRYPTO_ID, sym.toUpperCase());
+}
+function isOption(instrument: string | null | undefined): boolean {
+  const s = String(instrument ?? "").toLowerCase();
+  return s.includes("call") || s.includes("put") || s.includes("spread") || s.includes("condor");
+}
+function optionType(instrument: string): "call" | "put" {
+  return String(instrument).toLowerCase().includes("put") ? "put" : "call";
+}
 
 export function ExecutionPanel() {
   const { userId, tier } = useProfile();
@@ -137,60 +154,213 @@ export function ExecutionPanel() {
         </p>
       </Card>
 
-      <Card className="border-border bg-card">
-        <header className="px-5 py-4 border-b border-border flex items-center justify-between">
-          <h2 className="font-display font-semibold">Open Positions ({openTrades.data?.length ?? 0})</h2>
-        </header>
-        {(openTrades.data?.length ?? 0) === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-sm space-y-3">
-            <p>No open paper positions.</p>
-            <p className="text-xs">
-              Your active strategies will automatically open positions every 5 minutes when their entry conditions are met.
-              To get started: (1) Create a strategy in the Strategies tab, (2) Set it to PAPER mode, (3) Come back here to watch positions appear.
-            </p>
-            <a href="/trading?tab=strategies" className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
-              Go to Strategies →
-            </a>
-          </div>
-        ) : (
-          <ul className="divide-y divide-border">
-            {openTrades.data!.map((t, i) => {
-              const qty = Number(t.quantity);
-              const entry = Number(t.entry_price);
-              return (
-                <motion.li
-                  key={t.id}
-                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
-                  className="px-5 py-3 flex items-center justify-between text-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={cn(
-                      "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded font-mono",
-                      t.side === "buy" ? "bg-bull/15 text-bull" : "bg-bear/15 text-bear",
-                    )}>{t.side}</span>
-                    <span className="font-display font-semibold">{t.asset}</span>
-                    <span className="text-xs text-muted-foreground font-mono">
-                      {qty.toFixed(4)} @ ${entry.toFixed(2)} · cost ${(qty * entry).toFixed(2)}
-                    </span>
-                  </div>
-                  <Button
-                    size="sm" variant="outline"
-                    onClick={() => closeTrade(t.id)}
-                    disabled={closing === t.id}
-                  >
-                    {closing === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <><X className="h-3 w-3 mr-1" />Close</>}
-                  </Button>
-                </motion.li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
+      <OpenPositionsCard
+        trades={openTrades.data ?? []}
+        closing={closing}
+        onClose={closeTrade}
+      />
+
 
       <SlippageTracker userId={userId} />
 
       <TradeJournal userId={userId} />
     </div>
+  );
+}
+
+type OpenTrade = {
+  id: string;
+  asset: string;
+  side: string;
+  quantity: number | string;
+  entry_price: number | string;
+  instrument: string;
+  options_details: unknown;
+};
+
+function OpenPositionsCard({
+  trades, closing, onClose,
+}: {
+  trades: OpenTrade[];
+  closing: string | null;
+  onClose: (id: string) => void;
+}) {
+  const stockSymbols = Array.from(new Set(trades.map((t) => t.asset).filter((s) => !isCrypto(s))));
+  const cryptoIds = Array.from(
+    new Set(trades.map((t) => CRYPTO_ID[t.asset.toUpperCase()]).filter(Boolean)),
+  ) as string[];
+
+  const stockFn = useServerFn(getStockQuotes);
+  const cryptoFn = useServerFn(getCryptoQuotes);
+
+  const stockQuotes = useQuery({
+    queryKey: ["exec-stock-quotes", stockSymbols],
+    enabled: stockSymbols.length > 0,
+    refetchInterval: 15_000,
+    queryFn: () => stockFn({ data: { symbols: stockSymbols } }),
+  });
+  const cryptoQuotes = useQuery({
+    queryKey: ["exec-crypto-quotes", cryptoIds],
+    enabled: cryptoIds.length > 0,
+    refetchInterval: 15_000,
+    queryFn: () => cryptoFn({ data: { ids: cryptoIds } }),
+  });
+
+  function priceFor(sym: string): number | null {
+    if (isCrypto(sym)) {
+      const id = CRYPTO_ID[sym.toUpperCase()];
+      const q = (cryptoQuotes.data as Record<string, { price?: number }> | undefined)?.[id];
+      return q?.price ?? null;
+    }
+    const s = (stockQuotes.data as Array<{ symbol: string; price?: number }> | undefined)
+      ?.find((x) => x.symbol === sym);
+    return s?.price ?? null;
+  }
+
+  let totalCost = 0;
+  let totalValue = 0;
+  const rows = trades.map((t) => {
+    const qty = Number(t.quantity);
+    const entry = Number(t.entry_price);
+    const cost = qty * entry;
+    let current: number | null = null;
+    let theta: number | null = null;
+
+    if (isOption(t.instrument) && t.options_details && typeof t.options_details === "object") {
+      const od = t.options_details as Record<string, unknown>;
+      const strike = Number(od.strike ?? 0);
+      const expiry = od.expiry ? new Date(String(od.expiry)).getTime() : null;
+      const iv = Number(od.iv ?? od.implied_vol ?? 0.4);
+      const under = priceFor(t.asset);
+      const dte = expiry ? Math.max(0, (expiry - Date.now()) / 86_400_000) : 30;
+      if (under && strike > 0) {
+        const perShare = estimateOptionValue({
+          underlying_price: under, strike, days_to_expiry: dte,
+          implied_vol: iv, risk_free_rate: 0.045,
+          option_type: optionType(t.instrument),
+        });
+        current = perShare * 100 * qty;
+        const tomorrow = estimateOptionValue({
+          underlying_price: under, strike, days_to_expiry: Math.max(0, dte - 1),
+          implied_vol: iv, risk_free_rate: 0.045,
+          option_type: optionType(t.instrument),
+        });
+        theta = (tomorrow - perShare) * 100 * qty;
+      }
+    } else {
+      const p = priceFor(t.asset);
+      if (p != null) current = qty * p;
+    }
+
+    const unreal = current != null ? current - cost : null;
+    const unrealPct = current != null && cost > 0 ? (unreal! / cost) * 100 : null;
+    totalCost += cost;
+    if (current != null) totalValue += current;
+    return { t, qty, entry, cost, current, unreal, unrealPct, theta };
+  });
+
+  const totalUnreal = totalValue > 0 ? totalValue - totalCost : 0;
+  const totalPct = totalCost > 0 ? (totalUnreal / totalCost) * 100 : 0;
+  const isLive = stockQuotes.isFetching || cryptoQuotes.isFetching;
+
+  return (
+    <Card className="border-border bg-card">
+      <header className="px-5 py-4 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h2 className="font-display font-semibold">Open Positions ({trades.length})</h2>
+          {trades.length > 0 && (
+            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <span className={cn("h-1.5 w-1.5 rounded-full", isLive ? "bg-primary animate-pulse" : "bg-bull")} />
+              LIVE
+            </span>
+          )}
+        </div>
+        {trades.length > 0 && (
+          <div className="text-right">
+            <div className={cn("text-sm font-mono font-semibold", totalUnreal >= 0 ? "text-bull" : "text-bear")}>
+              {totalUnreal >= 0 ? "+" : ""}${totalUnreal.toFixed(2)} ({totalPct >= 0 ? "+" : ""}{totalPct.toFixed(2)}%)
+            </div>
+            <div className="text-[10px] text-muted-foreground font-mono">unrealized</div>
+          </div>
+        )}
+      </header>
+      {trades.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground text-sm space-y-3">
+          <p>No open paper positions.</p>
+          <p className="text-xs">
+            Your active strategies will automatically open positions every 5 minutes when their entry conditions are met.
+          </p>
+          <a href="/trading?tab=strategies" className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
+            Go to Strategies →
+          </a>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border">
+          <TooltipProvider>
+            {rows.map((r, i) => (
+              <motion.li
+                key={r.t.id}
+                initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
+                className="px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm"
+              >
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={cn(
+                    "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded font-mono",
+                    r.t.side === "buy" ? "bg-bull/15 text-bull" : "bg-bear/15 text-bear",
+                  )}>{r.t.side}</span>
+                  <span className="font-display font-semibold">{r.t.asset}</span>
+                  {isOption(r.t.instrument) && (
+                    <Badge variant="outline" className="text-[10px] uppercase border-primary/40 text-primary">
+                      {r.t.instrument}
+                    </Badge>
+                  )}
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    {r.qty.toFixed(4)} @ ${r.entry.toFixed(2)}
+                  </span>
+                  {r.theta != null && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="outline" className="text-[10px] font-mono border-bear/30 text-bear cursor-help">
+                          θ {r.theta >= 0 ? "+" : ""}${r.theta.toFixed(2)}/d
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">Estimated time-decay per day (Black-Scholes)</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    {r.current != null ? (
+                      <>
+                        <div className={cn("text-sm font-mono font-semibold",
+                          r.unreal! >= 0 ? "text-bull" : "text-bear")}>
+                          {r.unreal! >= 0 ? "+" : ""}${r.unreal!.toFixed(2)}
+                        </div>
+                        <div className={cn("text-[10px] font-mono",
+                          r.unrealPct! >= 0 ? "text-bull" : "text-bear")}>
+                          {r.unrealPct! >= 0 ? "+" : ""}{r.unrealPct!.toFixed(2)}%
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-[10px] text-muted-foreground font-mono">—</div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => onClose(r.t.id)}
+                    disabled={closing === r.t.id}
+                  >
+                    {closing === r.t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <><X className="h-3 w-3 mr-1" />Close</>}
+                  </Button>
+                </div>
+              </motion.li>
+            ))}
+          </TooltipProvider>
+        </ul>
+      )}
+    </Card>
   );
 }
 

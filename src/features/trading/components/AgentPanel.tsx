@@ -3,13 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, ExternalLink, Link2, Loader2, Send, Sparkles, X } from "lucide-react";
+import { Bot, ExternalLink, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 import {
@@ -328,12 +329,18 @@ function AutonomousSection({ userId }: { userId: string | null }) {
     enabled: !!userId,
     queryFn: async () => {
       const { data } = await supabase.from("user_settings").select("*").eq("user_id", userId!).maybeSingle();
-      return data as { autonomous_mode: boolean; autonomous_execution_mode: string } | null;
+      return data as {
+        autonomous_mode: boolean;
+        autonomous_execution_mode: string;
+        autonomous_paused_until: string | null;
+      } | null;
     },
   });
 
   const autonomous = settings.data?.autonomous_mode ?? false;
   const execMode = settings.data?.autonomous_execution_mode ?? "paper";
+  const pausedUntilRaw = settings.data?.autonomous_paused_until ?? null;
+  const pausedUntil = pausedUntilRaw && new Date(pausedUntilRaw) > new Date() ? new Date(pausedUntilRaw) : null;
 
   const status = useQuery({
     queryKey: ["autonomous-status", userId],
@@ -389,6 +396,15 @@ function AutonomousSection({ userId }: { userId: string | null }) {
     });
     qc.invalidateQueries({ queryKey: ["user-settings", userId] });
   }
+  async function setPause(hours: number | null) {
+    if (!userId) return;
+    const until = hours == null ? null : new Date(Date.now() + hours * 3600_000).toISOString();
+    await supabase.from("user_settings").upsert({
+      user_id: userId, autonomous_mode: autonomous, autonomous_execution_mode: execMode,
+      autonomous_paused_until: until,
+    });
+    qc.invalidateQueries({ queryKey: ["user-settings", userId] });
+  }
 
   const nextScan = (() => {
     const now = new Date();
@@ -418,12 +434,46 @@ function AutonomousSection({ userId }: { userId: string | null }) {
       {autonomous && (
         <>
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-bull animate-pulse" />Active</span>
+            {pausedUntil ? (
+              <span className="flex items-center gap-1.5 text-amber-500">
+                <Pause className="h-3 w-3" />
+                Paused until {pausedUntil.toLocaleString([], { hour: "numeric", minute: "2-digit", month: "short", day: "numeric" })}
+                <button
+                  onClick={() => setPause(null)}
+                  className="ml-1 underline hover:text-amber-400"
+                >resume</button>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-bull animate-pulse" />Active</span>
+            )}
             <span>Last scan: {status.data?.lastScan ? new Date(status.data.lastScan).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET" : "—"}</span>
             <span>Next: {nextScan}</span>
             <span>Open: {status.data?.openPositions ?? 0}</span>
             <span>Cash: {(status.data?.cashPct ?? 0).toFixed(0)}%</span>
             <div className="ml-auto flex items-center gap-1">
+              {!pausedUntil && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="px-2 py-0.5 rounded border border-border hover:border-amber-500 hover:text-amber-500 flex items-center gap-1">
+                      <Pause className="h-3 w-3" />Pause
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-40 p-1">
+                    {[
+                      { label: "1 hour", hours: 1 },
+                      { label: "4 hours", hours: 4 },
+                      { label: "Today", hours: 12 },
+                      { label: "1 week", hours: 24 * 7 },
+                    ].map((opt) => (
+                      <button
+                        key={opt.label}
+                        onClick={() => setPause(opt.hours)}
+                        className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-accent"
+                      >{opt.label}</button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              )}
               <button
                 onClick={() => setExecMode("paper")}
                 className={cn("px-2 py-0.5 rounded", execMode === "paper" ? "bg-primary text-primary-foreground" : "border border-border")}

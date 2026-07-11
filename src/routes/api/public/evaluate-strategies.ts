@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, type Bars } from "@/lib/indicators";
+import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, fetchQuotePrice, type Bars } from "@/lib/indicators";
 import { fireWebhook } from "@/lib/webhook.functions";
 
 
@@ -203,6 +203,9 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
         // Fetch SPY once for the whole run and derive regime once.
         const spyBars = await getBars("SPY");
         const regime = spyBars ? detectMarketRegime(spyBars.closes) : "sideways";
+        // VIX once per run — used to scale allocation for non-crypto entries.
+        const vixLevel = await fetchQuotePrice("VIX").catch(() => null);
+
 
         for (const [userId, userStrats] of byUser) {
           try {
@@ -215,6 +218,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
               lastExecRes,
               openAllRes,
               closedTradesRes,
+              peakSnapshotRes,
             ] = await Promise.all([
               supabaseAdmin.from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle(),
               supabaseAdmin.from("risk_limits").select("*").eq("user_id", userId).maybeSingle(),
@@ -223,13 +227,13 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                 .gte("closed_at", dayStart.toISOString()),
               supabaseAdmin.from("signals_executions").select("created_at")
                 .eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-              // Batch ALL open trades once — indexed by strategy_id+asset for later lookup.
               supabaseAdmin.from("paper_trades").select("*")
                 .eq("user_id", userId).eq("is_open", true),
-              // Single closed-trades pull covers both the retirement check and any per-strategy stats.
               supabaseAdmin.from("paper_trades")
                 .select("strategy_id, pnl")
                 .eq("user_id", userId).eq("is_open", false),
+              supabaseAdmin.from("portfolio_snapshots").select("equity")
+                .eq("user_id", userId).order("equity", { ascending: false }).limit(1).maybeSingle(),
             ]);
 
             const portfolio = portfolioRes.data;
@@ -243,10 +247,24 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
             const startBal = Number(portfolio.starting_balance);
             const dailyLossHit = startBal > 0 && (-dayPnl / startBal) * 100 >= maxDailyLossPct;
 
+            // ---- Portfolio circuit breaker: block ALL entries if down > 5% today ----
+            const dayPnlPct = startBal > 0 ? (dayPnl / startBal) * 100 : 0;
+            const circuitBreaker = dayPnlPct < -5;
+            if (circuitBreaker) {
+              errors.push({ user_id: userId, reason: `circuit_breaker_triggered pct=${dayPnlPct.toFixed(2)}` });
+            }
+
+            // ---- Drawdown protection: peak-to-current > 15% ----
+            const currentEquity = Number(portfolio.equity) || Number(portfolio.balance) || 0;
+            const peakEquity = Math.max(Number(peakSnapshotRes.data?.equity ?? 0), currentEquity, startBal);
+            const drawdownPct = peakEquity > 0 ? ((peakEquity - currentEquity) / peakEquity) * 100 : 0;
+            const defensiveMode = drawdownPct > 15;
+
             const lastExec = lastExecRes.data;
             const cooldownRemaining = lastExec
               ? Math.max(0, cooldown - (Date.now() - new Date(lastExec.created_at).getTime()) / 1000)
               : 0;
+
 
             // Index open trades by strategy_id+asset for O(1) lookup during the loop.
             const openAll = openAllRes.data ?? [];
@@ -322,7 +340,9 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   openByKey.delete(key);
 
                   // Entries
-                  if (dailyLossHit || cooldownRemaining > 0) continue;
+                  if (dailyLossHit || cooldownRemaining > 0 || circuitBreaker) continue;
+
+
                   if (entryConds.length === 0) continue;
                   // Skip if any open position exists for this strategy+symbol (already handled above).
                   if ((openByKey.get(key)?.length ?? 0) > 0) continue;
@@ -369,6 +389,13 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     if (confidence < 60) allocPct *= 0.5;
                     else if (confidence < 80) allocPct *= 0.75;
                   }
+                  // Defensive mode: require higher confidence (>=75) if we have a signal, block otherwise.
+                  if (defensiveMode) {
+                    if (confidence == null || confidence < 75) {
+                      errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:defensive_mode_low_conviction drawdown=${drawdownPct.toFixed(1)}%` });
+                      continue;
+                    }
+                  }
 
                   // ATR volatility sizing — reuse the same Bars fetched above.
                   let volPct: number | null = null;
@@ -377,6 +404,15 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     volPct = (a / quote.price) * 100;
                     if (volPct > 10) allocPct *= 0.25;
                     else if (volPct > 5) allocPct *= 0.5;
+                  }
+
+                  // VIX-based allocation scaling (equities only — crypto has its own vol profile).
+                  let vixMult = 1;
+                  if (!symIsCrypto && vixLevel != null) {
+                    if (vixLevel > 35) vixMult = 0.25;
+                    else if (vixLevel > 25) vixMult = 0.5;
+                    else if (vixLevel < 15) vixMult = 1.1;
+                    allocPct *= vixMult;
                   }
                   allocPct = Math.max(2, allocPct);
 
@@ -396,6 +432,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   }
                   const quantity = allocCash / quote.price;
 
+
                   const { data: newTrade, error: tErr } = await supabaseAdmin
                     .from("paper_trades").insert({
                       user_id: userId, portfolio_id: portfolio.id, strategy_id: strat.id,
@@ -412,7 +449,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   executionsBuffer.push({
                     user_id: userId, strategy_id: strat.id, execution_type: "paper", status: "filled",
                     asset: symbol, side: "buy", quantity, price: quote.price,
-                    reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""} regime=${regime}${style ? ` style=${style} mult=${regimeMult.toFixed(2)}` : ""}`,
+                    reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""} regime=${regime}${style ? ` style=${style} mult=${regimeMult.toFixed(2)}` : ""}${vixLevel != null ? ` vix=${vixLevel.toFixed(1)} vix_mult=${vixMult.toFixed(2)}` : ""}${defensiveMode ? ` defensive dd=${drawdownPct.toFixed(1)}%` : ""}`,
                   });
                   await fireWebhook(userId, "trade_open", { strategy_id: strat.id, asset: symbol, side: "buy", quantity, price: quote.price, alloc_pct: allocPct, regime, style });
                   opened++;
