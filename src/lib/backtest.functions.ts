@@ -107,19 +107,28 @@ export const runBacktest = createServerFn({ method: "POST" })
       const equity = cash + position * b.c;
       const tIso = new Date(b.t).toISOString().slice(0, 10);
 
+      // Realistic fill: use next bar's open price (can't trade at today's close).
+      // Add 0.05% slippage and $0.005/share commission (min $1) to match real costs.
+      const nextOpen = i + 1 < bars.length ? bars[i + 1].o : b.c;
+
       if (position === 0) {
         if (evalGroup(sj.entry.conditions, sj.entry.logic, ctx)) {
-          position = cash / b.c;
-          entry_price = b.c;
+          const buyFill = nextOpen * 1.0005;   // +0.05% slippage on buy
+          const shares = cash / buyFill;
+          const commission = Math.max(1, shares * 0.005);
+          position = (cash - commission) / buyFill;
+          entry_price = buyFill;
           cash = 0;
-          trades.push({ side: "buy", t: tIso, price: b.c });
+          trades.push({ side: "buy", t: tIso, price: buyFill });
         }
       } else {
         if (evalGroup(sj.exit.conditions, sj.exit.logic, ctx)) {
-          const proceeds = position * b.c;
-          const pnl = proceeds - (entry_price! * position);
-          cash = proceeds;
-          trades.push({ side: "sell", t: tIso, price: b.c, pnl });
+          const sellFill = nextOpen * 0.9995;   // -0.05% slippage on sell
+          const proceeds = position * sellFill;
+          const commission = Math.max(1, position * 0.005);
+          const pnl = (proceeds - commission) - (entry_price! * position);
+          cash = proceeds - commission;
+          trades.push({ side: "sell", t: tIso, price: sellFill, pnl });
           if (pnl > 0) wins++;
           totalClosed++;
           position = 0;

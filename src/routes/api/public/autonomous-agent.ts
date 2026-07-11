@@ -179,6 +179,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           momentum_pct: number; atr_pct: number | null; regime_aligned: boolean;
           vol_surge_pct: number; five_day_return: number; twenty_day_return: number; pct_above_sma20: number;
           rs_vs_spy_5d: number; rs_vs_spy_20d: number;
+          macd_histogram: number | null; bb_pct_b: number | null;
         }>();
         const batchSize = 10;
         for (let i = 0; i < symbolsThisRun.length; i += batchSize) {
@@ -226,6 +227,9 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
             const rs5d = Number((fiveDayReturn - spy5dReturn).toFixed(2));
             const rs20d = Number((twentyDayReturn - spy20dReturn).toFixed(2));
 
+            const macdHist = ctx.macd_histogram;
+            const bbPctB = ctx.bb_pct_b;
+
             candidateMap.set(sym, {
               symbol: sym, price: ctx.price, rsi: ctx.rsi,
               sma20: ctx.sma20, sma50: ctx.sma50, ema12: ctx.ema12, ema26: ctx.ema26,
@@ -236,6 +240,8 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               pct_above_sma20: Number(pctAboveSma20.toFixed(2)),
               rs_vs_spy_5d: rs5d,
               rs_vs_spy_20d: rs20d,
+              macd_histogram: macdHist != null ? Number(macdHist.toFixed(4)) : null,
+              bb_pct_b: bbPctB != null ? Number(bbPctB.toFixed(3)) : null,
             });
           }));
         }
@@ -244,7 +250,10 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
 
         // Composite opportunity score: momentum + volume surge + 5-day return + regime alignment
         function opportunityScore(c: typeof allCandidates[0]): number {
-          let score = Math.abs(c.momentum_pct) * 0.3;          // SMA50 momentum
+          // Earnings beat bonus (applied before other scoring)
+          const earningsBeat = earningsBeatMap.get(c.symbol);
+          let score = (earningsBeat ? Math.min(Math.abs(earningsBeat) * 0.5, 15) : 0); // earnings surprise bonus
+          score += Math.abs(c.momentum_pct) * 0.3;          // SMA50 momentum
           score += Math.min(c.vol_surge_pct, 200) * 0.02;      // volume surge (capped at 200%)
           score += Math.abs(c.five_day_return) * 0.25;          // 5-day momentum
           score += Math.abs(c.twenty_day_return) * 0.1;         // medium-term trend
@@ -255,6 +264,12 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           if (c.rsi != null && c.rsi < 30) score += 8;         // oversold bounce signal
           if (c.rsi != null && c.rsi > 70) score += 6;         // overbought momentum signal
           if (c.vol_surge_pct > 50) score += 10;               // significant volume surge
+          // MACD momentum: positive histogram = bullish momentum building
+          if (c.macd_histogram != null && c.macd_histogram > 0) score += 5;
+          if (c.macd_histogram != null && c.macd_histogram < 0) score += 4;  // bearish momentum (short signal)
+          // Bollinger Band extremes: mean reversion signals
+          if (c.bb_pct_b != null && c.bb_pct_b < 0.05) score += 9;  // near/below lower band = oversold
+          if (c.bb_pct_b != null && c.bb_pct_b > 0.95) score += 7;  // near/above upper band = overbought
           return score;
         }
 
@@ -427,6 +442,30 @@ async function runForUser(args: {
   const scanSymbols = (candidates as Array<{symbol?: string}>).map((c) => String(c.symbol ?? "")).filter(Boolean);
   const memories = await loadRelevantMemories(supabaseAdmin as never, userId, scanSymbols);
 
+  // Earnings surprise signal: stocks that beat earnings recently have post-earnings drift
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+  const earningsBeatMap = new Map<string, number>(); // symbol → surprise pct
+  const fin = process.env.FINNHUB_API_KEY;
+  if (fin) {
+    await Promise.allSettled(
+      [...UNIVERSE.large_cap, ...UNIVERSE.small_mid_cap].slice(0, 20).map(async (sym) => {
+        try {
+          const r = await fetch(`https://finnhub.io/api/v1/stock/earnings?symbol=${sym}&limit=1&token=${fin}`);
+          if (!r.ok) return;
+          const j = (await r.json()) as Array<{ date?: string; actual?: number; estimate?: number }>;
+          const latest = j[0];
+          if (!latest?.date || !latest.actual || !latest.estimate) return;
+          if (new Date(latest.date) < new Date(thirtyDaysAgo)) return;
+          const surprise = ((latest.actual - latest.estimate) / Math.abs(latest.estimate)) * 100;
+          if (Math.abs(surprise) > 3) earningsBeatMap.set(sym, surprise);
+        } catch { /* skip */ }
+      })
+    );
+  }
+  const earningsContext = earningsBeatMap.size > 0
+    ? `Recent earnings beats (last 30 days): ${[...earningsBeatMap.entries()].map(([s, p]) => `${s} ${p > 0 ? "+" : ""}${p.toFixed(1)}%`).join(", ")}`
+    : "No recent earnings surprises.";
+
   // Signal → trade bridge: load recent open market signals for context
   const sixHoursAgo = new Date(Date.now() - 6 * 3600_000).toISOString();
   const { data: recentSignals } = await supabaseAdmin
@@ -491,6 +530,7 @@ async function runForUser(args: {
     agent_memory: memories,
     recent_ai_signals: signalContext,
     manual_strategies_firing: strategyBridgeContext,
+    earnings_surprises: earningsContext,
     margin_available: false,
   };
 
@@ -519,6 +559,10 @@ HARD RULES — never violate these:
 - When vol_surge_pct > 50, that stock is moving on unusual volume — prioritize it.
 - When five_day_return shows strong momentum (>3% or <-3%), that is a high-quality signal.
 - When recent_ai_signals contains signals for a candidate, use them as additional evidence. Aligned signals increase conviction; contradicting signals decrease it.
+- When earnings_surprises shows a recent positive earnings beat (>5%), that stock has post-earnings drift momentum — weight it as +20 conviction for long positions. Negative surprises (<-5%) = +20 for short/put.
+- Use MACD histogram: positive = bullish momentum building (buy signal), negative and falling = bearish (short/put signal).
+- Use Bollinger Bands: bb_pct_b < 0.05 = near lower band (oversold, buy/call), bb_pct_b > 0.95 = near upper band (overbought, sell/put).
+- Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
 ${learningAdjustments ? "\nLEARNED RULES FROM PAST PERFORMANCE (treat as hard rules):\n" + learningAdjustments : ""}
 
@@ -560,6 +604,15 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     }
     const allocPct = Math.min(t.allocation_pct, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
+    // Sector ETF momentum filter: skip long stock entries when sector is below SMA50
+    if (t.direction === "long" && ["stock"].includes(t.instrument ?? "stock")) {
+      const sectorBullish = await isSectorBullish(t.symbol);
+      if (!sectorBullish) {
+        console.log(`[autonomous] skip ${t.symbol}: sector ETF below SMA50`);
+        continue;
+      }
+    }
+
     // Cumulative allocation guard: ensure this trade doesn't exceed deployable cash
     const deployableCash = cash * ((100 - effectiveMinCashPct) / 100);
     const alreadyDeployed = cash - cashRemaining;
@@ -570,6 +623,32 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     if (allocCash > cashRemaining * 0.99) continue;
     const sect = SECTOR[t.symbol.toUpperCase()] ?? "other";
     if ((sectorCount.get(sect) ?? 0) >= Math.max(2, Math.floor(openList.length * 0.4))) continue;
+
+    // Sector ETF momentum filter: don't buy individual stocks when their sector ETF is below SMA50
+    const SECTOR_ETF: Record<string, string> = {
+      tech: "XLK", finance: "XLF", energy: "XLE", health: "XLV", consumer: "XLP",
+    };
+    const SECTOR_FOR: Record<string, string> = {
+      AAPL:"tech",MSFT:"tech",NVDA:"tech",GOOGL:"tech",AMZN:"tech",META:"tech",AMD:"tech",
+      CRM:"tech",INTC:"tech",QCOM:"tech",ADBE:"tech",ORCL:"tech",SNOW:"tech",
+      JPM:"finance",BAC:"finance",V:"finance",GS:"finance",
+      XOM:"energy",CVX:"energy",
+      JNJ:"health",
+    };
+    const sectorEtfCache = new Map<string, boolean>(); // etf → is above SMA50
+    async function isSectorBullish(symbol: string): Promise<boolean> {
+      const sector = SECTOR_FOR[symbol.toUpperCase()];
+      if (!sector) return true; // unknown sector: don't filter
+      const etf = SECTOR_ETF[sector];
+      if (!etf) return true;
+      if (sectorEtfCache.has(etf)) return sectorEtfCache.get(etf)!;
+      const etfBars = await fetchBars(etf, 60);
+      if (!etfBars) { sectorEtfCache.set(etf, true); return true; }
+      const etfCtx = buildContext(etfBars.closes);
+      const bullish = etfCtx != null && etfCtx.sma50 != null && etfCtx.price > etfCtx.sma50;
+      sectorEtfCache.set(etf, bullish);
+      return bullish;
+    }
 
     // Trade similarity detector: skip if already open in same asset + same instrument + same direction
     const alreadyHasSimilar = openList.some((o) => {

@@ -105,34 +105,43 @@ async function earningsWithin48h(symbol: string): Promise<{ blocked: boolean; da
   } catch { return { blocked: false }; }
 }
 
-/** Simple AI sentiment on recent headlines. Fails open. */
+/** Sentiment using Finnhub's built-in NLP sentiment score — faster and more reliable than AI one-shot.
+ * Falls back to article count only if sentiment endpoint is unavailable.
+ */
 async function newsSentiment(symbol: string): Promise<{ sentiment: "positive" | "negative" | "neutral"; confidence: number; reason: string } | null> {
   const finKey = process.env.FINNHUB_API_KEY;
-  const aiKey = process.env.LOVABLE_API_KEY;
-  if (!finKey || !aiKey) return null;
+  if (!finKey) return null;
+  try {
+    // Primary: Finnhub pre-computed sentiment (no AI cost, instant, runs their own NLP)
+    const r = await fetch(`https://finnhub.io/api/v1/news-sentiment?symbol=${symbol}&token=${finKey}`);
+    if (r.ok) {
+      const j = (await r.json()) as {
+        sentiment?: { bearishPercent?: number; bullishPercent?: number };
+        companyNewsScore?: number;
+      };
+      const bullish = j.sentiment?.bullishPercent ?? 0;
+      const bearish = j.sentiment?.bearishPercent ?? 0;
+      if (!bullish && !bearish) return null;
+      const net = bullish - bearish;
+      const sentiment: "positive" | "negative" | "neutral" =
+        net > 0.15 ? "positive" : net < -0.15 ? "negative" : "neutral";
+      const confidence = Math.round(Math.min(90, Math.abs(net) * 200));
+      return {
+        sentiment,
+        confidence,
+        reason: `${(bullish * 100).toFixed(0)}% bullish / ${(bearish * 100).toFixed(0)}% bearish (Finnhub NLP)`,
+      };
+    }
+  } catch { /* fall through */ }
+  // Fallback: headline count proxy (no AI call)
   try {
     const today = new Date().toISOString().slice(0, 10);
     const yday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
-    const nr = await fetch(`https://finnhub.io/api/v1/company-news?symbol=${symbol}&from=${yday}&to=${today}&token=${finKey}`);
-    if (!nr.ok) return null;
-    const nj = (await nr.json()) as Array<{ headline?: string }>;
-    const headlines = (nj ?? []).slice(0, 5).map((n) => n.headline ?? "").filter(Boolean);
-    if (headlines.length < 2) return null;
-    const prompt = `Given these recent news headlines for ${symbol}, respond with ONLY a JSON object: { "sentiment": "positive"|"negative"|"neutral", "confidence": 0-100, "reason": "one sentence" }. Headlines: ${headlines.join(" | ")}`;
-    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": aiKey, "X-Lovable-AIG-SDK": "direct" },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-      }),
-    });
-    if (!r.ok) return null;
-    const jj = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const parsed = JSON.parse(jj.choices?.[0]?.message?.content ?? "{}") as { sentiment?: string; confidence?: number; reason?: string };
-    const s = parsed.sentiment === "positive" || parsed.sentiment === "negative" ? parsed.sentiment : "neutral";
-    return { sentiment: s, confidence: Number(parsed.confidence ?? 0), reason: String(parsed.reason ?? "") };
+    const r2 = await fetch(`https://finnhub.io/api/v1/company-news?symbol=${symbol}&from=${yday}&to=${today}&token=${finKey}`);
+    if (!r2.ok) return null;
+    const nj = (await r2.json()) as Array<unknown>;
+    if ((nj ?? []).length < 2) return null;
+    return { sentiment: "neutral", confidence: 20, reason: `${nj.length} articles (NLP unavailable)` };
   } catch { return null; }
 }
 

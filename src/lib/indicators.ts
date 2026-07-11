@@ -12,6 +12,12 @@ export type IndicatorContext = {
   ema12: number | null;
   ema26: number | null;
   entry_price: number | null;
+  macd: number | null;
+  macd_signal: number | null;
+  macd_histogram: number | null;
+  bb_upper: number | null;
+  bb_lower: number | null;
+  bb_pct_b: number | null;
 };
 
 // ---------- Indicators ----------
@@ -97,6 +103,11 @@ export function evalCondition(cond: string, ctx: IndicatorContext): boolean {
     if (token === "ema(12)" || token === "ema12") return ctx.ema12;
     if (token === "ema(26)" || token === "ema26") return ctx.ema26;
     if (token === "entry") return ctx.entry_price;
+    if (token === "macd" || token === "macd_histogram") return ctx.macd_histogram ?? null;
+    if (token === "macd_signal") return ctx.macd_signal ?? null;
+    if (token === "bb_upper") return ctx.bb_upper ?? null;
+    if (token === "bb_lower") return ctx.bb_lower ?? null;
+    if (token === "bb_pct_b") return ctx.bb_pct_b ?? null;
     if (/^-?\d+(\.\d+)?$/.test(token)) return Number(token);
     return null;
   };
@@ -214,7 +225,8 @@ export async function fetchBars(symbol: string, days = 220): Promise<Bars | null
         const j = (await r.json()) as { results?: Array<{ t: number; o: number; h: number; l: number; c: number; v: number }> };
         const rows = (j.results ?? []).filter((b) => Number.isFinite(b.c));
         if (rows.length >= 50) {
-          await sleep(13_000);
+          // No sleep needed - Polygon Starter plan allows 100 req/min
+          // The old 13-second sleep was causing 14-minute scan timeouts
           return {
             times: rows.map((b) => b.t),
             opens: rows.map((b) => b.o),
@@ -280,6 +292,52 @@ export async function fetchDailyCloses(symbol: string, days = 220): Promise<numb
 
 
 /**
+ * MACD line = EMA12 - EMA26. Signal line = EMA9 of MACD.
+ * Returns { macd, signal, histogram } for the last bar.
+ */
+export function macd(closes: number[]): { macd: number | null; signal: number | null; histogram: number | null } {
+  const e12 = ema(closes, 12);
+  const e26 = ema(closes, 26);
+  const macdLine = closes.map((_, i) =>
+    e12[i] != null && e26[i] != null ? e12[i]! - e26[i]! : null
+  );
+  const validMacd = macdLine.filter((v): v is number => v != null);
+  if (validMacd.length < 9) return { macd: null, signal: null, histogram: null };
+  const signalLine = ema(validMacd, 9);
+  const lastMacd = macdLine[macdLine.length - 1];
+  const lastSignal = signalLine[signalLine.length - 1];
+  return {
+    macd: lastMacd,
+    signal: lastSignal,
+    histogram: lastMacd != null && lastSignal != null ? lastMacd - lastSignal : null,
+  };
+}
+
+/**
+ * Bollinger Bands: upper = SMA20 + 2σ, lower = SMA20 - 2σ.
+ * Returns { upper, middle, lower, pct_b } for the last bar.
+ * pct_b = (price - lower) / (upper - lower) — 0 = at lower band, 1 = at upper band.
+ */
+export function bollingerBands(closes: number[], period = 20, stdDevMult = 2): {
+  upper: number | null; middle: number | null; lower: number | null; pct_b: number | null;
+} {
+  if (closes.length < period) return { upper: null, middle: null, lower: null, pct_b: null };
+  const smaArr = sma(closes, period);
+  const last = closes.length - 1;
+  const middle = smaArr[last];
+  if (middle == null) return { upper: null, middle: null, lower: null, pct_b: null };
+  const slice = closes.slice(last - period + 1, last + 1);
+  const mean = slice.reduce((s, v) => s + v, 0) / period;
+  const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / period;
+  const stdDev = Math.sqrt(variance);
+  const upper = middle + stdDevMult * stdDev;
+  const lower = middle - stdDevMult * stdDev;
+  const price = closes[last];
+  const pct_b = upper !== lower ? (price - lower) / (upper - lower) : 0.5;
+  return { upper, middle, lower, pct_b };
+}
+
+/**
  * Build an IndicatorContext for the *last* bar of the closes array.
  * Pass entryPrice when evaluating exit conditions against an open position.
  */
@@ -291,6 +349,8 @@ export function buildContext(closes: number[], entryPrice: number | null = null)
   const sma200Arr = sma(closes, 200);
   const ema12Arr = ema(closes, 12);
   const ema26Arr = ema(closes, 26);
+  const macdResult = macd(closes);
+  const bbResult = bollingerBands(closes, 20, 2);
   const i = closes.length - 1;
   return {
     price: closes[i],
@@ -302,6 +362,12 @@ export function buildContext(closes: number[], entryPrice: number | null = null)
     ema12: ema12Arr[i] ?? null,
     ema26: ema26Arr[i] ?? null,
     entry_price: entryPrice,
+    macd: macdResult.macd,
+    macd_signal: macdResult.signal,
+    macd_histogram: macdResult.histogram,
+    bb_upper: bbResult.upper,
+    bb_lower: bbResult.lower,
+    bb_pct_b: bbResult.pct_b,
   };
 }
 

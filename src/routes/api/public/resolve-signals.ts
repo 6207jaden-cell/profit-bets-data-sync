@@ -87,17 +87,40 @@ export const Route = createFileRoute("/api/public/resolve-signals")({
           const price = priceCache.get(asset);
           if (!price || !entry) continue;
 
+          // Also fetch today's daily high/low from Polygon to catch intraday touches
+          // A signal's target/stop may have been hit during the day even if close is elsewhere
+          let dayHigh = price, dayLow = price;
+          const poly = process.env.POLYGON_API_KEY;
+          if (poly && !asset.includes("-USD")) {
+            try {
+              const today = new Date().toISOString().slice(0, 10);
+              const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${asset}/range/1/day/${today}/${today}?apiKey=${poly}`);
+              if (r.ok) {
+                const j = (await r.json()) as { results?: Array<{ h: number; l: number }> };
+                if (j.results?.[0]) { dayHigh = j.results[0].h; dayLow = j.results[0].l; }
+              }
+            } catch { /* use close price only */ }
+          }
+
           const dirMult = isShort ? -1 : 1;
-          if (tgt != null && ((!isShort && price >= tgt) || (isShort && price <= tgt))) {
-            const pnl = ((tgt - entry) / entry) * 100 * dirMult;
+          // Check if target was touched at any point during the day (using dayHigh/dayLow)
+          const targetTouched = tgt != null && (
+            (!isShort && dayHigh >= tgt) || (isShort && dayLow <= tgt)
+          );
+          const stopTouched = stp != null && (
+            (!isShort && dayLow <= stp) || (isShort && dayHigh >= stp)
+          );
+
+          if (targetTouched) {
+            const pnl = ((tgt! - entry) / entry) * 100 * dirMult;
             await supabaseAdmin.from("market_signals").update({
               result: "hit_target", resolved_pnl_pct: pnl,
             }).eq("id", s.id);
             if (s.user_id) await fireWebhook(String(s.user_id), "signal_hit", { signal_id: s.id, asset, direction: dir, entry, target: tgt, pnl_pct: pnl });
             hit_target++;
 
-          } else if (stp != null && ((!isShort && price <= stp) || (isShort && price >= stp))) {
-            const pnl = ((stp - entry) / entry) * 100 * dirMult;
+          } else if (stopTouched) {
+            const pnl = ((stp! - entry) / entry) * 100 * dirMult;
             await supabaseAdmin.from("market_signals").update({
               result: "hit_stop", resolved_pnl_pct: pnl,
             }).eq("id", s.id);
