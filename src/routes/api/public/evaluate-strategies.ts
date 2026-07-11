@@ -449,7 +449,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                   executionsBuffer.push({
                     user_id: userId, strategy_id: strat.id, execution_type: "paper", status: "filled",
                     asset: symbol, side: "buy", quantity, price: quote.price,
-                    reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""} regime=${regime}${style ? ` style=${style} mult=${regimeMult.toFixed(2)}` : ""}`,
+                    reason: `auto_entry via ${quote.source} alloc=${allocPct.toFixed(1)}%${confidence != null ? ` conf=${confidence}` : ""}${volPct != null ? ` vol=${volPct.toFixed(2)}%` : ""} regime=${regime}${style ? ` style=${style} mult=${regimeMult.toFixed(2)}` : ""}${vixLevel != null ? ` vix=${vixLevel.toFixed(1)} vix_mult=${vixMult.toFixed(2)}` : ""}${defensiveMode ? ` defensive dd=${drawdownPct.toFixed(1)}%` : ""}`,
                   });
                   await fireWebhook(userId, "trade_open", { strategy_id: strat.id, asset: symbol, side: "buy", quantity, price: quote.price, alloc_pct: allocPct, regime, style });
                   opened++;
