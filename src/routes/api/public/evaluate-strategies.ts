@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, type Bars } from "@/lib/indicators";
+import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, fetchQuotePrice, type Bars } from "@/lib/indicators";
 import { fireWebhook } from "@/lib/webhook.functions";
 
 
@@ -203,6 +203,9 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
         // Fetch SPY once for the whole run and derive regime once.
         const spyBars = await getBars("SPY");
         const regime = spyBars ? detectMarketRegime(spyBars.closes) : "sideways";
+        // VIX once per run — used to scale allocation for non-crypto entries.
+        const vixLevel = await fetchQuotePrice("VIX").catch(() => null);
+
 
         for (const [userId, userStrats] of byUser) {
           try {

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isCryptoSymbol, isMarketOpen } from "@/lib/indicators";
+import { buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketOpen } from "@/lib/indicators";
 
 const UNIVERSE = {
   large_cap: ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM","WMT","JNJ","HD","BAC","PG","DIS","NFLX","AMD","CRM","UBER"],
@@ -10,8 +10,10 @@ const UNIVERSE = {
 const ALL_SYMBOLS = [
   ...UNIVERSE.large_cap, ...UNIVERSE.small_mid_cap, ...UNIVERSE.etfs, ...UNIVERSE.crypto,
 ];
-const MAX_POSITION_PCT = 35;
-const MIN_CASH_PCT = 20;
+
+const DEFAULT_AGENT_SETTINGS: AgentSettings = {
+  max_position_pct: 35, min_cash_pct: 20, stop_loss_pct: 7, take_profit_pct: 15, extra_symbols: [],
+};
 
 const SECTOR: Record<string, string> = {
   AAPL:"tech",MSFT:"tech",NVDA:"tech",GOOGL:"tech",AMZN:"tech",META:"tech",TSLA:"tech",
@@ -20,6 +22,14 @@ const SECTOR: Record<string, string> = {
   XOM:"energy",XLE:"energy",WMT:"consumer",JNJ:"health",HD:"consumer",PG:"consumer",
   DIS:"consumer",UBER:"consumer",LYFT:"consumer",ABNB:"consumer",RBLX:"consumer",
   SNAP:"consumer",ROKU:"consumer",DKNG:"consumer",OPEN:"consumer",RIVN:"consumer",
+};
+
+type AgentSettings = {
+  max_position_pct: number;
+  min_cash_pct: number;
+  stop_loss_pct: number;
+  take_profit_pct: number;
+  extra_symbols: string[];
 };
 
 type AiTrade = {
@@ -42,6 +52,28 @@ type AiResponse = {
   message_to_user: string;
 };
 
+type UserRow = {
+  user_id: string;
+  autonomous_execution_mode: string | null;
+  agent_settings: unknown;
+  autonomous_paused_until: string | null;
+};
+
+function parseSettings(raw: unknown): AgentSettings {
+  const s = (raw ?? {}) as Partial<AgentSettings>;
+  return {
+    max_position_pct: clamp(Number(s.max_position_pct ?? DEFAULT_AGENT_SETTINGS.max_position_pct), 5, 50),
+    min_cash_pct: clamp(Number(s.min_cash_pct ?? DEFAULT_AGENT_SETTINGS.min_cash_pct), 10, 50),
+    stop_loss_pct: clamp(Number(s.stop_loss_pct ?? DEFAULT_AGENT_SETTINGS.stop_loss_pct), 2, 15),
+    take_profit_pct: clamp(Number(s.take_profit_pct ?? DEFAULT_AGENT_SETTINGS.take_profit_pct), 5, 30),
+    extra_symbols: Array.isArray(s.extra_symbols) ? (s.extra_symbols as string[]).map((x) => String(x).toUpperCase()).slice(0, 20) : [],
+  };
+}
+function clamp(n: number, lo: number, hi: number): number {
+  if (!Number.isFinite(n)) return lo;
+  return Math.max(lo, Math.min(hi, n));
+}
+
 export const Route = createFileRoute("/api/public/autonomous-agent")({
   server: {
     handlers: {
@@ -56,12 +88,25 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-        const { data: activeUsers } = await supabaseAdmin
+        // Auto-clear expired pauses so they take effect on next run.
+        await supabaseAdmin
           .from("user_settings")
-          .select("user_id, autonomous_execution_mode")
+          .update({ autonomous_paused_until: null })
+          .not("autonomous_paused_until", "is", null)
+          .lt("autonomous_paused_until", new Date().toISOString());
+
+        const { data: rawUsers } = await supabaseAdmin
+          .from("user_settings")
+          .select("user_id, autonomous_execution_mode, agent_settings, autonomous_paused_until")
           .eq("autonomous_mode", true);
-        if (!activeUsers || activeUsers.length === 0) {
-          return Response.json({ ok: true, reason: "autonomous_mode_disabled" });
+        const activeUsers = (rawUsers ?? []) as UserRow[];
+        // Skip users whose pause is still in the future.
+        const eligibleUsers = activeUsers.filter((u) => {
+          if (!u.autonomous_paused_until) return true;
+          return new Date(u.autonomous_paused_until).getTime() <= Date.now();
+        });
+        if (eligibleUsers.length === 0) {
+          return Response.json({ ok: true, reason: "no_eligible_users", paused: activeUsers.length - eligibleUsers.length });
         }
 
         const marketOpen = isMarketOpen();
@@ -77,7 +122,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           }
         } catch { /* ignore */ }
 
-        // Build candidate universe once (shared across users)
+        // Build candidate universe once (shared across users). Per-user extras added later.
         const symbolsThisRun = marketOpen ? ALL_SYMBOLS : UNIVERSE.crypto;
         const candidateMap = new Map<string, {
           symbol: string; price: number; rsi: number | null;
@@ -94,7 +139,6 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
             if (!ctx) return;
             const sma50 = ctx.sma50 ?? ctx.price;
             const momentum = ((ctx.price - sma50) / sma50) * 100;
-            // ATR% approximation using ranges
             const n = Math.min(14, bars.highs.length - 1);
             let sumTr = 0;
             for (let k = bars.highs.length - n; k < bars.highs.length; k++) {
@@ -121,21 +165,28 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           : allCandidates.sort((a, b) => Math.abs(b.momentum_pct) - Math.abs(a.momentum_pct)).slice(0, 20);
 
         let totalOpened = 0;
-        for (const u of activeUsers) {
+        const skipped: Array<{ user: string; reason: string }> = [];
+        for (const u of eligibleUsers) {
           try {
-            const opened = await runForUser({
+            const settings = parseSettings(u.agent_settings);
+            const result = await runForUser({
               userId: u.user_id,
               executionMode: u.autonomous_execution_mode ?? "paper",
               session, sessionType, regime, vixLevel,
-              candidates: sorted, supabaseAdmin,
+              candidates: sorted, supabaseAdmin, settings,
             });
-            totalOpened += opened;
+            if (result.skipped) skipped.push({ user: u.user_id, reason: result.skipped });
+            totalOpened += result.opened;
           } catch (e) {
             console.error("[autonomous-agent] user", u.user_id, e);
           }
         }
 
-        return Response.json({ ok: true, session, regime, users: activeUsers.length, trades_opened: totalOpened });
+        return Response.json({
+          ok: true, session, regime, vix: vixLevel,
+          users: eligibleUsers.length, trades_opened: totalOpened, skipped,
+          paused_users: activeUsers.length - eligibleUsers.length,
+        });
       },
     },
   },
@@ -150,18 +201,117 @@ async function runForUser(args: {
   vixLevel: number | null;
   candidates: Array<Record<string, unknown>>;
   supabaseAdmin: Awaited<ReturnType<typeof getAdmin>>;
-}): Promise<number> {
-  const { userId, session, sessionType, regime, vixLevel, candidates, supabaseAdmin, executionMode } = args;
+  settings: AgentSettings;
+}): Promise<{ opened: number; skipped?: string }> {
+  const { userId, session, sessionType, regime, vixLevel, candidates, supabaseAdmin, executionMode, settings } = args;
+
   const { data: portfolio } = await supabaseAdmin
     .from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
-  if (!portfolio) return 0;
-  const totalEquity = Number(portfolio.equity) || Number(portfolio.balance) || 0;
-  const cash = Number(portfolio.balance) || 0;
-  const cashPct = totalEquity > 0 ? (cash / totalEquity) * 100 : 100;
+  if (!portfolio) return { opened: 0, skipped: "no_portfolio" };
 
+  const startBal = Number(portfolio.starting_balance) || 0;
+  const cash = Number(portfolio.balance) || 0;
+
+  // Batch open trades once.
   const { data: openTrades } = await supabaseAdmin
     .from("paper_trades").select("*").eq("user_id", userId).eq("is_open", true);
   const openList = openTrades ?? [];
+
+  // ---- Compute total unrealized P&L on open positions ----
+  let unrealized = 0;
+  const quotes = new Map<string, number>();
+  await Promise.all(openList.map(async (t) => {
+    const p = await fetchQuotePrice(String(t.asset));
+    if (p) quotes.set(String(t.asset), p);
+  }));
+  for (const t of openList) {
+    const q = quotes.get(String(t.asset));
+    if (!q) continue;
+    const qty = Number(t.quantity), entry = Number(t.entry_price);
+    unrealized += (q - entry) * qty * (t.side === "buy" ? 1 : -1);
+  }
+  const currentEquity = cash + openList.reduce((s, t) => {
+    const q = quotes.get(String(t.asset)) ?? Number(t.entry_price);
+    return s + q * Number(t.quantity);
+  }, 0);
+
+  // ---- Today's realized P&L (for circuit breaker) ----
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const { data: closedToday } = await supabaseAdmin
+    .from("paper_trades").select("pnl")
+    .eq("user_id", userId).eq("is_open", false)
+    .gte("closed_at", dayStart.toISOString());
+  const realizedToday = (closedToday ?? []).reduce((s, t) => s + Number(t.pnl ?? 0), 0);
+  const dayPnl = realizedToday + unrealized;
+  const dayPnlPct = startBal > 0 ? (dayPnl / startBal) * 100 : 0;
+
+  // ---- Circuit breaker: down >5% today → block entries, close intraday only ----
+  if (dayPnlPct < -5) {
+    let closedIntra = 0;
+    for (const t of openList) {
+      if (t.hold_duration !== "intraday") continue;
+      const q = quotes.get(String(t.asset));
+      if (!q) continue;
+      const qty = Number(t.quantity), entry = Number(t.entry_price);
+      const pnl = (q - entry) * qty * (t.side === "buy" ? 1 : -1);
+      await supabaseAdmin.from("paper_trades").update({
+        is_open: false, exit_price: q, pnl, closed_at: new Date().toISOString(),
+      }).eq("id", t.id);
+      closedIntra += 1;
+    }
+    // Post one circuit-breaker message per day max.
+    const { data: existing } = await supabaseAdmin
+      .from("agent_messages").select("id")
+      .eq("user_id", userId).eq("session_type", "circuit_breaker")
+      .gte("created_at", dayStart.toISOString()).limit(1).maybeSingle();
+    if (!existing) {
+      await supabaseAdmin.from("agent_messages").insert({
+        user_id: userId, role: "assistant", is_autonomous: true, session_type: "circuit_breaker",
+        content: `🛑 Circuit breaker triggered. Portfolio is down ${dayPnlPct.toFixed(1)}% today — pausing all new entries for the rest of the trading day to protect capital. Exits still active.`,
+      });
+    }
+    await supabaseAdmin.from("agent_decisions").insert({
+      user_id: userId, session_type: sessionType, regime, trades_opened: 0,
+      payload: { circuit_breaker_triggered: true, day_pnl_pct: dayPnlPct, intraday_closed: closedIntra } as never,
+    });
+    console.log(`[autonomous] circuit_breaker_triggered user=${userId} pct=${dayPnlPct.toFixed(2)}`);
+    return { opened: 0, skipped: "circuit_breaker" };
+  }
+
+  // ---- Drawdown protection: peak-to-current ----
+  const { data: peakRow } = await supabaseAdmin
+    .from("portfolio_snapshots").select("equity")
+    .eq("user_id", userId).order("equity", { ascending: false }).limit(1).maybeSingle();
+  const peakEquity = Math.max(Number(peakRow?.equity ?? 0), currentEquity, startBal);
+  const drawdownPct = peakEquity > 0 ? ((peakEquity - currentEquity) / peakEquity) * 100 : 0;
+  const defensive = drawdownPct > 15;
+  const effectiveMinCashPct = defensive ? 40 : settings.min_cash_pct;
+  const effectiveMaxPositionPct = settings.max_position_pct;
+  if (defensive) {
+    const { data: existing } = await supabaseAdmin
+      .from("agent_messages").select("id")
+      .eq("user_id", userId).eq("session_type", "drawdown_protection")
+      .gte("created_at", dayStart.toISOString()).limit(1).maybeSingle();
+    if (!existing) {
+      await supabaseAdmin.from("agent_messages").insert({
+        user_id: userId, role: "assistant", is_autonomous: true, session_type: "drawdown_protection",
+        content: `⚠️ Drawdown protection active. Portfolio is ${drawdownPct.toFixed(1)}% below peak. Switching to defensive mode: 40% min cash, long equities only, high conviction only. Will restore normal parameters when within 10% of peak.`,
+      });
+    }
+  }
+
+  const cashPct = currentEquity > 0 ? (cash / currentEquity) * 100 : 100;
+  if (cashPct < effectiveMinCashPct) {
+    await supabaseAdmin.from("agent_messages").insert({
+      user_id: userId, role: "assistant", is_autonomous: true, session_type: sessionType,
+      content: `Held off on new positions — cash is at ${cashPct.toFixed(0)}%, below the ${effectiveMinCashPct}% minimum reserve${defensive ? " (defensive mode)" : ""}.`,
+    });
+    await supabaseAdmin.from("agent_decisions").insert({
+      user_id: userId, session_type: sessionType, regime, trades_opened: 0,
+      payload: { skipped: "min_cash", defensive, drawdown_pct: drawdownPct } as never,
+    });
+    return { opened: 0, skipped: "min_cash" };
+  }
 
   const { data: learnings } = await supabaseAdmin
     .from("agent_learnings").select("analysis, key_insights, adjustments")
@@ -170,22 +320,18 @@ async function runForUser(args: {
     `Week ${i + 1}: ${l.analysis?.slice(0, 300)} | Adj: ${JSON.stringify(l.adjustments).slice(0, 200)}`
   ).join("\n") || "No prior learnings yet.";
 
-  if (cashPct < MIN_CASH_PCT) {
-    await supabaseAdmin.from("agent_messages").insert({
-      user_id: userId, role: "assistant", is_autonomous: true, session_type: sessionType,
-      content: `Held off on new positions — cash is at ${cashPct.toFixed(0)}%, below the ${MIN_CASH_PCT}% minimum reserve.`,
-    });
-    await supabaseAdmin.from("agent_decisions").insert({
-      user_id: userId, session_type: sessionType, regime, trades_opened: 0,
-      payload: { skipped: "min_cash" },
-    });
-    return 0;
-  }
-
   const userMessage = {
     session, regime, vix_level: vixLevel,
-    portfolio: { cash, equity: totalEquity, cash_pct: cashPct, open_positions_count: openList.length },
-    candidates, current_positions: openList.map((t) => ({
+    portfolio: { cash, equity: currentEquity, cash_pct: cashPct, open_positions_count: openList.length, day_pnl_pct: dayPnlPct, drawdown_pct: drawdownPct },
+    defensive_mode: defensive,
+    settings: {
+      max_position_pct: effectiveMaxPositionPct,
+      min_cash_pct: effectiveMinCashPct,
+      default_stop_loss_pct: settings.stop_loss_pct,
+      default_take_profit_pct: settings.take_profit_pct,
+    },
+    candidates,
+    current_positions: openList.map((t) => ({
       id: t.id, asset: t.asset, side: t.side, entry_price: t.entry_price,
       hold_duration: t.hold_duration, instrument: t.instrument,
     })),
@@ -196,20 +342,21 @@ async function runForUser(args: {
   const systemPrompt = `You are an autonomous portfolio manager with deep expertise in equities, ETFs, crypto, and options (calls, puts, vertical spreads, iron condors). You manage a ring-fenced trading account. Your only goal is to maximize risk-adjusted returns over time.
 
 HARD RULES — never violate these:
-- Always maintain at least ${MIN_CASH_PCT}% cash. Never deploy more than ${100 - MIN_CASH_PCT}% of the portfolio.
-- Never allocate more than ${MAX_POSITION_PCT}% to a single position.
-- For SHORT positions: only recommend if margin_available is true in the context. If not, use puts instead.
+- Always maintain at least ${effectiveMinCashPct}% cash. Never deploy more than ${100 - effectiveMinCashPct}% of the portfolio.
+- Never allocate more than ${effectiveMaxPositionPct}% to a single position.
+- Default stop-loss is ${settings.stop_loss_pct}%, default take-profit is ${settings.take_profit_pct}% — tighten or loosen only with clear rationale.
+- For SHORT positions: only recommend if margin_available is true. If not, use puts instead.
 - Never trade assets with earnings within 48 hours.
-- For options: choose the structure that best fits the situation. Low IV → buy options. High IV → sell spreads. Neutral outlook → iron condor. Always specify expiry (2-5 weeks out for swings, 1-3 days for intraday), strike, and number of contracts.
-- Session "midday" is for intraday opportunities only — set hold_duration to "intraday" for all midday trades.
-- If you see nothing compelling, return an empty trades array and hold cash. Doing nothing is always valid.
+- Session "midday" is intraday only — set hold_duration="intraday" for all midday trades.
+- If defensive_mode is true: LONG stock/etf/crypto only (no shorts, no options, no spreads), conviction must be >= 75.
+- If nothing compelling, return an empty trades array. Doing nothing is always valid.
 
-Respond with ONLY valid JSON matching this exact schema — no prose, no markdown fences:
+Respond with ONLY valid JSON — no prose, no markdown fences:
 {
   "market_assessment": "2-3 sentence market overview",
   "regime": "bull|bear|sideways",
-  "cash_deployment_pct": <0-80 number>,
-  "trades": [ { "symbol": "NVDA", "direction": "long|short", "instrument": "stock|etf|crypto|call|put|call_spread|put_spread|iron_condor", "conviction": <0-100>, "allocation_pct": <1-${MAX_POSITION_PCT}>, "stop_loss_pct": <number>, "take_profit_pct": <number>, "hold_duration": "intraday|swing|position", "rationale": "2-3 sentence explanation", "options_details": { "expiry_days_out": 21, "strike_type": "atm|otm_1|otm_2|itm_1", "contracts": 1, "spread_width": null } } ],
+  "cash_deployment_pct": <0-${100 - effectiveMinCashPct} number>,
+  "trades": [ { "symbol": "NVDA", "direction": "long|short", "instrument": "stock|etf|crypto|call|put|call_spread|put_spread|iron_condor", "conviction": <0-100>, "allocation_pct": <1-${effectiveMaxPositionPct}>, "stop_loss_pct": <number>, "take_profit_pct": <number>, "hold_duration": "intraday|swing|position", "rationale": "2-3 sentence explanation", "options_details": { "expiry_days_out": 21, "strike_type": "atm|otm_1|otm_2|itm_1", "contracts": 1, "spread_width": null } } ],
   "message_to_user": "Friendly 2-4 sentence summary."
 }`;
 
@@ -217,9 +364,9 @@ Respond with ONLY valid JSON matching this exact schema — no prose, no markdow
   if (!ai) {
     await supabaseAdmin.from("agent_decisions").insert({
       user_id: userId, session_type: sessionType, regime, trades_opened: 0,
-      payload: { ai_error: true },
+      payload: { ai_error: true } as never,
     });
-    return 0;
+    return { opened: 0, skipped: "ai_error" };
   }
 
   const sectorCount = new Map<string, number>();
@@ -232,14 +379,17 @@ Respond with ONLY valid JSON matching this exact schema — no prose, no markdow
   let cashRemaining = cash;
   for (const raw of ai.trades ?? []) {
     let t = raw;
-    // Enforce short→put fallback (margin_available: false)
     if (t.direction === "short" && !userMessage.margin_available) {
       t = { ...t, instrument: "put", direction: "long", rationale: `${t.rationale} [converted from short to put — margin unavailable]` };
     }
-    const allocPct = Math.min(t.allocation_pct, MAX_POSITION_PCT);
+    // Defensive-mode enforcement: block options/shorts/spreads + conviction filter
+    if (defensive) {
+      const okInstrument = ["stock", "etf", "crypto"].includes(t.instrument);
+      if (!okInstrument || t.direction === "short" || (t.conviction ?? 0) < 75) continue;
+    }
+    const allocPct = Math.min(t.allocation_pct, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
     if (allocCash > cashRemaining * 0.99) continue;
-    // Sector guard: max 40% of open slots in same sector
     const sect = SECTOR[t.symbol.toUpperCase()] ?? "other";
     if ((sectorCount.get(sect) ?? 0) >= Math.max(2, Math.floor(openList.length * 0.4))) continue;
 
@@ -256,8 +406,8 @@ Respond with ONLY valid JSON matching this exact schema — no prose, no markdow
       entry_price: price,
       is_open: true,
       hold_duration: t.hold_duration,
-      stop_loss_pct: t.stop_loss_pct,
-      take_profit_pct: t.take_profit_pct,
+      stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
+      take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
       instrument: t.instrument,
       options_details: (t.options_details ?? null) as never,
       rationale: t.rationale,
@@ -272,21 +422,20 @@ Respond with ONLY valid JSON matching this exact schema — no prose, no markdow
     await supabaseAdmin.from("paper_portfolios").update({ balance: cashRemaining, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
   }
 
-  const newCashPct = totalEquity > 0 ? (cashRemaining / totalEquity) * 100 : 0;
+  const newCashPct = currentEquity > 0 ? (cashRemaining / currentEquity) * 100 : 0;
   await supabaseAdmin.from("agent_messages").insert({
     user_id: userId, role: "assistant", is_autonomous: true, session_type: sessionType,
-    content: `${ai.message_to_user}\n\n📊 **Positions opened:** ${opened} | **Cash remaining:** ${newCashPct.toFixed(0)}%`,
+    content: `${ai.message_to_user}\n\n📊 **Positions opened:** ${opened} | **Cash remaining:** ${newCashPct.toFixed(0)}%${defensive ? " · defensive mode" : ""}${vixLevel != null ? ` · VIX ${vixLevel.toFixed(1)}` : ""}`,
   });
   await supabaseAdmin.from("agent_decisions").insert({
     user_id: userId, session_type: sessionType, regime,
     market_assessment: ai.market_assessment, payload: ai as never,
     trades_opened: opened,
   });
-  // Note execution_mode influence (paper-only for now; live path would call broker)
   if (executionMode === "live") {
     console.log("[autonomous] live mode requested but paper execution used until broker integration.");
   }
-  return opened;
+  return { opened };
 }
 
 async function getAdmin() {
