@@ -117,6 +117,25 @@ export function AgentPanel() {
     await chat.sendMessage({ text: prompt.trim() });
   }
 
+  // Listen for "Explain this trade" events fired from ExecutionPanel and elsewhere.
+  useEffect(() => {
+    function onExplain(e: Event) {
+      const d = (e as CustomEvent).detail as {
+        asset?: string; side?: string; entry?: number; current?: number | null;
+        unreal?: number | null; unrealPct?: number | null; instrument?: string;
+      };
+      if (!d) return;
+      const prompt = `Explain this trade: ${String(d.side ?? "").toUpperCase()} ${d.asset} (${d.instrument ?? "stock"}). ` +
+        `Entry $${Number(d.entry ?? 0).toFixed(2)}, current $${d.current != null ? Number(d.current).toFixed(2) : "n/a"}, ` +
+        `unrealized ${d.unreal != null ? `$${d.unreal.toFixed(2)}` : "n/a"} (${d.unrealPct != null ? `${d.unrealPct.toFixed(2)}%` : "n/a"}). ` +
+        `Why is this position on, what's the thesis, and what would make you close it?`;
+      void chat.sendMessage({ text: prompt });
+    }
+    window.addEventListener("explain-trade", onExplain as EventListener);
+    return () => window.removeEventListener("explain-trade", onExplain as EventListener);
+  }, [chat]);
+
+
   if (profileLoading || !authTokenReady) {
     return (
       <Card className="p-12 flex justify-center bg-card border-border">
