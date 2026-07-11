@@ -329,12 +329,18 @@ function AutonomousSection({ userId }: { userId: string | null }) {
     enabled: !!userId,
     queryFn: async () => {
       const { data } = await supabase.from("user_settings").select("*").eq("user_id", userId!).maybeSingle();
-      return data as { autonomous_mode: boolean; autonomous_execution_mode: string } | null;
+      return data as {
+        autonomous_mode: boolean;
+        autonomous_execution_mode: string;
+        autonomous_paused_until: string | null;
+      } | null;
     },
   });
 
   const autonomous = settings.data?.autonomous_mode ?? false;
   const execMode = settings.data?.autonomous_execution_mode ?? "paper";
+  const pausedUntilRaw = settings.data?.autonomous_paused_until ?? null;
+  const pausedUntil = pausedUntilRaw && new Date(pausedUntilRaw) > new Date() ? new Date(pausedUntilRaw) : null;
 
   const status = useQuery({
     queryKey: ["autonomous-status", userId],
