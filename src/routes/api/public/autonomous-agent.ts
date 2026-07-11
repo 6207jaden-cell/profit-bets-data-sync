@@ -230,7 +230,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
 async function runForUser(args: {
   userId: string;
   executionMode: string;
-  session: "morning" | "midday";
+  session: "morning" | "midday" | "weekend_prep";
   sessionType: string;
   regime: string;
   vixLevel: number | null;
