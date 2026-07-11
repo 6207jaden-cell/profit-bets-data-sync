@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_backtest_results: {
+        Row: {
+          avg_pnl_pct: number | null
+          created_at: string
+          days_back: number
+          details: Json
+          id: string
+          sharpe: number | null
+          total_return_pct: number | null
+          trade_count: number | null
+          user_id: string
+          win_rate: number | null
+        }
+        Insert: {
+          avg_pnl_pct?: number | null
+          created_at?: string
+          days_back: number
+          details?: Json
+          id?: string
+          sharpe?: number | null
+          total_return_pct?: number | null
+          trade_count?: number | null
+          user_id: string
+          win_rate?: number | null
+        }
+        Update: {
+          avg_pnl_pct?: number | null
+          created_at?: string
+          days_back?: number
+          details?: Json
+          id?: string
+          sharpe?: number | null
+          total_return_pct?: number | null
+          trade_count?: number | null
+          user_id?: string
+          win_rate?: number | null
+        }
+        Relationships: []
+      }
       agent_decisions: {
         Row: {
           created_at: string
@@ -801,22 +840,28 @@ export type Database = {
       }
       user_settings: {
         Row: {
+          agent_settings: Json
           autonomous_execution_mode: string
           autonomous_mode: boolean
+          autonomous_paused_until: string | null
           created_at: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          agent_settings?: Json
           autonomous_execution_mode?: string
           autonomous_mode?: boolean
+          autonomous_paused_until?: string | null
           created_at?: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          agent_settings?: Json
           autonomous_execution_mode?: string
           autonomous_mode?: boolean
+          autonomous_paused_until?: string | null
           created_at?: string
           updated_at?: string
           user_id?: string
