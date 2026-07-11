@@ -30,7 +30,8 @@ async function runLearningForUser(userId: string, supabaseAdmin: Awaited<ReturnT
   const { data: trades } = await supabaseAdmin
     .from("paper_trades").select("*")
     .eq("user_id", userId).eq("is_open", false).gte("closed_at", weekAgo);
-  if (!trades || trades.length < 3) return false;
+  // Lowered threshold from 3 to 1 — even 1 closed trade gives useful learning signal
+  if (!trades || trades.length < 1) return false;
 
   const withPnl = trades.map((t) => ({ ...t, pnl_num: Number(t.pnl ?? 0) }));
   const wins = withPnl.filter((t) => t.pnl_num > 0).length;

@@ -75,13 +75,40 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
 
   // AI batch decision for swing/position holds
   if (aiCandidates.length > 0) {
-    const system = `You are a portfolio manager reviewing open positions. For each position, decide: hold, trim (close 50%), or exit (close 100%). Base decisions on: current P&L%, hold duration, momentum. Respond ONLY with valid JSON array (no markdown): [{"position_id":"<id>","action":"hold|trim|exit","reason":"<short reason>"}]`;
-    const userMsg = JSON.stringify(aiCandidates.map((c) => ({
-      position_id: c.id, symbol: c.asset, direction: c.side,
-      entry_price: c.entry_price, current_price: c.current_price,
-      current_pnl_pct: c.current_pnl_pct, days_held: c.days_held,
-      hold_duration: c.hold_duration,
-    })));
+    // Fetch regime and current indicators for each position before AI review
+    const { fetchBars, buildContext, detectMarketRegime } = await import("@/lib/indicators");
+    const spyBarsForExit = await fetchBars("SPY", 60);
+    const exitRegime = spyBarsForExit ? detectMarketRegime(spyBarsForExit.closes) : "sideways";
+
+    const positionsWithIndicators = await Promise.all(aiCandidates.map(async (c) => {
+      let currentRsi: number | null = null;
+      let macdHist: number | null = null;
+      let bbPctB: number | null = null;
+      try {
+        const bars = await fetchBars(String(c.asset), 30);
+        if (bars) {
+          const ctx = buildContext(bars.closes);
+          currentRsi = ctx?.rsi ?? null;
+          macdHist = ctx?.macd_histogram ?? null;
+          bbPctB = ctx?.bb_pct_b ?? null;
+        }
+      } catch { /* skip */ }
+      return {
+        position_id: c.id, symbol: c.asset, direction: c.side,
+        entry_price: c.entry_price, current_price: c.current_price,
+        current_pnl_pct: c.current_pnl_pct, days_held: c.days_held,
+        hold_duration: c.hold_duration,
+        current_rsi: currentRsi,
+        macd_histogram: macdHist,
+        bb_pct_b: bbPctB,
+        stop_loss_pct: c.stop_loss_pct,
+        take_profit_pct: c.take_profit_pct,
+        original_rationale: String((c as Record<string,unknown>).rationale ?? "").slice(0, 150),
+      };
+    }));
+
+    const system = `You are a portfolio manager doing a position review. Market regime: ${exitRegime}. For each position, decide: hold, trim (close 50%), or exit (close 100%). Consider: current P&L%, current RSI (>70 overbought, <30 oversold), MACD histogram trend, Bollinger Band position (bb_pct_b: 0=lower band, 1=upper band), days held vs hold_duration, and whether original rationale still holds. Be willing to cut losses on positions not working. Respond ONLY with valid JSON array (no markdown): [{"position_id":"<id>","action":"hold|trim|exit","reason":"<short specific reason referencing indicators>"}]`;
+    const userMsg = JSON.stringify(positionsWithIndicators);
     try {
       const key = process.env.LOVABLE_API_KEY;
       if (key) {

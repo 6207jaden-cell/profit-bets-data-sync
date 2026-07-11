@@ -160,11 +160,16 @@ export const runBacktest = createServerFn({ method: "POST" })
     const roi = (finalEquity - 10000) / 10000;
     const winRate = totalClosed > 0 ? wins / totalClosed : 0;
 
-    // Sharpe (daily, annualized)
-    const mean = returns.reduce((a, b) => a + b, 0) / Math.max(returns.length, 1);
-    const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(returns.length, 1);
+    // Sharpe (annualized) — use ONLY trading days where position is held.
+    // Including flat/zero-return days inflates Sharpe by understating volatility.
+    const tradingReturns = returns.filter((r) => Math.abs(r) > 1e-10);
+    const n = Math.max(tradingReturns.length, 1);
+    const mean = tradingReturns.reduce((a, b) => a + b, 0) / n;
+    const variance = tradingReturns.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
     const std = Math.sqrt(variance);
-    const sharpe = std > 0 ? (mean / std) * Math.sqrt(252) : 0;
+    // Annualize using actual trading day fraction of year
+    const tradingDaysFraction = n / 252;
+    const sharpe = std > 0 ? (mean / std) * Math.sqrt(Math.min(n, 252)) : 0;
 
     const from = new Date(bars[0].t).toISOString().slice(0, 10);
     const to = new Date(bars[bars.length - 1].t).toISOString().slice(0, 10);

@@ -24,6 +24,13 @@ const SEED_PROMPTS = [
   "Generate a trend-following strategy using EMA(12) and EMA(26) for S&P 500 stocks",
   "Generate a contrarian strategy for oversold blue-chip stocks using RSI < 25",
   "Generate a crypto momentum strategy using BTC, ETH, and SOL",
+  "Generate a Stochastic RSI strategy: entry when stoch_rsi_k < 20 (oversold) and RSI < 35, exit when stoch_rsi_k > 70. Universe: AAPL, MSFT, NVDA, QQQ",
+  "Generate a MACD + Stochastic RSI combined strategy: buy when macd_histogram > 0 AND stoch_rsi_k < 40 (momentum building from low), sell when stoch_rsi_k > 80. Universe: AMZN, META, GOOGL",
+  "Generate a MACD-based momentum strategy: entry when macd_histogram > 0 and RSI between 45-65, exit when macd_histogram < 0. Use NVDA, AMD, MSFT",
+  "Generate a Bollinger Band mean-reversion strategy: buy when bb_pct_b < 0.05 (near lower band) and RSI < 35, sell when bb_pct_b > 0.85. Use SPY, QQQ, AAPL",
+  "Generate a combined MACD + Bollinger strategy: enter long when macd_histogram > 0 AND bb_pct_b < 0.3 (price below middle band but rising momentum). Use TSLA, AMZN, META",
+  "Generate a crypto breakout strategy using bb_pct_b > 0.9 (price near upper band) with RSI between 55-75 for BTC-USD and ETH-USD",
+  "Generate an EMA crossover strategy using ema12 > ema26 for entry with bb_pct_b < 0.6 as a filter. Use QQQ, IWM, ARKK",
 ];
 
 const SYSTEM_PROMPT = `You are a senior quantitative strategist. Generate a novel, diverse trading strategy. Vary across: momentum, mean-reversion, breakout, RSI-based, moving-average crossover, and volatility strategies. Pick a random liquid universe of 2-5 stocks or crypto. Return STRICT JSON only — no prose, no fences.
@@ -37,7 +44,7 @@ JSON shape:
   "style": "momentum" | "mean_reversion" | "breakout" | "volatility",
   "strategy_json": {
     "indicators": [ { "name": "RSI"|"MACD"|"VWAP"|"SMA"|"EMA"|"BBANDS"|"ATR", "params": { ... } } ],
-    "entry": { "conditions": ["RSI < 30", "price > SMA(50)"], "logic": "AND" },
+    "entry": { "conditions": ["RSI < 30", "price > SMA(50)", "stoch_rsi_k < 20", "macd_histogram > 0", "bb_pct_b < 0.1"], "logic": "AND" (use actual conditions, these are examples) },
     "exit":  { "conditions": ["RSI > 70", "price < entry * 0.97"], "logic": "OR" },
     "timeframes": ["1h", "1d"],
     "universe": ["AAPL","MSFT"],
@@ -193,6 +200,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
                 { role: "system", content: SYSTEM_PROMPT },
                 { role: "user", content: userMsg },
               ],
+              temperature: 0.8,
               response_format: { type: "json_object" },
             }),
           });
@@ -275,6 +283,62 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
             ok: true, generated: 0,
             reason: "too_similar_to_existing — skipped to maintain strategy diversity",
           });
+        }
+
+        // Run quick backtest BEFORE saving to skip bad strategies without consuming a slot
+        // Use the first symbol in universe for the pre-save check
+        const preSaveSymbol = (strategy_json.universe?.[0] ?? "SPY").toUpperCase();
+        let preSaveRoi: number | null = null;
+        let preSaveWinRate: number | null = null;
+        try {
+          const { fetchBars, buildContext } = await import("@/lib/indicators");
+          const { sma, ema, rsi, evalGroup } = await import("@/lib/indicators");
+          const preB = await fetchBars(preSaveSymbol, 180);
+          if (preB && preB.closes.length >= 50) {
+            const closes = preB.closes;
+            const rsiArr = rsi(closes, 14);
+            const sma20Arr = sma(closes, 20);
+            const sma50Arr = sma(closes, 50);
+            const sma200Arr = sma(closes, 200);
+            const ema12Arr = ema(closes, 12);
+            const ema26Arr = ema(closes, 26);
+            let cash = 10000, pos = 0, entry = 0, wins = 0, total = 0;
+            for (let i = 1; i < closes.length; i++) {
+              const ctx = {
+                price: closes[i], prev_price: closes[i-1],
+                rsi: rsiArr[i] ?? null, sma20: sma20Arr[i] ?? null,
+                sma50: sma50Arr[i] ?? null, sma200: sma200Arr[i] ?? null,
+                ema12: ema12Arr[i] ?? null, ema26: ema26Arr[i] ?? null,
+                entry_price: pos > 0 ? entry : null,
+                macd: null, macd_signal: null, macd_histogram: null,
+                bb_upper: null, bb_lower: null, bb_pct_b: null,
+              };
+              const nextOpen = i + 1 < closes.length ? preB.opens?.[i+1] ?? closes[i] : closes[i];
+              if (pos === 0 && evalGroup(strategy_json.entry.conditions, strategy_json.entry.logic, ctx)) {
+                pos = cash / nextOpen; entry = nextOpen; cash = 0;
+              } else if (pos > 0 && evalGroup(strategy_json.exit.conditions, strategy_json.exit.logic, ctx)) {
+                const pnl = pos * nextOpen - entry * pos;
+                if (pnl > 0) wins++;
+                total++;
+                cash = pos * nextOpen;
+                pos = 0; entry = 0;
+              }
+            }
+            if (total > 0) {
+              preSaveRoi = ((cash - 10000) / 10000) * 100;
+              preSaveWinRate = (wins / total) * 100;
+            }
+          }
+        } catch { /* skip pre-save backtest on error */ }
+
+        // Skip strategies that fail minimum quality thresholds before even saving
+        if (preSaveRoi !== null && preSaveWinRate !== null) {
+          if (preSaveRoi < -20 || preSaveWinRate < 25) {
+            return Response.json({
+              ok: true, generated: 0,
+              reason: `pre_save_backtest_failed roi=${preSaveRoi.toFixed(1)}% win_rate=${preSaveWinRate.toFixed(1)}%`,
+            });
+          }
         }
 
         // Insert strategy.

@@ -193,8 +193,12 @@ export const generateMarketSignals = createServerFn({ method: "POST" }).handler(
   if (!apiKey) return { generated: 0, reason: "missing_lovable_api_key" };
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  // Skip if we already generated signals in the last 6 hours
-  const since = new Date(Date.now() - 6 * 3600_000).toISOString();
+  // During market hours: refresh every 30 min. Outside hours: every 6h.
+  const etHour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "America/New_York" }).format(new Date()));
+  const etDay = new Date().getDay();
+  const marketOpen = etDay >= 1 && etDay <= 5 && etHour >= 9 && etHour < 16;
+  const refreshWindow = marketOpen ? 30 * 60_000 : 6 * 3600_000;
+  const since = new Date(Date.now() - refreshWindow).toISOString();
   const { count } = await supabaseAdmin.from("market_signals").select("id", { count: "exact", head: true }).gte("created_at", since).is("user_id", null);
   if ((count ?? 0) >= 6) return { generated: 0, reason: "fresh_enough" };
 
@@ -230,7 +234,38 @@ export const generateMarketSignals = createServerFn({ method: "POST" }).handler(
   const priceContext = Object.entries(livePrices).map(([k, v]) => `${k}: $${v.toFixed(2)}`).join(", ") || "prices unavailable";
   const allowedList = Object.keys(livePrices).join(", ") || "AAPL, MSFT, NVDA, TSLA, SPY, QQQ, BTC-USD, ETH-USD";
 
-  const prompt = `You are a quantitative analyst. Current live prices: ${priceContext}. Generate 6 SHORT-TERM trade ideas for the US session, mixing 3 options-flow ideas (calls/puts) and 3 buy/sell stock/crypto ideas. Use ONLY these tickers: ${allowedList}. Use the provided live prices as entry_price. Targets and stops must be within realistic % moves (1-8% for stocks, 2-15% for crypto). Return STRICT JSON array. Each item:
+  // Compute technical indicators for each ticker to ground signal quality
+  const { fetchBars, buildContext } = await import("@/lib/indicators");
+  const indicatorCtxMap: Record<string, string> = {};
+  await Promise.all(Object.keys(livePrices).slice(0, 8).map(async (sym) => {
+    try {
+      const bars = await fetchBars(sym, 60);
+      if (!bars || bars.closes.length < 20) return;
+      const ctx = buildContext(bars.closes);
+      if (!ctx) return;
+      const fiveDay = bars.closes.length >= 6
+        ? (((bars.closes[bars.closes.length-1] - bars.closes[bars.closes.length-6]) / bars.closes[bars.closes.length-6]) * 100).toFixed(1)
+        : "?";
+      const stochK = ctx.stoch_rsi_k != null ? ctx.stoch_rsi_k.toFixed(0) : "?";
+      const bbPct = ctx.bb_pct_b != null ? (ctx.bb_pct_b * 100).toFixed(0) : "?";
+      const macdH = ctx.macd_histogram != null ? ctx.macd_histogram.toFixed(3) : "?";
+      indicatorCtxMap[sym] = `RSI=${ctx.rsi?.toFixed(0)??"?"} StochRSI_K=${stochK} SMA50=${ctx.sma50?.toFixed(0)??"?"} MACD_hist=${macdH} BB_pctB=${bbPct}% 5d=${fiveDay}%`;
+    } catch { /* skip */ }
+  }));
+  const indicatorContext = Object.entries(indicatorCtxMap).map(([k, v]) => `${k}: ${v}`).join(" | ") || "indicators unavailable";
+
+  const prompt = `You are a quantitative analyst with real market data. Current live prices: ${priceContext}.
+Technical indicators: ${indicatorContext}.
+
+Generate 6 SHORT-TERM trade ideas for the US session, mixing 3 options-flow ideas (calls/puts) and 3 buy/sell stock/crypto ideas. Use ONLY these tickers: ${allowedList}.
+
+ACCURACY RULES:
+- Use provided live prices as entry_price (never guess)
+- Set target/stop based on ATR volatility of each ticker (1-6% for stocks, 2-12% for crypto)
+- confidence based ONLY on what indicators show: StochRSI_K<20+RSI<35=high buy, >80+RSI>65=high sell/put
+- thesis must reference specific indicator values (e.g. "RSI=28, StochRSI_K=15 — oversold bounce setup")
+
+Return STRICT JSON array. Each item:
 {
   "asset": "TICKER",
   "signal_type": "options_flow" | "buy_sell",
@@ -240,7 +275,7 @@ export const generateMarketSignals = createServerFn({ method: "POST" }).handler(
   "target_price": number,
   "stop_price": number,
   "expected_edge_pct": number,
-  "thesis": "one sentence rationale"
+  "thesis": "one sentence referencing specific indicator values"
 }
 JSON ONLY, no commentary.`;
 

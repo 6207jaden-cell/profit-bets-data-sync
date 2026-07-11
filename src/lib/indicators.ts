@@ -18,6 +18,8 @@ export type IndicatorContext = {
   bb_upper: number | null;
   bb_lower: number | null;
   bb_pct_b: number | null;
+  stoch_rsi_k: number | null;
+  stoch_rsi_d: number | null;
 };
 
 // ---------- Indicators ----------
@@ -108,6 +110,8 @@ export function evalCondition(cond: string, ctx: IndicatorContext): boolean {
     if (token === "bb_upper") return ctx.bb_upper ?? null;
     if (token === "bb_lower") return ctx.bb_lower ?? null;
     if (token === "bb_pct_b") return ctx.bb_pct_b ?? null;
+    if (token === "stoch_rsi_k" || token === "stoch_k") return ctx.stoch_rsi_k ?? null;
+    if (token === "stoch_rsi_d" || token === "stoch_d") return ctx.stoch_rsi_d ?? null;
     if (/^-?\d+(\.\d+)?$/.test(token)) return Number(token);
     return null;
   };
@@ -292,6 +296,42 @@ export async function fetchDailyCloses(symbol: string, days = 220): Promise<numb
 
 
 /**
+ * Stochastic RSI: applies stochastic formula to RSI values.
+ * Returns K line (fast) and D line (3-period SMA of K).
+ * K < 20 = oversold, K > 80 = overbought. More sensitive than RSI alone.
+ */
+export function stochasticRsi(
+  closes: number[],
+  rsiPeriod = 14,
+  stochPeriod = 14,
+  kSmooth = 3,
+  dSmooth = 3,
+): { k: number | null; d: number | null } {
+  const rsiValues = rsi(closes, rsiPeriod).filter((v): v is number => v != null);
+  if (rsiValues.length < stochPeriod) return { k: null, d: null };
+
+  // Stochastic of RSI
+  const kRaw: number[] = [];
+  for (let i = stochPeriod - 1; i < rsiValues.length; i++) {
+    const slice = rsiValues.slice(i - stochPeriod + 1, i + 1);
+    const lo = Math.min(...slice), hi = Math.max(...slice);
+    kRaw.push(hi - lo < 1e-9 ? 50 : ((rsiValues[i] - lo) / (hi - lo)) * 100);
+  }
+
+  // Smooth K
+  const kSmoothed = sma(kRaw, kSmooth);
+  const kLast = kSmoothed[kSmoothed.length - 1] ?? null;
+
+  // D = SMA of smoothed K
+  const validK = kSmoothed.filter((v): v is number => v != null);
+  if (validK.length < dSmooth) return { k: kLast, d: null };
+  const dArr = sma(validK, dSmooth);
+  const dLast = dArr[dArr.length - 1] ?? null;
+
+  return { k: kLast, d: dLast };
+}
+
+/**
  * MACD line = EMA12 - EMA26. Signal line = EMA9 of MACD.
  * Returns { macd, signal, histogram } for the last bar.
  */
@@ -351,6 +391,7 @@ export function buildContext(closes: number[], entryPrice: number | null = null)
   const ema26Arr = ema(closes, 26);
   const macdResult = macd(closes);
   const bbResult = bollingerBands(closes, 20, 2);
+  const stochResult = stochasticRsi(closes, 14, 14, 3, 3);
   const i = closes.length - 1;
   return {
     price: closes[i],
@@ -368,6 +409,8 @@ export function buildContext(closes: number[], entryPrice: number | null = null)
     bb_upper: bbResult.upper,
     bb_lower: bbResult.lower,
     bb_pct_b: bbResult.pct_b,
+    stoch_rsi_k: stochResult.k,
+    stoch_rsi_d: stochResult.d,
   };
 }
 

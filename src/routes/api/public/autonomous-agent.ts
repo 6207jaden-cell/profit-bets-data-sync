@@ -179,7 +179,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           momentum_pct: number; atr_pct: number | null; regime_aligned: boolean;
           vol_surge_pct: number; five_day_return: number; twenty_day_return: number; pct_above_sma20: number;
           rs_vs_spy_5d: number; rs_vs_spy_20d: number;
-          macd_histogram: number | null; bb_pct_b: number | null;
+          macd_histogram: number | null; bb_pct_b: number | null; avg_volume_20d: number; stoch_rsi_k: number | null;
         }>();
         const batchSize = 10;
         for (let i = 0; i < symbolsThisRun.length; i += batchSize) {
@@ -229,6 +229,12 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
 
             const macdHist = ctx.macd_histogram;
             const bbPctB = ctx.bb_pct_b;
+            const stochK = ctx.stoch_rsi_k;
+
+            // Average daily volume (liquidity signal)
+            const avgVolume = bars.volumes.length >= 20
+              ? Math.round(bars.volumes.slice(-20).reduce((s, v) => s + v, 0) / 20)
+              : 0;
 
             candidateMap.set(sym, {
               symbol: sym, price: ctx.price, rsi: ctx.rsi,
@@ -242,6 +248,8 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               rs_vs_spy_20d: rs20d,
               macd_histogram: macdHist != null ? Number(macdHist.toFixed(4)) : null,
               bb_pct_b: bbPctB != null ? Number(bbPctB.toFixed(3)) : null,
+              avg_volume_20d: avgVolume,
+              stoch_rsi_k: ctx.stoch_rsi_k != null ? Number(ctx.stoch_rsi_k.toFixed(1)) : null,
             });
           }));
         }
@@ -264,12 +272,18 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           if (c.rsi != null && c.rsi < 30) score += 8;         // oversold bounce signal
           if (c.rsi != null && c.rsi > 70) score += 6;         // overbought momentum signal
           if (c.vol_surge_pct > 50) score += 10;               // significant volume surge
+          // Liquidity bonus: higher average volume = more reliable fills
+          if (c.avg_volume_20d > 10_000_000) score += 3;        // highly liquid
+          if (c.avg_volume_20d < 100_000) score -= 5;           // illiquid, penalize
           // MACD momentum: positive histogram = bullish momentum building
           if (c.macd_histogram != null && c.macd_histogram > 0) score += 5;
           if (c.macd_histogram != null && c.macd_histogram < 0) score += 4;  // bearish momentum (short signal)
           // Bollinger Band extremes: mean reversion signals
           if (c.bb_pct_b != null && c.bb_pct_b < 0.05) score += 9;  // near/below lower band = oversold
           if (c.bb_pct_b != null && c.bb_pct_b > 0.95) score += 7;  // near/above upper band = overbought
+          // Stochastic RSI: more sensitive than RSI for momentum turning points
+          if (c.stoch_rsi_k != null && c.stoch_rsi_k < 20) score += 8; // stoch oversold
+          if (c.stoch_rsi_k != null && c.stoch_rsi_k > 80) score += 6; // stoch overbought (short)
           return score;
         }
 
@@ -522,9 +536,32 @@ async function runForUser(args: {
       default_take_profit_pct: settings.take_profit_pct,
     },
     candidates,
-    current_positions: openList.map((t) => ({
-      id: t.id, asset: t.asset, side: t.side, entry_price: t.entry_price,
-      hold_duration: t.hold_duration, instrument: t.instrument,
+    current_positions: await Promise.all(openList.map(async (t) => {
+      const livePrice = quotes.get(String(t.asset)) ?? null;
+      const entry = Number(t.entry_price);
+      const pnlPct = livePrice ? ((livePrice - entry) / entry) * 100 * (t.side === "buy" ? 1 : -1) : null;
+      const daysHeld = Math.round((Date.now() - new Date(String(t.created_at)).getTime()) / 86400_000);
+      // Fetch current RSI for held position so agent can assess momentum
+      let currentRsi: number | null = null;
+      try {
+        const b = await fetchBars(String(t.asset), 30);
+        if (b) { const ctx = buildContext(b.closes); currentRsi = ctx?.rsi ?? null; }
+      } catch { /* skip */ }
+      return {
+        id: t.id,
+        asset: t.asset,
+        side: t.side,
+        instrument: t.instrument,
+        entry_price: entry,
+        current_price: livePrice,
+        pnl_pct: pnlPct != null ? Number(pnlPct.toFixed(2)) : null,
+        days_held: daysHeld,
+        hold_duration: t.hold_duration,
+        current_rsi: currentRsi != null ? Number(currentRsi.toFixed(1)) : null,
+        stop_loss_pct: t.stop_loss_pct,
+        take_profit_pct: t.take_profit_pct,
+        rationale: String(t.rationale ?? "").slice(0, 150),
+      };
     })),
     learnings_summary: learningsSummary,
     agent_memory: memories,
@@ -602,7 +639,15 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       const okInstrument = ["stock", "etf", "crypto"].includes(t.instrument);
       if (!okInstrument || t.direction === "short" || (t.conviction ?? 0) < 75) continue;
     }
-    const allocPct = Math.min(t.allocation_pct, effectiveMaxPositionPct);
+    // Boost allocation when a high-confidence market signal aligns with this trade
+    const matchingSignal = (recentSignals ?? []).find((s) =>
+      String(s.asset).toUpperCase() === t.symbol.toUpperCase() &&
+      ((t.direction === "long" && ["buy","call"].includes(String(s.direction))) ||
+       (t.direction === "short" && ["sell","put"].includes(String(s.direction))))
+    );
+    const signalBoost = matchingSignal && Number(matchingSignal.confidence) >= 80 ? 1.15
+      : matchingSignal && Number(matchingSignal.confidence) >= 65 ? 1.05 : 1.0;
+    const allocPct = Math.min(t.allocation_pct * signalBoost, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
     // Sector ETF momentum filter: skip long stock entries when sector is below SMA50
     if (t.direction === "long" && ["stock"].includes(t.instrument ?? "stock")) {
@@ -730,6 +775,19 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     }]);
   }
 
+  // Save memories for each trade opened (for future self-critique)
+  if (opened > 0 && ai?.trades) {
+    const tradeMems = (ai.trades as Array<{symbol:string; rationale:string; conviction:number; direction:string}>)
+      .filter((t) => t.symbol && t.rationale)
+      .map((t) => ({
+        symbol: t.symbol,
+        memory_type: "strategy_note" as const,
+        content: `Opened ${t.direction} position on ${new Date().toDateString()} (conviction ${t.conviction}): ${t.rationale.slice(0, 200)}`,
+        expires_days: 30,
+      }));
+    if (tradeMems.length > 0) await saveMemories(supabaseAdmin as never, userId, tradeMems);
+  }
+
   const newCashPct = currentEquity > 0 ? (cashRemaining / currentEquity) * 100 : 0;
   const agentMsgContent = `${ai.message_to_user}\n\n📊 **Positions opened:** ${opened} | **Cash remaining:** ${newCashPct.toFixed(0)}%${defensive ? " · defensive mode" : ""}${vixLevel != null ? ` · VIX ${vixLevel.toFixed(1)}` : ""}`;
   await supabaseAdmin.from("agent_messages").insert({
@@ -809,7 +867,7 @@ export async function callGateway(system: string, user: string): Promise<AiRespo
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        temperature: 0.4,
+        temperature: 0.1,  // lower = more consistent, less "creative" for trading decisions
       }),
     });
     if (!r.ok) { console.error("[gateway]", r.status, await r.text()); return null; }
