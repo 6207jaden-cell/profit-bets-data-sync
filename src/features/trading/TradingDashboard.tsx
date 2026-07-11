@@ -26,6 +26,8 @@ import { BrokerPanel } from "./components/BrokerPanel";
 import { AgentPanel } from "./components/AgentPanel";
 import { LeaderboardPanel } from "./components/LeaderboardPanel";
 import { OptionsFlowPanel } from "./components/OptionsFlowPanel";
+import { CatalystsPanel } from "./components/CatalystsPanel";
+import { AgentBacktestModal } from "./components/AgentBacktestModal";
 import { TopNav } from "@/components/TopNav";
 
 const TAB_ITEMS = [
@@ -38,6 +40,7 @@ const TAB_ITEMS = [
   { value: "agent", label: "Agent", Icon: Bot },
   { value: "leaderboard", label: "Leaderboard", Icon: Trophy },
   { value: "options", label: "Options", Icon: Sigma },
+  { value: "catalysts", label: "Catalysts", Icon: Activity },
 ] as const;
 
 export default function TradingDashboard() {
