@@ -3,13 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, ExternalLink, Link2, Loader2, Send, Sparkles, X } from "lucide-react";
+import { Bot, ExternalLink, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 import {
