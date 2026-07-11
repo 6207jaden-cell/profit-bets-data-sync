@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, ChevronDown, ChevronRight, ExternalLink, FlaskConical, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
+import { AlertOctagon, Bot, ChevronDown, ChevronRight, ExternalLink, FlaskConical, Link2, Loader2, Pause, Play, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
@@ -367,12 +367,13 @@ function AutonomousSection({ userId }: { userId: string | null }) {
   const status = useQuery({
     queryKey: ["autonomous-status", userId],
     enabled: !!userId && autonomous,
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,  // live cash refresh every 30s
     queryFn: async () => {
-      const [{ data: lastDecision }, { count: openCount }, { data: portfolio }] = await Promise.all([
+      const [{ data: lastDecision }, { count: openCount }, { data: portfolio }, { count: decisionCount }] = await Promise.all([
         supabase.from("agent_decisions").select("created_at").eq("user_id", userId!).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("paper_trades").select("*", { count: "exact", head: true }).eq("user_id", userId!).eq("is_open", true),
         supabase.from("paper_portfolios").select("balance, equity").eq("user_id", userId!).maybeSingle(),
+        supabase.from("agent_decisions").select("*", { count: "exact", head: true }).eq("user_id", userId!),
       ]);
       const cashPct = portfolio && Number(portfolio.equity) > 0
         ? (Number(portfolio.balance) / Number(portfolio.equity)) * 100 : 0;
@@ -380,6 +381,7 @@ function AutonomousSection({ userId }: { userId: string | null }) {
         lastScan: lastDecision?.created_at as string | undefined,
         openPositions: openCount ?? 0,
         cashPct,
+        hasFirstRun: (decisionCount ?? 0) > 0,
       };
     },
   });
@@ -399,10 +401,30 @@ function AutonomousSection({ userId }: { userId: string | null }) {
     if (!userId) return;
     const ch = supabase.channel(`agent_messages:${userId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "agent_messages", filter: `user_id=eq.${userId}` },
-        () => qc.invalidateQueries({ queryKey: ["agent-messages", userId] }))
+        (payload) => {
+          qc.invalidateQueries({ queryKey: ["agent-messages", userId] });
+          qc.invalidateQueries({ queryKey: ["autonomous-status", userId] });
+          // Browser push notification when agent posts autonomously
+          const msg = payload.new as { is_autonomous?: boolean; content?: string; session_type?: string };
+          if (msg?.is_autonomous && "Notification" in window && Notification.permission === "granted") {
+            const session = msg.session_type?.replace("_", " ") ?? "Agent";
+            new Notification(`🤖 ${session}`, {
+              body: (msg.content ?? "").slice(0, 120),
+              icon: "/favicon.ico",
+              tag: "agent-scan",
+            });
+          }
+        })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [userId, qc]);
+
+  // Request browser notification permission when autonomous mode is turned on
+  useEffect(() => {
+    if (autonomous && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, [autonomous]);
 
   async function toggleAutonomous(next: boolean) {
     if (!userId) return;
@@ -449,10 +471,37 @@ function AutonomousSection({ userId }: { userId: string | null }) {
           <Badge variant="outline" className="border-primary/40 text-primary text-[10px]">BETA</Badge>
         </div>
         <div className="flex items-center gap-2 text-xs">
+          {autonomous && (
+            <button
+              onClick={() => toggleAutonomous(false)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30 text-[10px] font-medium"
+              title="Emergency stop — immediately disables autonomous trading"
+            >
+              <AlertOctagon className="h-3 w-3" />STOP
+            </button>
+          )}
           <span className="text-muted-foreground">Autonomous</span>
           <Switch checked={autonomous} onCheckedChange={toggleAutonomous} />
         </div>
       </div>
+      {autonomous && !status.data?.hasFirstRun && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-1.5">
+          <div className="text-xs font-semibold text-primary">First scan checklist</div>
+          <div className="space-y-1">
+            {[
+              { label: "Autonomous Mode ON", done: true },
+              { label: "Paper mode selected (safe to start)", done: execMode === "paper" },
+              { label: "First morning scan runs at 9:30am ET", done: false },
+              { label: "Check Agent Log tab after first scan", done: false },
+            ].map(({ label, done }) => (
+              <div key={label} className="flex items-center gap-1.5 text-[11px]">
+                <span className={done ? "text-emerald-400" : "text-muted-foreground"}>{done ? "✓" : "○"}</span>
+                <span className={done ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {autonomous && (
         <>
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">

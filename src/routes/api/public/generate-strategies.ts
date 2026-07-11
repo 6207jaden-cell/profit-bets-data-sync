@@ -240,6 +240,43 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
         const market_type = (["stocks", "crypto", "both"].includes(mt) ? mt : "stocks") as "stocks" | "crypto" | "both";
         const risk_level = (["low", "medium", "high"].includes(rl) ? rl : "medium") as "low" | "medium" | "high";
 
+        // Similarity check: skip if an active AI Lab strategy is >80% similar
+        // (same indicators in entry conditions + overlapping universe)
+        const { data: existingAiStrategies } = await supabaseAdmin
+          .from("strategies")
+          .select("name, strategy_json")
+          .eq("source", "ai_lab")
+          .eq("active", true)
+          .limit(20);
+
+        function similarityScore(a: StrategyJSON, b: StrategyJSON): number {
+          const aConds = new Set((a.entry?.conditions ?? []).map((c) => c.toLowerCase().replace(/\s/g, "")));
+          const bConds = new Set((b.entry?.conditions ?? []).map((c) => c.toLowerCase().replace(/\s/g, "")));
+          const condIntersect = [...aConds].filter((c) => bConds.has(c)).length;
+          const condUnion = new Set([...aConds, ...bConds]).size;
+          const condSim = condUnion > 0 ? condIntersect / condUnion : 0;
+
+          const aUni = new Set((a.universe ?? []).map((u) => String(u).toUpperCase()));
+          const bUni = new Set((b.universe ?? []).map((u) => String(u).toUpperCase()));
+          const uniIntersect = [...aUni].filter((u) => bUni.has(u)).length;
+          const uniUnion = new Set([...aUni, ...bUni]).size;
+          const uniSim = uniUnion > 0 ? uniIntersect / uniUnion : 0;
+
+          return (condSim * 0.7) + (uniSim * 0.3);
+        }
+
+        const tooSimilar = (existingAiStrategies ?? []).some((ex) => {
+          const exSj = ex.strategy_json as StrategyJSON;
+          return similarityScore(strategy_json, exSj) > 0.8;
+        });
+
+        if (tooSimilar) {
+          return Response.json({
+            ok: true, generated: 0,
+            reason: "too_similar_to_existing — skipped to maintain strategy diversity",
+          });
+        }
+
         // Insert strategy.
         const { data: inserted, error: insErr } = await supabaseAdmin
           .from("strategies")

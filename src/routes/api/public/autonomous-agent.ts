@@ -376,6 +376,38 @@ async function runForUser(args: {
     `${s.asset} ${s.direction} (${s.signal_type}, confidence ${s.confidence}, thesis: ${(s.thesis ?? "").slice(0, 100)})`
   ).join("\n") || "No recent signals.";
 
+  // Strategy → autonomous bridge: check which manual strategies have firing entry conditions
+  const { data: activeStrategies } = await supabaseAdmin
+    .from("strategies")
+    .select("name, strategy_json")
+    .eq("user_id", userId)
+    .eq("active", true)
+    .eq("execution_mode", "paper")
+    .eq("source", "user")
+    .limit(10);
+
+  const firingStrategies: string[] = [];
+  if (activeStrategies && activeStrategies.length > 0) {
+    for (const strat of activeStrategies) {
+      const sj = strat.strategy_json as { entry?: { conditions?: string[]; logic?: string }; universe?: string[] };
+      if (!sj?.entry?.conditions) continue;
+      for (const sym of (sj.universe ?? []).slice(0, 3)) {
+        const bars = await fetchBars(String(sym), 220);
+        if (!bars) continue;
+        const ctx = buildContext(bars.closes);
+        if (!ctx) continue;
+        try {
+          const { evalGroup: eg } = await import("@/lib/indicators");
+          const fires = eg(sj.entry.conditions as string[], (sj.entry.logic ?? "AND") as "AND" | "OR", ctx);
+          if (fires) firingStrategies.push(`${strat.name} firing on ${sym}`);
+        } catch { /* skip */ }
+      }
+    }
+  }
+  const strategyBridgeContext = firingStrategies.length > 0
+    ? `Manual strategies currently firing: ${firingStrategies.join(", ")}`
+    : "No manual strategies currently firing.";
+
   const userMessage = {
     session, regime, vix_level: vixLevel,
     portfolio: { cash, equity: currentEquity, cash_pct: cashPct, open_positions_count: openList.length, day_pnl_pct: dayPnlPct, drawdown_pct: drawdownPct },
@@ -394,6 +426,7 @@ async function runForUser(args: {
     learnings_summary: learningsSummary,
     agent_memory: memories,
     recent_ai_signals: signalContext,
+    manual_strategies_firing: strategyBridgeContext,
     margin_available: false,
   };
 
@@ -419,6 +452,7 @@ HARD RULES — never violate these:
 - If defensive_mode is true: LONG stock/etf/crypto only (no shorts, no options, no spreads), conviction must be >= 75.
 - If nothing compelling, return an empty trades array. Doing nothing is always valid.
 - When recent_ai_signals contains signals for a candidate, use them as additional evidence. Aligned signals increase conviction; contradicting signals decrease it.
+- When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
 ${learningAdjustments ? "\nLEARNED RULES FROM PAST PERFORMANCE (treat as hard rules):\n" + learningAdjustments : ""}
 
 Respond with ONLY valid JSON — no prose, no markdown fences:
@@ -459,6 +493,13 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     }
     const allocPct = Math.min(t.allocation_pct, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
+    // Cumulative allocation guard: ensure this trade doesn't exceed deployable cash
+    const deployableCash = cash * ((100 - effectiveMinCashPct) / 100);
+    const alreadyDeployed = cash - cashRemaining;
+    if (alreadyDeployed + allocCash > deployableCash * 1.02) {
+      console.log(`[autonomous] skip ${t.symbol}: cumulative allocation would exceed deployable cash`);
+      continue;
+    }
     if (allocCash > cashRemaining * 0.99) continue;
     const sect = SECTOR[t.symbol.toUpperCase()] ?? "other";
     if ((sectorCount.get(sect) ?? 0) >= Math.max(2, Math.floor(openList.length * 0.4))) continue;
