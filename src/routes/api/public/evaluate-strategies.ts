@@ -341,8 +341,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
 
                   // Entries
                   if (dailyLossHit || cooldownRemaining > 0 || circuitBreaker) continue;
-                  // Defensive mode (drawdown > 15%): only allow stock/etf/crypto (evaluator is already equity-only, so effectively require higher confidence).
-                  if (defensiveMode && (confidenceFilterFail(sig => sig))) { /* noop, filter applied below */ }
+
 
                   if (entryConds.length === 0) continue;
                   // Skip if any open position exists for this strategy+symbol (already handled above).
