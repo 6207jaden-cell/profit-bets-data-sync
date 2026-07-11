@@ -2,19 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
-const ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading";
-const ROBINHOOD_LABEL = "Robinhood";
-const ROBINHOOD_MANUAL_REDIRECT_URI = process.env.PUBLIC_URL
-  ? `${process.env.PUBLIC_URL.replace(/\/$/, "")}/api/public/mcp/robinhood/callback`
-  : "http://localhost:1455/callback";
-
 export const getRobinhoodConnection = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    const robinhoodMcpUrl = "https://agent.robinhood.com/mcp/trading";
     const { data } = await context.supabase
       .from("mcp_connections")
       .select("id, state, auth_url, server_label, expires_at, updated_at")
-      .eq("server_url", ROBINHOOD_MCP_URL)
+      .eq("server_url", robinhoodMcpUrl)
       .maybeSingle();
     return data ?? null;
   });
@@ -22,7 +17,9 @@ export const getRobinhoodConnection = createServerFn({ method: "GET" })
 export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ origin: z.string().url() }).parse(d))
-  .handler(async ({ context }) => {
+  .handler(async ({ data, context }) => {
+    const robinhoodMcpUrl = "https://agent.robinhood.com/mcp/trading";
+    const robinhoodLabel = "Robinhood";
     const {
       discoverAuthServer,
       registerClient,
@@ -30,8 +27,8 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
       buildAuthorizeUrl,
     } = await import("@/lib/mcp-oauth.server");
 
-    const meta = await discoverAuthServer(ROBINHOOD_MCP_URL);
-    const redirect_uri = ROBINHOOD_MANUAL_REDIRECT_URI;
+    const meta = await discoverAuthServer(robinhoodMcpUrl);
+    const redirect_uri = `${data.origin.replace(/\/$/, "")}/api/public/mcp/robinhood/callback`;
     let client_id: string | undefined;
     let client_secret: string | undefined;
     let dcr: unknown = null;
@@ -55,7 +52,7 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
       code_challenge: pkce.challenge,
       state,
       scope: "internal",
-      resource: ROBINHOOD_MCP_URL,
+      resource: robinhoodMcpUrl,
     });
 
     const { error } = await context.supabase
@@ -63,8 +60,8 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
       .upsert(
         {
           user_id: context.userId,
-          server_url: ROBINHOOD_MCP_URL,
-          server_label: ROBINHOOD_LABEL,
+          server_url: robinhoodMcpUrl,
+          server_label: robinhoodLabel,
           state: "authenticating",
           auth_url,
           client_id,
@@ -86,6 +83,7 @@ export const completeRobinhoodConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ callback: z.string().min(1) }).parse(d))
   .handler(async ({ data, context }) => {
+    const robinhoodMcpUrl = "https://agent.robinhood.com/mcp/trading";
     let callback: URL;
     try {
       callback = new URL(data.callback.trim());
@@ -103,21 +101,21 @@ export const completeRobinhoodConnection = createServerFn({ method: "POST" })
     const { data: row, error: rowError } = await context.supabase
       .from("mcp_connections")
       .select("id, client_id, client_secret, code_verifier")
-      .eq("server_url", ROBINHOOD_MCP_URL)
+      .eq("server_url", robinhoodMcpUrl)
       .maybeSingle();
     if (rowError) throw new Error(rowError.message);
     if (!row?.client_id || !row.code_verifier) throw new Error("Connection state expired. Start over and reconnect Robinhood.");
 
     const { discoverAuthServer, exchangeCode } = await import("@/lib/mcp-oauth.server");
-    const meta = await discoverAuthServer(ROBINHOOD_MCP_URL);
+    const meta = await discoverAuthServer(robinhoodMcpUrl);
     const tokens = await exchangeCode({
       token_endpoint: meta.token_endpoint,
       code,
-      redirect_uri: ROBINHOOD_MANUAL_REDIRECT_URI,
+      redirect_uri: `${callback.origin}/api/public/mcp/robinhood/callback`,
       client_id: row.client_id,
       client_secret: row.client_secret ?? undefined,
       code_verifier: row.code_verifier,
-      resource: ROBINHOOD_MCP_URL,
+      resource: robinhoodMcpUrl,
     });
 
     const expires_at = tokens.expires_in
@@ -143,9 +141,10 @@ export const completeRobinhoodConnection = createServerFn({ method: "POST" })
 export const disconnectRobinhood = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
+    const robinhoodMcpUrl = "https://agent.robinhood.com/mcp/trading";
     await context.supabase
       .from("mcp_connections")
       .delete()
-      .eq("server_url", ROBINHOOD_MCP_URL);
+      .eq("server_url", robinhoodMcpUrl);
     return { ok: true };
   });

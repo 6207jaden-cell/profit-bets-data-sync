@@ -27,7 +27,7 @@ const SUGGESTED = [
   "Show my buying power and recent orders.",
 ];
 
-const ROBINHOOD_MANUAL_REDIRECT_URI =
+const ROBINHOOD_CALLBACK_URI =
   typeof window !== "undefined"
     ? `${window.location.origin}/api/public/mcp/robinhood/callback`
     : "http://localhost:1455/callback";
@@ -101,7 +101,7 @@ export function AgentPanel() {
   const currentAuthUrl = (pendingAuthUrl ?? authUrl) && (() => {
     try {
       const url = new URL((pendingAuthUrl ?? authUrl)!);
-      return url.pathname === "/oauth" && url.searchParams.get("redirect_uri") === ROBINHOOD_MANUAL_REDIRECT_URI
+      return url.protocol === "https:" && url.searchParams.get("redirect_uri") === ROBINHOOD_CALLBACK_URI
         ? url.toString()
         : null;
     } catch {
@@ -113,6 +113,11 @@ export function AgentPanel() {
   async function handleConnect() {
     setConnecting(true);
     setConnectError(null);
+    const authWindow = window.open("", "_blank");
+    if (authWindow) {
+      authWindow.document.title = "Connecting to Robinhood";
+      authWindow.document.body.textContent = "Opening Robinhood…";
+    }
     const attempt = async () => initFn({ data: { origin: window.location.origin } });
     const isReloadPage = (m: string) =>
       m.includes("FORCE_RELOAD") || m.includes("<html") || m.includes("<!doctype");
@@ -131,8 +136,10 @@ export function AgentPanel() {
         }
       }
       setPendingAuthUrl(result.auth_url);
+      if (authWindow) authWindow.location.href = result.auth_url;
       qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
     } catch (e) {
+      authWindow?.close();
       console.error(e);
       const raw = (e as Error).message ?? String(e);
       const msg = isReloadPage(raw)
@@ -258,7 +265,7 @@ export function AgentPanel() {
                 <input
                   value={callbackInput}
                   onChange={(e) => setCallbackInput(e.target.value)}
-                  placeholder={`${ROBINHOOD_MANUAL_REDIRECT_URI}?code=…&state=…`}
+                   placeholder={`${ROBINHOOD_CALLBACK_URI}?code=…&state=…`}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary"
                 />
                 <Button
