@@ -263,10 +263,26 @@ function OpenPositionsCard({
   const totalPct = totalCost > 0 ? (totalUnreal / totalCost) * 100 : 0;
   const isLive = stockQuotes.isFetching || cryptoQuotes.isFetching;
 
+  const [heatMap, setHeatMap] = useState(false);
+  function explain(r: (typeof rows)[number]) {
+    window.dispatchEvent(new CustomEvent("explain-trade", { detail: {
+      id: r.t.id, asset: r.t.asset, side: r.t.side, quantity: r.qty,
+      entry: r.entry, current: r.current, unreal: r.unreal, unrealPct: r.unrealPct,
+      instrument: r.t.instrument,
+    } }));
+    toast.message("Sent to Agent Chat", { description: `Explaining ${r.t.side.toUpperCase()} ${r.t.asset}` });
+  }
+  function heatColor(pct: number | null): string {
+    if (pct == null) return "bg-muted/40";
+    const clamped = Math.max(-10, Math.min(10, pct));
+    const intensity = Math.min(1, Math.abs(clamped) / 10);
+    const alpha = (0.15 + intensity * 0.6).toFixed(2);
+    return clamped >= 0 ? `bg-bull/[${alpha}] border-bull/40` : `bg-bear/[${alpha}] border-bear/40`;
+  }
   return (
     <Card className="border-border bg-card">
-      <header className="px-5 py-4 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <header className="px-5 py-4 border-b border-border flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <h2 className="font-display font-semibold">Open Positions ({trades.length})</h2>
           {trades.length > 0 && (
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -275,14 +291,30 @@ function OpenPositionsCard({
             </span>
           )}
         </div>
-        {trades.length > 0 && (
-          <div className="text-right">
-            <div className={cn("text-sm font-mono font-semibold", totalUnreal >= 0 ? "text-bull" : "text-bear")}>
-              {totalUnreal >= 0 ? "+" : ""}${totalUnreal.toFixed(2)} ({totalPct >= 0 ? "+" : ""}{totalPct.toFixed(2)}%)
+        <div className="flex items-center gap-2">
+          {trades.length > 0 && (
+            <div className="flex items-center rounded border border-border p-0.5">
+              <button
+                onClick={() => setHeatMap(false)}
+                className={cn("p-1 rounded-sm", !heatMap ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                aria-label="List view"
+              ><List className="h-3 w-3" /></button>
+              <button
+                onClick={() => setHeatMap(true)}
+                className={cn("p-1 rounded-sm", heatMap ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                aria-label="Heat map"
+              ><LayoutGrid className="h-3 w-3" /></button>
             </div>
-            <div className="text-[10px] text-muted-foreground font-mono">unrealized</div>
-          </div>
-        )}
+          )}
+          {trades.length > 0 && (
+            <div className="text-right">
+              <div className={cn("text-sm font-mono font-semibold", totalUnreal >= 0 ? "text-bull" : "text-bear")}>
+                {totalUnreal >= 0 ? "+" : ""}${totalUnreal.toFixed(2)} ({totalPct >= 0 ? "+" : ""}{totalPct.toFixed(2)}%)
+              </div>
+              <div className="text-[10px] text-muted-foreground font-mono">unrealized</div>
+            </div>
+          )}
+        </div>
       </header>
       {trades.length === 0 ? (
         <div className="p-8 text-center text-muted-foreground text-sm space-y-3">
@@ -293,6 +325,33 @@ function OpenPositionsCard({
           <a href="/trading?tab=strategies" className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
             Go to Strategies →
           </a>
+        </div>
+      ) : heatMap ? (
+        <div className="p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+          {rows.map((r) => {
+            const pct = r.unrealPct;
+            const bg = pct == null ? "hsl(var(--muted) / 0.4)"
+              : `hsl(var(--${pct >= 0 ? "bull" : "bear"}) / ${(0.15 + Math.min(1, Math.abs(Math.max(-10, Math.min(10, pct))) / 10) * 0.55).toFixed(2)})`;
+            return (
+              <button
+                key={r.t.id}
+                onClick={() => explain(r)}
+                style={{ background: bg }}
+                className="rounded-md border border-border/60 p-3 text-left transition hover:scale-[1.02]"
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-display font-semibold text-sm truncate">{r.t.asset}</span>
+                  <span className="text-[10px] font-mono uppercase text-muted-foreground">{r.t.side}</span>
+                </div>
+                <div className={cn("font-mono text-base font-semibold mt-1", (pct ?? 0) >= 0 ? "text-bull" : "text-bear")}>
+                  {pct == null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`}
+                </div>
+                <div className="text-[10px] font-mono text-muted-foreground">
+                  {r.unreal == null ? "—" : `${r.unreal >= 0 ? "+" : ""}$${r.unreal.toFixed(2)}`}
+                </div>
+              </button>
+            );
+          })}
         </div>
       ) : (
         <ul className="divide-y divide-border">
@@ -347,6 +406,9 @@ function OpenPositionsCard({
                       <div className="text-[10px] text-muted-foreground font-mono">—</div>
                     )}
                   </div>
+                  <Button size="sm" variant="ghost" onClick={() => explain(r)} title="Explain this trade">
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </Button>
                   <Button
                     size="sm" variant="outline"
                     onClick={() => onClose(r.t.id)}
@@ -363,6 +425,7 @@ function OpenPositionsCard({
     </Card>
   );
 }
+
 
 function TradeJournal({ userId }: { userId: string | null }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
