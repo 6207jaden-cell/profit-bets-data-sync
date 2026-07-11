@@ -60,6 +60,7 @@ export function WatchlistPanel() {
 
   const [asset, setAsset] = useState("");
   const [assetType, setAssetType] = useState<"stock" | "crypto">("stock");
+  const [detailAsset, setDetailAsset] = useState<{ asset: string; type: "stock" | "crypto" } | null>(null);
 
   const add = useMutation({
     mutationFn: async () => {
