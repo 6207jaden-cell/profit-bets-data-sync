@@ -6,7 +6,7 @@ import { getHistoricalBars } from "@/lib/history.functions";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
-  TrendingUp, TrendingDown, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy, Sigma,
+  TrendingUp, TrendingDown, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy, Sigma, ScrollText, Newspaper,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
@@ -37,15 +37,15 @@ const TAB_ITEMS = [
   { value: "strategies", label: "Strategies", Icon: Brain },
   { value: "backtest", label: "Backtest", Icon: FlaskConical },
   { value: "exit-analysis", label: "Exit Analysis", Icon: TrendingDown },
-  { value: "audit-log", label: "Agent Log", Icon: Brain },
-  { value: "risk-report", label: "Risk Report", Icon: Shield },
+  { value: "audit-log", label: "Agent Log", Icon: ScrollText },
+  { value: "risk-report", label: "Risk Report", Icon: ShieldCheck },
   { value: "execution", label: "Execution", Icon: Zap },
   { value: "risk", label: "Risk", Icon: Shield },
   { value: "broker", label: "Broker", Icon: Link2 },
   { value: "agent", label: "Agent", Icon: Bot },
   { value: "leaderboard", label: "Leaderboard", Icon: Trophy },
   { value: "options", label: "Options", Icon: Sigma },
-  { value: "catalysts", label: "Catalysts", Icon: Activity },
+  { value: "catalysts", label: "Catalysts", Icon: Newspaper },
 ] as const;
 
 export default function TradingDashboard() {
