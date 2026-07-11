@@ -7,17 +7,21 @@ import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
 const UNIVERSE = {
-  large_cap: ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM","WMT","JNJ","HD","BAC","PG","DIS","NFLX","AMD","CRM","UBER"],
-  small_mid_cap: ["PLTR","SOFI","RIVN","HOOD","COIN","RBLX","SNAP","LYFT","ABNB","ROKU","DKNG","OPEN","IONQ","SMCI","MSTR"],
-  etfs: ["SPY","QQQ","IWM","GLD","TLT","XLF","XLK","XLE","ARKK","SOXL"],
-  crypto: ["BTC-USD","ETH-USD","SOL-USD"],
+  large_cap: ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM","WMT","JNJ","HD","BAC","PG","DIS","NFLX","AMD","CRM","UBER","ORCL","ADBE","INTC","QCOM","MU","NOW","SNOW","SHOP"],
+  small_mid_cap: ["PLTR","SOFI","RIVN","HOOD","COIN","RBLX","SNAP","LYFT","ABNB","ROKU","DKNG","OPEN","IONQ","SMCI","MSTR","SOUN","BBAI","ACHR","JOBY","LUNR","RKLB","DNA","ARQT","HIMS","RXRX"],
+  etfs: ["SPY","QQQ","IWM","GLD","TLT","XLF","XLK","XLE","ARKK","SOXL","TQQQ","LABU","FNGU","MIDU","UDOW"],
+  crypto: ["BTC-USD","ETH-USD","SOL-USD","AVAX-USD","LINK-USD","DOT-USD","MATIC-USD"],
 };
 const ALL_SYMBOLS = [
   ...UNIVERSE.large_cap, ...UNIVERSE.small_mid_cap, ...UNIVERSE.etfs, ...UNIVERSE.crypto,
 ];
 
 const DEFAULT_AGENT_SETTINGS: AgentSettings = {
-  max_position_pct: 35, min_cash_pct: 20, stop_loss_pct: 7, take_profit_pct: 15, extra_symbols: [],
+  max_position_pct: 20,   // lowered from 35 → allows more concurrent positions
+  min_cash_pct: 15,        // lowered from 20 → more deployable capital
+  stop_loss_pct: 6,
+  take_profit_pct: 12,
+  extra_symbols: [],
 };
 
 const SECTOR: Record<string, string> = {
@@ -120,9 +124,15 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
         }
 
         const marketOpen = isMarketOpen();
-        // SPY regime once per run
+        // SPY regime + returns for relative strength calculation
         const spyBars = await fetchBars("SPY", 220);
         const regime = spyBars ? detectMarketRegime(spyBars.closes) : "sideways";
+        const spy5dReturn = spyBars && spyBars.closes.length >= 6
+          ? ((spyBars.closes[spyBars.closes.length - 1] - spyBars.closes[spyBars.closes.length - 6]) / spyBars.closes[spyBars.closes.length - 6]) * 100
+          : 0;
+        const spy20dReturn = spyBars && spyBars.closes.length >= 21
+          ? ((spyBars.closes[spyBars.closes.length - 1] - spyBars.closes[spyBars.closes.length - 21]) / spyBars.closes[spyBars.closes.length - 21]) * 100
+          : 0;
         let vixLevel: number | null = null;
         try {
           const finKey = process.env.FINNHUB_API_KEY;
@@ -167,6 +177,8 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           symbol: string; price: number; rsi: number | null;
           sma20: number | null; sma50: number | null; ema12: number | null; ema26: number | null;
           momentum_pct: number; atr_pct: number | null; regime_aligned: boolean;
+          vol_surge_pct: number; five_day_return: number; twenty_day_return: number; pct_above_sma20: number;
+          rs_vs_spy_5d: number; rs_vs_spy_20d: number;
         }>();
         const batchSize = 10;
         for (let i = 0; i < symbolsThisRun.length; i += batchSize) {
@@ -189,19 +201,71 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
             }
             const atrPct = n > 0 ? (sumTr / n) / ctx.price * 100 : null;
             const aligned = (regime === "bull" && momentum > 0) || (regime === "bear" && momentum < 0) || regime === "sideways";
+
+            // Volume surge: is today's volume above 20-day average? Strong signal.
+            const vols = bars.volumes;
+            const recentVols = vols.slice(-21, -1);
+            const avgVol = recentVols.length > 0 ? recentVols.reduce((s, v) => s + v, 0) / recentVols.length : 0;
+            const todayVol = vols[vols.length - 1] ?? 0;
+            const volSurgePct = avgVol > 0 ? ((todayVol - avgVol) / avgVol) * 100 : 0;
+
+            // 5-day return for short-term momentum
+            const fiveDayReturn = bars.closes.length >= 6
+              ? ((bars.closes[bars.closes.length - 1] - bars.closes[bars.closes.length - 6]) / bars.closes[bars.closes.length - 6]) * 100
+              : 0;
+
+            // 20-day return for medium-term trend  
+            const twentyDayReturn = bars.closes.length >= 21
+              ? ((bars.closes[bars.closes.length - 1] - bars.closes[bars.closes.length - 21]) / bars.closes[bars.closes.length - 21]) * 100
+              : 0;
+
+            // Price vs SMA20 (mean reversion signal)
+            const pctAboveSma20 = ctx.sma20 ? ((ctx.price - ctx.sma20) / ctx.sma20) * 100 : 0;
+
+            // Relative strength vs SPY (positive = outperforming market)
+            const rs5d = Number((fiveDayReturn - spy5dReturn).toFixed(2));
+            const rs20d = Number((twentyDayReturn - spy20dReturn).toFixed(2));
+
             candidateMap.set(sym, {
               symbol: sym, price: ctx.price, rsi: ctx.rsi,
               sma20: ctx.sma20, sma50: ctx.sma50, ema12: ctx.ema12, ema26: ctx.ema26,
               momentum_pct: momentum, atr_pct: atrPct, regime_aligned: aligned,
+              vol_surge_pct: Number(volSurgePct.toFixed(1)),
+              five_day_return: Number(fiveDayReturn.toFixed(2)),
+              twenty_day_return: Number(twentyDayReturn.toFixed(2)),
+              pct_above_sma20: Number(pctAboveSma20.toFixed(2)),
+              rs_vs_spy_5d: rs5d,
+              rs_vs_spy_20d: rs20d,
             });
           }));
         }
 
         const allCandidates = Array.from(candidateMap.values());
+
+        // Composite opportunity score: momentum + volume surge + 5-day return + regime alignment
+        function opportunityScore(c: typeof allCandidates[0]): number {
+          let score = Math.abs(c.momentum_pct) * 0.3;          // SMA50 momentum
+          score += Math.min(c.vol_surge_pct, 200) * 0.02;      // volume surge (capped at 200%)
+          score += Math.abs(c.five_day_return) * 0.25;          // 5-day momentum
+          score += Math.abs(c.twenty_day_return) * 0.1;         // medium-term trend
+          score += Math.abs(c.rs_vs_spy_5d) * 0.2;             // relative strength vs market
+          if (c.rs_vs_spy_5d > 2) score += 8;                  // outperforming market strongly
+          if (c.rs_vs_spy_5d < -2) score += 6;                 // underperforming (short candidate)
+          if (c.regime_aligned) score += 5;                     // regime bonus
+          if (c.rsi != null && c.rsi < 30) score += 8;         // oversold bounce signal
+          if (c.rsi != null && c.rsi > 70) score += 6;         // overbought momentum signal
+          if (c.vol_surge_pct > 50) score += 10;               // significant volume surge
+          return score;
+        }
+
         const sorted = session === "midday"
-          ? allCandidates.filter((c) => c.rsi != null && c.rsi >= 40 && c.rsi <= 65)
-              .sort((a, b) => Math.abs(b.momentum_pct) - Math.abs(a.momentum_pct)).slice(0, 10)
-          : allCandidates.sort((a, b) => Math.abs(b.momentum_pct) - Math.abs(a.momentum_pct)).slice(0, 20);
+          // Midday: remove RSI restriction, keep top opportunities across all conditions
+          ? allCandidates
+              .sort((a, b) => opportunityScore(b) - opportunityScore(a))
+              .slice(0, 15)
+          : allCandidates
+              .sort((a, b) => opportunityScore(b) - opportunityScore(a))
+              .slice(0, 25);
 
         let totalOpened = 0;
         const skipped: Array<{ user: string; reason: string }> = [];
@@ -450,7 +514,10 @@ HARD RULES — never violate these:
 - Never trade assets with earnings within 48 hours.
 - Session "midday" is intraday only — set hold_duration="intraday" for all midday trades.
 - If defensive_mode is true: LONG stock/etf/crypto only (no shorts, no options, no spreads), conviction must be >= 75.
-- If nothing compelling, return an empty trades array. Doing nothing is always valid.
+- Trade actively. You are a momentum-driven portfolio manager who makes 2-5 trades per scan when conditions allow. Do not default to inaction — markets always have opportunities if you look hard enough. Empty trades array should be RARE, only when ALL candidates show negative signals.
+- Prefer smaller allocations (5-15%) to open more positions rather than large allocations (25-35%) on fewer. Diversification across 6-10 positions is better than concentration in 2-3.
+- When vol_surge_pct > 50, that stock is moving on unusual volume — prioritize it.
+- When five_day_return shows strong momentum (>3% or <-3%), that is a high-quality signal.
 - When recent_ai_signals contains signals for a candidate, use them as additional evidence. Aligned signals increase conviction; contradicting signals decrease it.
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
 ${learningAdjustments ? "\nLEARNED RULES FROM PAST PERFORMANCE (treat as hard rules):\n" + learningAdjustments : ""}

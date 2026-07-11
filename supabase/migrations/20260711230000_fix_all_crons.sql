@@ -46,9 +46,37 @@ BEGIN
     $cron$, prod_url || '/api/public/autonomous-agent', anon_key)
   );
 
+  -- ── Autonomous agent: mid-morning scan 10:30am ET (14:30 UTC) Mon-Fri ────
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'autonomous-midmorning-scan') THEN
+    PERFORM cron.unschedule('autonomous-midmorning-scan'); END IF;
+  PERFORM cron.schedule(
+    'autonomous-midmorning-scan', '30 14 * * 1-5',
+    format($cron$
+      SELECT net.http_post(
+        url := %L,
+        headers := jsonb_build_object('Content-Type','application/json','apikey',%L),
+        body := '{"session":"midday"}'::jsonb
+      ) AS request_id;
+    $cron$, prod_url || '/api/public/autonomous-agent', anon_key)
+  );
+
   -- ── Autonomous agent: midday scan at 12:30pm ET (16:30 UTC) Mon-Fri ─────
   PERFORM cron.schedule(
     'autonomous-midday-scan', '30 16 * * 1-5',
+    format($cron$
+      SELECT net.http_post(
+        url := %L,
+        headers := jsonb_build_object('Content-Type','application/json','apikey',%L),
+        body := '{"session":"midday"}'::jsonb
+      ) AS request_id;
+    $cron$, prod_url || '/api/public/autonomous-agent', anon_key)
+  );
+
+  -- ── Autonomous agent: afternoon scan 2:30pm ET (18:30 UTC) Mon-Fri ───────
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'autonomous-afternoon-scan') THEN
+    PERFORM cron.unschedule('autonomous-afternoon-scan'); END IF;
+  PERFORM cron.schedule(
+    'autonomous-afternoon-scan', '30 18 * * 1-5',
     format($cron$
       SELECT net.http_post(
         url := %L,
