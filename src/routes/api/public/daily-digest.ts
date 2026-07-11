@@ -81,6 +81,37 @@ export const Route = createFileRoute("/api/public/daily-digest")({
           await supabaseAdmin.from("notifications").insert({
             user_id: userId, type: "digest", title, body,
           });
+
+          // Email via Resend (optional — requires RESEND_API_KEY secret + verified sender)
+          const resendKey = process.env.RESEND_API_KEY;
+          const fromAddr = process.env.RESEND_FROM ?? "digest@trading.local";
+          if (resendKey) {
+            try {
+              const { data: userInfo } = await supabaseAdmin.auth.admin.getUserById(userId);
+              const toEmail = userInfo?.user?.email;
+              if (toEmail) {
+                const html = `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;color:#111">
+                  <h2 style="margin:0 0 8px 0;font-size:18px">${title}</h2>
+                  <p style="margin:0 0 12px 0;font-size:14px;line-height:1.5;color:#333">${body.replace(/</g, "&lt;")}</p>
+                  <hr style="border:none;border-top:1px solid #eee;margin:16px 0" />
+                  <table style="font-size:12px;color:#555;border-collapse:collapse">
+                    <tr><td>Auto-opened</td><td style="padding-left:12px">${opens}</td></tr>
+                    <tr><td>Auto-closed</td><td style="padding-left:12px">${closes}</td></tr>
+                    <tr><td>Signals hit target</td><td style="padding-left:12px">${hits}</td></tr>
+                    <tr><td>Signals hit stop</td><td style="padding-left:12px">${stops}</td></tr>
+                  </table>
+                </div>`;
+                await fetch("https://api.resend.com/emails", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendKey}` },
+                  body: JSON.stringify({ from: fromAddr, to: [toEmail], subject: title, html }),
+                });
+              }
+            } catch (e) {
+              console.error("[daily-digest] resend failed", e);
+            }
+          }
+
           sent++;
         }
 
