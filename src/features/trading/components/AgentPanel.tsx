@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, ChevronDown, ChevronRight, ExternalLink, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, ExternalLink, FlaskConical, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PremiumLock } from "@/components/PremiumLock";
+import { AgentBacktestModal } from "./AgentBacktestModal";
+import { AgentPerformancePanel } from "./AgentPerformancePanel";
 import { cn } from "@/lib/utils";
 import {
   getRobinhoodConnection,
@@ -225,6 +227,7 @@ export function AgentPanel() {
   return (
     <div className="space-y-3">
     <AutonomousSection userId={userId} />
+    <AgentPerformanceCard />
     <div className="grid grid-rows-[auto_1fr_auto] gap-3 h-[calc(100vh-320px)] min-h-[500px]">
       <Card className="px-4 py-2 flex items-center justify-between bg-card border-border">
         <div className="flex items-center gap-2 text-sm">
@@ -510,7 +513,36 @@ function AutonomousSection({ userId }: { userId: string | null }) {
               ))}
             </div>
           )}
+          {autonomous && userId && (
+            <div className="pt-1">
+              <AgentBacktestModal userId={userId} />
+            </div>
+          )}
         </>
+      )}
+    </Card>
+  );
+}
+
+function AgentPerformanceCard() {
+  const { userId } = useProfile();
+  const [open, setOpen] = useState(false);
+  if (!userId) return null;
+  return (
+    <Card className="border-border/50 bg-card/60">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium"
+      >
+        <span className="flex items-center gap-2">
+          <span className="text-primary">📈</span> Agent Performance Analytics
+        </span>
+        <span className="text-[10px] text-muted-foreground">{open ? "collapse" : "expand"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 border-t border-border/30">
+          <AgentPerformancePanel />
+        </div>
       )}
     </Card>
   );

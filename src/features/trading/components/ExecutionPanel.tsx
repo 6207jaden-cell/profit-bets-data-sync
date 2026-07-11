@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { openPaperTrade, closePaperTrade } from "@/lib/execution.functions";
 import { getStockQuotes, getCryptoQuotes } from "@/lib/market.functions";
 import { estimateOptionValue } from "@/lib/indicators";
+import { useRealtimeExitWatch } from "@/hooks/use-realtime-exit-watch";
 
 const CRYPTO_ID: Record<string, string> = {
   "BTC-USD": "bitcoin", "ETH-USD": "ethereum", "SOL-USD": "solana",
@@ -67,6 +68,24 @@ export function ExecutionPanel() {
     },
     refetchInterval: 30_000,
   });
+
+  // Real-time stop-loss / take-profit watcher — fires emergency exit between cron runs
+  const anonKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
+    ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+  useRealtimeExitWatch(
+    (openTrades.data ?? []).map((t) => ({
+      id: String(t.id),
+      asset: String(t.asset),
+      side: String(t.side),
+      entry_price: Number(t.entry_price),
+      stop_loss_pct: t.stop_loss_pct != null ? Number(t.stop_loss_pct) : null,
+      take_profit_pct: t.take_profit_pct != null ? Number(t.take_profit_pct) : null,
+      hold_duration: t.hold_duration ?? null,
+      instrument: t.instrument ?? null,
+    })),
+    anonKey,
+    !!userId && (openTrades.data ?? []).length > 0,
+  );
 
   async function submit() {
     setSubmitting(true);

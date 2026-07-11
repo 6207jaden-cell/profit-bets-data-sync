@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { saveTradeOutcomeMemory } from "@/lib/agent-memory";
 
 export const Route = createFileRoute("/api/public/autonomous-learning")({
   server: {
@@ -81,6 +82,25 @@ async function runLearningForUser(userId: string, supabaseAdmin: Awaited<ReturnT
   const day = now.getDay(); // 0 = Sunday
   const daysBack = day === 0 ? 6 : day - 1;
   const weekStart = new Date(now.getTime() - daysBack * 86400000).toISOString().slice(0, 10);
+
+  // Save trade outcome memories for significant trades
+  for (const t of withPnl.slice(0, 20)) {
+    if (Math.abs(Number(t.pnl ?? 0)) < 1) continue; // skip tiny trades
+    const entryPrice = Number((t as Record<string, unknown>).entry_price ?? 0);
+    const exitPrice = Number((t as Record<string, unknown>).exit_price ?? 0);
+    if (!entryPrice || !exitPrice) continue;
+    const pnlPct = ((exitPrice - entryPrice) / entryPrice) * 100 * (String((t as Record<string, unknown>).side ?? "buy") === "buy" ? 1 : -1);
+    await saveTradeOutcomeMemory(supabaseAdmin as never, userId, {
+      asset: String((t as Record<string, unknown>).asset ?? ""),
+      side: String((t as Record<string, unknown>).side ?? "buy"),
+      instrument: String((t as Record<string, unknown>).instrument ?? "stock"),
+      entry_price: entryPrice,
+      exit_price: exitPrice,
+      pnl_pct: pnlPct,
+      hold_duration: String((t as Record<string, unknown>).hold_duration ?? ""),
+      rationale: String((t as Record<string, unknown>).rationale ?? ""),
+    }).catch(() => {});
+  }
 
   await supabaseAdmin.from("agent_learnings").insert({
     user_id: userId, week_start: weekStart,

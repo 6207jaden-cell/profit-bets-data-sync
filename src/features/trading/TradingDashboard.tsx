@@ -19,7 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { StrategiesPanel } from "./components/StrategiesPanel";
-import { BacktestingPanel } from "./components/BacktestingPanel";
+import { BacktestingPanel, ExitAnalysisPanel } from "./components/BacktestingPanel";
+import { RiskReportPanel } from "./components/RiskReportPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
 import { BrokerPanel } from "./components/BrokerPanel";
@@ -34,6 +35,8 @@ const TAB_ITEMS = [
   { value: "overview", label: "Overview", Icon: Activity },
   { value: "strategies", label: "Strategies", Icon: Brain },
   { value: "backtest", label: "Backtest", Icon: FlaskConical },
+  { value: "exit-analysis", label: "Exit Analysis", Icon: TrendingDown },
+  { value: "risk-report", label: "Risk Report", Icon: Shield },
   { value: "execution", label: "Execution", Icon: Zap },
   { value: "risk", label: "Risk", Icon: Shield },
   { value: "broker", label: "Broker", Icon: Link2 },
@@ -291,6 +294,26 @@ export default function TradingDashboard() {
 
           <TabsContent value="strategies">
             <StrategiesPanel />
+          </TabsContent>
+          <TabsContent value="exit-analysis">
+            {userId && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-medium mb-1">Exit Strategy Analysis</h3>
+                  <p className="text-xs text-muted-foreground">Analyzes your closed trades to show if your exits are too early, too late, or well-calibrated.</p>
+                </div>
+                <ExitAnalysisPanel userId={userId} />
+              </div>
+            )}
+          </TabsContent>
+          <TabsContent value="risk-report">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-medium mb-1">Portfolio Risk Report</h3>
+                <p className="text-xs text-muted-foreground">Live risk metrics for all open positions: beta, sector concentration, max loss, and options exposure.</p>
+              </div>
+              <RiskReportPanel />
+            </div>
           </TabsContent>
           <TabsContent value="backtest">
             <BacktestingPanel />

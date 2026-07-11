@@ -1,5 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketOpen } from "@/lib/indicators";
+import { getValidToken, placeLiveBuy, placeLiveSell } from "@/lib/robinhood-live";
+import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
+import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
 const UNIVERSE = {
@@ -355,6 +358,10 @@ async function runForUser(args: {
     `Week ${i + 1}: ${l.analysis?.slice(0, 300)} | Adj: ${JSON.stringify(l.adjustments).slice(0, 200)}`
   ).join("\n") || "No prior learnings yet.";
 
+  // Load agent memories relevant to this scan's symbols
+  const scanSymbols = (candidates as Array<{symbol?: string}>).map((c) => String(c.symbol ?? "")).filter(Boolean);
+  const memories = await loadRelevantMemories(supabaseAdmin as never, userId, scanSymbols);
+
   const userMessage = {
     session, regime, vix_level: vixLevel,
     portfolio: { cash, equity: currentEquity, cash_pct: cashPct, open_positions_count: openList.length, day_pnl_pct: dayPnlPct, drawdown_pct: drawdownPct },
@@ -371,8 +378,12 @@ async function runForUser(args: {
       hold_duration: t.hold_duration, instrument: t.instrument,
     })),
     learnings_summary: learningsSummary,
+    agent_memory: memories,
     margin_available: false,
   };
+
+  // Inject memory into user message
+  const userMessageWithMemory = { ...userMessage, agent_memory: buildMemorySection(memories) };
 
   const systemPrompt = `You are an autonomous portfolio manager with deep expertise in equities, ETFs, crypto, and options (calls, puts, vertical spreads, iron condors). You manage a ring-fenced trading account. Your only goal is to maximize risk-adjusted returns over time.
 
@@ -395,7 +406,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   "message_to_user": "Friendly 2-4 sentence summary."
 }`;
 
-  const ai = await callGateway(systemPrompt, JSON.stringify(userMessage));
+  const ai = await callGateway(systemPrompt, JSON.stringify(userMessageWithMemory));
   if (!ai) {
     await supabaseAdmin.from("agent_decisions").insert({
       user_id: userId, session_type: sessionType, regime, trades_opened: 0,
@@ -432,6 +443,30 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     if (!price || price <= 0) continue;
     const qty = allocCash / price;
 
+    // For options trades, resolve the real contract from Polygon before inserting
+    let resolvedOptions = t.options_details as Record<string, unknown> | null ?? null;
+    let enrichedRationale = t.rationale;
+    const isOptionsInstrument = ["call", "put", "call_spread", "put_spread"].includes(t.instrument?.toLowerCase() ?? "");
+    if (isOptionsInstrument && t.options_details) {
+      const spec = t.options_details as { expiry_days_out?: number; strike_type?: string; contracts?: number; spread_width?: number | null };
+      const direction = t.instrument?.toLowerCase().includes("put") ? "put" : "call";
+      const contract = await resolveOptionsContract(
+        t.symbol,
+        direction as "call" | "put",
+        price,
+        {
+          expiry_days_out: spec.expiry_days_out ?? 21,
+          strike_type: (spec.strike_type ?? "atm") as "atm" | "otm_1" | "otm_2" | "itm_1",
+          contracts: spec.contracts ?? 1,
+          spread_width: spec.spread_width ?? null,
+        },
+      );
+      if (contract) {
+        resolvedOptions = { ...resolvedOptions, resolved_contract: contract };
+        enrichedRationale = `${t.rationale} | Contract: ${formatContractSummary(contract)}`;
+      }
+    }
+
     const { error } = await supabaseAdmin.from("paper_trades").insert({
       user_id: userId,
       portfolio_id: portfolio.id,
@@ -444,8 +479,8 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
       take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
       instrument: t.instrument,
-      options_details: (t.options_details ?? null) as never,
-      rationale: t.rationale,
+      options_details: (resolvedOptions ?? null) as never,
+      rationale: enrichedRationale,
     });
     if (error) { console.error("[autonomous] insert trade", error); continue; }
     cashRemaining -= allocCash;
@@ -455,6 +490,16 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
 
   if (opened > 0) {
     await supabaseAdmin.from("paper_portfolios").update({ balance: cashRemaining, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
+  }
+
+  // Save market observation memory for this scan
+  if (ai?.market_assessment) {
+    await saveMemories(supabaseAdmin as never, userId, [{
+      symbol: null,
+      memory_type: "market_observation",
+      content: `${new Date().toDateString()} ${session}: ${ai.market_assessment} (regime: ${regime})`,
+      expires_days: 14,
+    }]);
   }
 
   const newCashPct = currentEquity > 0 ? (cashRemaining / currentEquity) * 100 : 0;
@@ -467,8 +512,47 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     market_assessment: ai.market_assessment, payload: ai as never,
     trades_opened: opened,
   });
-  if (executionMode === "live") {
-    console.log("[autonomous] live mode requested but paper execution used until broker integration.");
+  // ---- Live Robinhood execution for strategies in live mode ----
+  if (executionMode === "live" && opened > 0) {
+    try {
+      const token = await getValidToken(supabaseAdmin, userId);
+      if (token) {
+        // Fetch the trades we just inserted to get their details
+        const { data: newTrades } = await supabaseAdmin
+          .from("paper_trades")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("is_open", true)
+          .order("created_at", { ascending: false })
+          .limit(opened);
+        for (const trade of newTrades ?? []) {
+          const allocCash = Number(trade.quantity) * Number(trade.entry_price);
+          let result;
+          if (trade.side === "buy") {
+            result = await placeLiveBuy(token, String(trade.asset), allocCash);
+          } else {
+            result = await placeLiveSell(token, String(trade.asset), Number(trade.quantity));
+          }
+          if (result.ok) {
+            // Update the paper trade with real fill details
+            await supabaseAdmin.from("paper_trades").update({
+              entry_price: result.filled_price ?? trade.entry_price,
+              rationale: `${trade.rationale ?? ""} [LIVE: order_id=${result.order_id} status=${result.status}]`,
+            }).eq("id", trade.id);
+          } else {
+            console.error("[autonomous] live order failed:", result.error, "trade:", trade.asset);
+            // Mark as paper-only if live order fails
+            await supabaseAdmin.from("paper_trades").update({
+              rationale: `${trade.rationale ?? ""} [LIVE ORDER FAILED: ${result.error}]`,
+            }).eq("id", trade.id);
+          }
+        }
+      } else {
+        console.warn("[autonomous] live mode but no valid Robinhood token for user", userId);
+      }
+    } catch (e) {
+      console.error("[autonomous] live execution error:", e);
+    }
   }
   return { opened };
 }

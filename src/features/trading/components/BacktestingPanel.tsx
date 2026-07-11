@@ -510,6 +510,144 @@ function MonteCarloResultView({ mc }: { mc: MCSuccess }) {
   );
 }
 
+// ── Exit Strategy Analysis ──────────────────────────────────────────────────
+
+export function ExitAnalysisPanel({ userId }: { userId: string }) {
+  const { data: closedTrades, isLoading } = useQuery({
+    queryKey: ["exit-analysis", userId],
+    enabled: !!userId,
+    staleTime: 300_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("paper_trades")
+        .select("id, asset, side, entry_price, exit_price, pnl, created_at, closed_at, stop_loss_pct, take_profit_pct, hold_duration, rationale")
+        .eq("user_id", userId)
+        .eq("is_open", false)
+        .not("exit_price", "is", null)
+        .order("closed_at", { ascending: false })
+        .limit(100);
+      return data ?? [];
+    },
+  });
+
+  if (isLoading) return <div className="text-center py-8 text-muted-foreground text-sm">Loading trade history…</div>;
+  if (!closedTrades || closedTrades.length < 5) {
+    return (
+      <div className="text-center py-8 text-muted-foreground text-sm">
+        Need at least 5 closed trades for exit analysis. Keep paper trading!
+      </div>
+    );
+  }
+
+  // For each trade, compute what would have happened holding N more days
+  // We can't go back and get historical prices, so we analyze the distribution
+  // of actual outcomes vs theoretical outcomes based on patterns
+
+  const analysis = closedTrades.map((t) => {
+    const entry = Number(t.entry_price);
+    const exit = Number(t.exit_price ?? entry);
+    const pnlPct = ((exit - entry) / entry) * 100 * (t.side === "buy" ? 1 : -1);
+    const holdMs = t.closed_at && t.created_at
+      ? new Date(t.closed_at).getTime() - new Date(t.created_at).getTime()
+      : 0;
+    const holdHours = holdMs / 3_600_000;
+    const stopPct = Number(t.stop_loss_pct ?? 7);
+    const targetPct = Number(t.take_profit_pct ?? 15);
+    const exitReason = pnlPct <= -stopPct * 0.9 ? "stop_hit"
+      : pnlPct >= targetPct * 0.9 ? "target_hit"
+      : "manual_or_ai";
+    return { ...t, pnlPct, holdHours, exitReason, stopPct, targetPct };
+  });
+
+  const wins = analysis.filter((t) => t.pnlPct > 0);
+  const losses = analysis.filter((t) => t.pnlPct <= 0);
+  const stopHits = analysis.filter((t) => t.exitReason === "stop_hit");
+  const targetHits = analysis.filter((t) => t.exitReason === "target_hit");
+
+  const avgWinPct = wins.length > 0 ? wins.reduce((s, t) => s + t.pnlPct, 0) / wins.length : 0;
+  const avgLossPct = losses.length > 0 ? losses.reduce((s, t) => s + t.pnlPct, 0) / losses.length : 0;
+  const avgHoldHoursWins = wins.length > 0 ? wins.reduce((s, t) => s + t.holdHours, 0) / wins.length : 0;
+  const avgHoldHoursLoss = losses.length > 0 ? losses.reduce((s, t) => s + t.holdHours, 0) / losses.length : 0;
+
+  // Win/loss ratio
+  const winLossRatio = avgLossPct !== 0 ? Math.abs(avgWinPct / avgLossPct) : 0;
+
+  // Expectancy per trade
+  const winRate = wins.length / analysis.length;
+  const expectancy = (winRate * avgWinPct) + ((1 - winRate) * avgLossPct);
+
+  // Histogram of P&L outcomes
+  const buckets = [-20, -15, -10, -5, 0, 5, 10, 15, 20];
+  const histData = buckets.slice(0, -1).map((lo, i) => {
+    const hi = buckets[i + 1];
+    const count = analysis.filter((t) => t.pnlPct >= lo && t.pnlPct < hi).length;
+    return { range: `${lo >= 0 ? "+" : ""}${lo}% to ${hi >= 0 ? "+" : ""}${hi}%`, count, lo };
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Key exit metrics */}
+      <div className="grid grid-cols-2 gap-3">
+        <Metric label="Avg Win" value={`+${avgWinPct.toFixed(1)}%`} tone="good" icon={TrendingUp} />
+        <Metric label="Avg Loss" value={`${avgLossPct.toFixed(1)}%`} tone="bad" icon={TrendingDown} />
+        <Metric label="Win/Loss Ratio" value={winLossRatio.toFixed(2)} tone={winLossRatio >= 1.5 ? "good" : winLossRatio >= 1 ? undefined : "bad"} />
+        <Metric label="Expectancy/Trade" value={`${expectancy >= 0 ? "+" : ""}${expectancy.toFixed(1)}%`} tone={expectancy > 0 ? "good" : "bad"} />
+        <Metric label="Avg Hold (wins)" value={`${avgHoldHoursWins.toFixed(0)}h`} />
+        <Metric label="Avg Hold (losses)" value={`${avgHoldHoursLoss.toFixed(0)}h`} tone={avgHoldHoursLoss > avgHoldHoursWins ? "bad" : undefined} />
+      </div>
+
+      {/* Exit reason breakdown */}
+      <Card className="p-4 border-border/50">
+        <div className="text-xs font-medium mb-3 text-muted-foreground uppercase tracking-wide">Exit Reasons</div>
+        <div className="space-y-2">
+          {[
+            { label: "Stop Loss Hit", count: stopHits.length, color: "bg-bear" },
+            { label: "Take Profit Hit", count: targetHits.length, color: "bg-bull" },
+            { label: "AI / Manual Close", count: analysis.length - stopHits.length - targetHits.length, color: "bg-primary" },
+          ].map((item) => (
+            <div key={item.label} className="flex items-center gap-2">
+              <div className="text-xs text-muted-foreground w-36">{item.label}</div>
+              <div className={cn("h-2 rounded-full", item.color)}
+                style={{ width: `${(item.count / analysis.length) * 200}px`, minWidth: item.count > 0 ? 4 : 0 }} />
+              <div className="text-xs font-mono">{item.count} ({(item.count / analysis.length * 100).toFixed(0)}%)</div>
+            </div>
+          ))}
+        </div>
+        {stopHits.length / analysis.length > 0.5 && (
+          <div className="mt-3 text-xs text-amber-400 flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            Over 50% of trades hitting stop loss — consider widening stops or tightening entries
+          </div>
+        )}
+        {avgHoldHoursLoss > avgHoldHoursWins * 1.5 && (
+          <div className="mt-2 text-xs text-amber-400 flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            Losses held {(avgHoldHoursLoss / avgHoldHoursWins).toFixed(1)}x longer than wins — consider cutting losses faster
+          </div>
+        )}
+      </Card>
+
+      {/* P&L distribution histogram */}
+      <Card className="p-4 border-border/50">
+        <div className="text-xs font-medium mb-3 text-muted-foreground uppercase tracking-wide">P&L Distribution</div>
+        <ResponsiveContainer width="100%" height={160}>
+          <BarChart data={histData} barSize={28}>
+            <XAxis dataKey="range" tick={{ fontSize: 9 }} />
+            <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+            <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 11 }} />
+            <Bar dataKey="count" name="Trades">
+              {histData.map((entry) => (
+                <Cell key={entry.range} fill={entry.lo >= 0 ? "hsl(var(--bull))" : "hsl(var(--bear))"} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
+    </div>
+  );
+}
+
+
 function Metric({ label, value, tone, icon: Icon }: {
   label: string; value: string | number; tone?: "good" | "bad"; icon?: typeof Activity;
 }) {
