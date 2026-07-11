@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useSearch, useNavigate } from "@tanstack/react-router";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, Link2, Loader2, PlugZap, Send, Sparkles, X } from "lucide-react";
+import { Bot, ExternalLink, Link2, Loader2, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
@@ -14,9 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 import {
-  completeRobinhoodConnection,
   getRobinhoodConnection,
-  initiateRobinhoodConnection,
   disconnectRobinhood,
 } from "@/lib/mcp-client.functions";
 
@@ -27,52 +24,23 @@ const SUGGESTED = [
   "Show my buying power and recent orders.",
 ];
 
-const ROBINHOOD_CALLBACK_URI =
-  typeof window !== "undefined"
-    ? `${window.location.origin}/api/public/mcp/robinhood/callback`
-    : "http://localhost:1455/callback";
-
 export function AgentPanel() {
   const qc = useQueryClient();
   const { hasElite, loading: profileLoading, userId } = useProfile();
-  const search = useSearch({ strict: false }) as { connected?: string };
-  const navigate = useNavigate();
   const [input, setInput] = useState("");
-  const [connecting, setConnecting] = useState(false);
   const [authTokenReady, setAuthTokenReady] = useState(false);
-  const [pendingAuthUrl, setPendingAuthUrl] = useState<string | null>(null);
-  const [callbackInput, setCallbackInput] = useState("");
-  const [completing, setCompleting] = useState(false);
-  const [connectError, setConnectError] = useState<string | null>(null);
 
   const getConnFn = useServerFn(getRobinhoodConnection);
-  const initFn = useServerFn(initiateRobinhoodConnection);
-  const completeFn = useServerFn(completeRobinhoodConnection);
   const disconnectFn = useServerFn(disconnectRobinhood);
 
   const conn = useQuery({
     queryKey: ["mcp-robinhood"],
     queryFn: () => getConnFn(),
-    refetchInterval: (q) =>
-      (q.state.data as { state?: string } | null)?.state === "authenticating" ? 2000 : false,
   });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setAuthTokenReady(!!data.session?.access_token));
   }, []);
-
-  // Refresh state after callback redirect
-  useEffect(() => {
-    if (search.connected) {
-      setPendingAuthUrl(null);
-      setCallbackInput("");
-      setConnectError(null);
-      qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
-      const params = new URLSearchParams(window.location.search);
-      params.delete("connected");
-      navigate({ to: "/trading", search: Object.fromEntries(params), replace: true });
-    }
-  }, [search.connected, qc, navigate]);
 
   const transport = useMemo(
     () =>
@@ -96,83 +64,9 @@ export function AgentPanel() {
   });
 
   const ready = conn.data?.state === "ready";
-  const authenticating = conn.data?.state === "authenticating";
-  const authUrl = typeof conn.data?.auth_url === "string" ? conn.data.auth_url : null;
-  const currentAuthUrl = (pendingAuthUrl ?? authUrl) && (() => {
-    try {
-      const url = new URL((pendingAuthUrl ?? authUrl)!);
-      return url.protocol === "https:" && url.searchParams.get("redirect_uri") === ROBINHOOD_CALLBACK_URI
-        ? url.toString()
-        : null;
-    } catch {
-      return null;
-    }
-  })();
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
 
-  async function handleConnect() {
-    setConnecting(true);
-    setConnectError(null);
-    const authWindow = window.open("", "_blank");
-    if (authWindow) {
-      authWindow.document.title = "Connecting to Robinhood";
-      authWindow.document.body.textContent = "Opening Robinhood…";
-    }
-    const attempt = async () => initFn({ data: { origin: window.location.origin } });
-    const isReloadPage = (m: string) =>
-      m.includes("FORCE_RELOAD") || m.includes("<html") || m.includes("<!doctype");
-    try {
-      let result;
-      try {
-        result = await attempt();
-      } catch (err) {
-        const msg = (err as Error).message ?? "";
-        if (isReloadPage(msg)) {
-          // Vite HMR restarted the dev worker mid-flight — retry once.
-          await new Promise((r) => setTimeout(r, 800));
-          result = await attempt();
-        } else {
-          throw err;
-        }
-      }
-      setPendingAuthUrl(result.auth_url);
-      if (authWindow) authWindow.location.href = result.auth_url;
-      qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
-    } catch (e) {
-      authWindow?.close();
-      console.error(e);
-      const raw = (e as Error).message ?? String(e);
-      const msg = isReloadPage(raw)
-        ? "The dev preview reloaded mid-request. Please tap Connect Robinhood again."
-        : raw;
-      alert(`Could not start Robinhood connection: ${msg}`);
-    } finally {
-      setConnecting(false);
-    }
-  }
-
-  async function handleCompleteConnection() {
-    if (!callbackInput.trim()) return;
-    setCompleting(true);
-    setConnectError(null);
-    try {
-      await completeFn({ data: { callback: callbackInput.trim() } });
-      setPendingAuthUrl(null);
-      setCallbackInput("");
-      await qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
-    } catch (e) {
-      const message = (e as Error).message;
-      setConnectError(message);
-      console.error(e);
-    } finally {
-      setCompleting(false);
-    }
-  }
-
   async function handleDisconnect() {
-    setPendingAuthUrl(null);
-    setCallbackInput("");
-    setConnectError(null);
     await disconnectFn();
     qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
   }
@@ -229,65 +123,28 @@ export function AgentPanel() {
             <li className="flex gap-2"><Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" /> Analyze positions with real-time context.</li>
             <li className="flex gap-2"><Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" /> Propose trades that Robinhood confirms on their side.</li>
           </ul>
-          {authenticating ? (
-            <div className="space-y-3">
-              <div className="text-xs text-muted-foreground flex items-center justify-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for Robinhood authorization…
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {currentAuthUrl ? (
-                  <a
-                    href={currentAuthUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={cn(
-                      "inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                      connecting && "pointer-events-none opacity-50",
-                    )}
-                  >
-                    <Link2 className="h-4 w-4" />
-                    Open Robinhood
-                  </a>
-                ) : (
-                  <Button type="button" onClick={handleConnect} disabled={connecting} className="w-full">
-                    {connecting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
-                    Create secure link
-                  </Button>
-                )}
-                <Button type="button" variant="outline" onClick={handleDisconnect} className="w-full">
-                  Start over
-                </Button>
-              </div>
-              <div className="text-[10px] text-muted-foreground">
-                Robinhood may land on localhost after approval. Copy that full browser URL and paste it below.
-              </div>
-              <div className="space-y-2 text-left">
-                <input
-                  value={callbackInput}
-                  onChange={(e) => setCallbackInput(e.target.value)}
-                   placeholder={`${ROBINHOOD_CALLBACK_URI}?code=…&state=…`}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary"
-                />
-                <Button
-                  type="button"
-                  onClick={handleCompleteConnection}
-                  disabled={completing || !callbackInput.trim()}
-                  className="w-full"
-                >
-                  {completing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PlugZap className="h-4 w-4 mr-2" />}
-                  Finish connection
-                </Button>
-                {connectError && <div className="text-xs text-destructive text-center">{connectError}</div>}
-              </div>
-            </div>
-          ) : (
-            <Button onClick={handleConnect} disabled={connecting} className="w-full">
-              {connecting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PlugZap className="h-4 w-4 mr-2" />}
-              Connect Robinhood
-            </Button>
-          )}
+          <div className="rounded-md border border-border bg-muted/40 p-4 text-left space-y-2">
+            <div className="text-sm font-medium">Direct connection is not available yet</div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Robinhood currently approves its Trading connection only for supported agent platforms and rejects custom app callback addresses. This is why Robinhood showed an unexpected-error page; retrying here would return the same error.
+            </p>
+            {conn.data?.state === "authenticating" && (
+              <Button type="button" variant="outline" size="sm" onClick={handleDisconnect} className="w-full">
+                Clear pending connection
+              </Button>
+            )}
+          </div>
+          <a
+            href="https://robinhood.com/us/en/support/articles/agentic-trading-overview/"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <ExternalLink className="h-4 w-4" />
+            View supported Robinhood setup
+          </a>
           <p className="text-[10px] text-muted-foreground">
-            You'll be redirected to Robinhood to grant access. Tokens are stored securely and scoped to your account.
+            Robinhood requires initial Agentic account setup and authorization on a desktop device.
           </p>
         </div>
       </Card>
