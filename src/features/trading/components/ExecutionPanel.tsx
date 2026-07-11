@@ -154,55 +154,12 @@ export function ExecutionPanel() {
         </p>
       </Card>
 
-      <Card className="border-border bg-card">
-        <header className="px-5 py-4 border-b border-border flex items-center justify-between">
-          <h2 className="font-display font-semibold">Open Positions ({openTrades.data?.length ?? 0})</h2>
-        </header>
-        {(openTrades.data?.length ?? 0) === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-sm space-y-3">
-            <p>No open paper positions.</p>
-            <p className="text-xs">
-              Your active strategies will automatically open positions every 5 minutes when their entry conditions are met.
-              To get started: (1) Create a strategy in the Strategies tab, (2) Set it to PAPER mode, (3) Come back here to watch positions appear.
-            </p>
-            <a href="/trading?tab=strategies" className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
-              Go to Strategies →
-            </a>
-          </div>
-        ) : (
-          <ul className="divide-y divide-border">
-            {openTrades.data!.map((t, i) => {
-              const qty = Number(t.quantity);
-              const entry = Number(t.entry_price);
-              return (
-                <motion.li
-                  key={t.id}
-                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
-                  className="px-5 py-3 flex items-center justify-between text-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={cn(
-                      "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded font-mono",
-                      t.side === "buy" ? "bg-bull/15 text-bull" : "bg-bear/15 text-bear",
-                    )}>{t.side}</span>
-                    <span className="font-display font-semibold">{t.asset}</span>
-                    <span className="text-xs text-muted-foreground font-mono">
-                      {qty.toFixed(4)} @ ${entry.toFixed(2)} · cost ${(qty * entry).toFixed(2)}
-                    </span>
-                  </div>
-                  <Button
-                    size="sm" variant="outline"
-                    onClick={() => closeTrade(t.id)}
-                    disabled={closing === t.id}
-                  >
-                    {closing === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <><X className="h-3 w-3 mr-1" />Close</>}
-                  </Button>
-                </motion.li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
+      <OpenPositionsCard
+        trades={openTrades.data ?? []}
+        closing={closing}
+        onClose={closeTrade}
+      />
+
 
       <SlippageTracker userId={userId} />
 
