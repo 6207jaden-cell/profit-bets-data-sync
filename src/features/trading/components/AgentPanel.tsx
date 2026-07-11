@@ -396,6 +396,15 @@ function AutonomousSection({ userId }: { userId: string | null }) {
     });
     qc.invalidateQueries({ queryKey: ["user-settings", userId] });
   }
+  async function setPause(hours: number | null) {
+    if (!userId) return;
+    const until = hours == null ? null : new Date(Date.now() + hours * 3600_000).toISOString();
+    await supabase.from("user_settings").upsert({
+      user_id: userId, autonomous_mode: autonomous, autonomous_execution_mode: execMode,
+      autonomous_paused_until: until,
+    });
+    qc.invalidateQueries({ queryKey: ["user-settings", userId] });
+  }
 
   const nextScan = (() => {
     const now = new Date();
