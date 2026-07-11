@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, ExternalLink, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, ExternalLink, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,25 @@ export function AgentPanel() {
     setInput("");
     await chat.sendMessage({ text: prompt.trim() });
   }
+
+  // Listen for "Explain this trade" events fired from ExecutionPanel and elsewhere.
+  useEffect(() => {
+    function onExplain(e: Event) {
+      const d = (e as CustomEvent).detail as {
+        asset?: string; side?: string; entry?: number; current?: number | null;
+        unreal?: number | null; unrealPct?: number | null; instrument?: string;
+      };
+      if (!d) return;
+      const prompt = `Explain this trade: ${String(d.side ?? "").toUpperCase()} ${d.asset} (${d.instrument ?? "stock"}). ` +
+        `Entry $${Number(d.entry ?? 0).toFixed(2)}, current $${d.current != null ? Number(d.current).toFixed(2) : "n/a"}, ` +
+        `unrealized ${d.unreal != null ? `$${d.unreal.toFixed(2)}` : "n/a"} (${d.unrealPct != null ? `${d.unrealPct.toFixed(2)}%` : "n/a"}). ` +
+        `Why is this position on, what's the thesis, and what would make you close it?`;
+      void chat.sendMessage({ text: prompt });
+    }
+    window.addEventListener("explain-trade", onExplain as EventListener);
+    return () => window.removeEventListener("explain-trade", onExplain as EventListener);
+  }, [chat]);
+
 
   if (profileLoading || !authTokenReady) {
     return (
@@ -498,19 +517,69 @@ function AutonomousSection({ userId }: { userId: string | null }) {
 }
 
 function AutonomousMessage({ m }: { m: AgentMsg }) {
+  const [showReasoning, setShowReasoning] = useState(false);
   const labelMap: Record<string, string> = {
     morning_scan: "Morning Scan", midday_scan: "Midday Scan",
     exit_check: "Exit Check", weekly_learning: "Weekly Review",
   };
   const label = labelMap[m.session_type ?? ""] ?? "Autonomous";
   const time = new Date(m.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  const decision = useQuery({
+    queryKey: ["agent-decision", m.session_type, m.created_at],
+    enabled: showReasoning && !!m.session_type,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const t = new Date(m.created_at).getTime();
+      const { data } = await supabase.from("agent_decisions")
+        .select("market_assessment, payload, regime, trades_opened, trades_closed, created_at")
+        .eq("session_type", m.session_type!)
+        .gte("created_at", new Date(t - 30 * 60_000).toISOString())
+        .lte("created_at", new Date(t + 30 * 60_000).toISOString())
+        .order("created_at", { ascending: false }).limit(1);
+      return data?.[0] ?? null;
+    },
+  });
+
   return (
     <div className="flex gap-2">
       <div className="h-7 w-7 rounded-full bg-purple-500/20 flex items-center justify-center text-sm shrink-0">🤖</div>
       <div className="flex-1 min-w-0">
         <div className="text-[10px] text-purple-400 mb-0.5">Autonomous Agent • {label} • {time}</div>
         <div className="rounded-lg bg-purple-950/30 border border-purple-800/40 px-3 py-2 text-sm whitespace-pre-wrap">{m.content}</div>
+        <button
+          onClick={() => setShowReasoning((v) => !v)}
+          className="mt-1 text-[10px] text-purple-300 hover:text-purple-200 flex items-center gap-1"
+        >
+          {showReasoning ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          {showReasoning ? "Hide reasoning" : "Show reasoning chain"}
+        </button>
+        {showReasoning && (
+          <div className="mt-1 rounded-md bg-background/60 border border-purple-800/30 p-2 text-[11px] space-y-1.5">
+            {!decision.data ? (
+              <span className="text-muted-foreground">No decision log found for this scan.</span>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+                  {decision.data.regime && <span className="px-1.5 py-0.5 rounded bg-muted">regime: {decision.data.regime}</span>}
+                  <span className="px-1.5 py-0.5 rounded bg-muted">opened: {decision.data.trades_opened}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-muted">closed: {decision.data.trades_closed}</span>
+                </div>
+                {decision.data.market_assessment && (
+                  <div className="whitespace-pre-wrap text-muted-foreground">{decision.data.market_assessment}</div>
+                )}
+                {decision.data.payload ? (
+                  <details>
+                    <summary className="cursor-pointer text-purple-300">Raw signals</summary>
+                    <pre className="mt-1 max-h-40 overflow-auto text-[10px] font-mono">{JSON.stringify(decision.data.payload, null, 2)}</pre>
+                  </details>
+                ) : null}
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
+

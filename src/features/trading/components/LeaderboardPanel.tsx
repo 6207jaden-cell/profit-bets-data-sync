@@ -246,16 +246,15 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
                 </div>
 
                 <div className="flex items-center justify-between md:contents">
-                  <div className="md:col-span-1 md:text-right">
-                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Live</div>
-                    <div className="font-mono text-sm">
-                      {row.liveTradeCount === 0 ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <span>{row.liveWinRate?.toFixed(0)}% · {row.liveTradeCount}</span>
-                      )}
-                    </div>
+                  <div className="md:col-span-1 md:text-right flex md:justify-end items-center gap-2">
+                    <HealthRing
+                      score={healthScore(row)}
+                      subtitle={row.liveTradeCount === 0
+                        ? "no trades"
+                        : `${row.liveWinRate?.toFixed(0) ?? "—"}% · ${row.liveTradeCount}`}
+                    />
                   </div>
+
 
                   <div className="md:col-span-1 flex items-center md:justify-end gap-1">
                     <Button
@@ -323,6 +322,48 @@ function Metric({
     </div>
   );
 }
+
+function healthScore(row: LeaderRow): number {
+  const wr = row.liveWinRate ?? row.backtestWinRate ?? 0;
+  const wrNorm = Math.min(1, wr / 65);
+  const roiNorm = Math.max(0, Math.min(1, (row.backtestRoi ?? 0) / 30));
+  const sharpeNorm = Math.max(0, Math.min(1, (row.backtestSharpe ?? 0) / 2));
+  const sampleBonus = Math.min(1, row.liveTradeCount / 30);
+  const profitBonus = row.livePnl > 0 ? 1 : 0;
+  const score = 100 * (0.35 * wrNorm + 0.25 * roiNorm + 0.15 * sharpeNorm + 0.15 * sampleBonus + 0.10 * profitBonus);
+  return Math.round(Math.max(0, Math.min(100, score)));
+}
+
+function HealthRing({ score, subtitle }: { score: number; subtitle: string }) {
+  const size = 40;
+  const stroke = 4;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = score / 100;
+  const dashOffset = c * (1 - pct);
+  const color = score >= 70 ? "hsl(var(--bull))" : score >= 40 ? "hsl(var(--amber-500, 45 90% 55%))" : "hsl(var(--bear))";
+  const tone = score >= 70 ? "text-bull" : score >= 40 ? "text-amber-500" : "text-bear";
+  return (
+    <div className="flex items-center gap-2" title={`Strategy health score: ${score}/100`}>
+      <svg width={size} height={size} className="shrink-0">
+        <circle cx={size / 2} cy={size / 2} r={r} stroke="hsl(var(--border))" strokeWidth={stroke} fill="none" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke}
+          fill="none" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={dashOffset}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+        <text x="50%" y="52%" textAnchor="middle" dominantBaseline="middle" fontSize="11" fontWeight="600" fill="currentColor" className={tone}>
+          {score}
+        </text>
+      </svg>
+      <div className="flex flex-col leading-tight text-left">
+        <span className="text-[9px] text-muted-foreground uppercase tracking-wider">Health</span>
+        <span className="font-mono text-[10px] text-muted-foreground">{subtitle}</span>
+      </div>
+    </div>
+  );
+}
+
 
 function AttributionPanel({ strategyId }: { strategyId: string }) {
   const q = useQuery({

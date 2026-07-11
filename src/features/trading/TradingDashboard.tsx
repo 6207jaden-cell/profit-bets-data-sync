@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { getHistoricalBars } from "@/lib/history.functions";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
@@ -359,6 +361,7 @@ function MobileTabSelect({ value, onChange }: { value: string; onChange: (v: str
 }
 
 function EquityCurveCard({ userId, equity, cash, start }: { userId: string | null; equity: number; cash: number; start: number }) {
+  const [showBench, setShowBench] = useState(false);
   const snaps = useQuery({
     queryKey: ["equity-snapshots", userId],
     enabled: !!userId,
@@ -375,10 +378,31 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
   const rows = snaps.data ?? [];
   const positive = equity >= start;
   const stroke = positive ? "hsl(var(--bull))" : "hsl(var(--bear))";
-  const chartData = rows.map((r) => ({
-    date: new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" }),
-    equity: Number(r.equity),
-  }));
+
+  const barsFn = useServerFn(getHistoricalBars);
+  const days = Math.max(30, rows.length);
+  const spy = useQuery({
+    queryKey: ["spy-bench", days],
+    enabled: showBench && rows.length >= 2,
+    staleTime: 6 * 3600_000,
+    queryFn: () => barsFn({ data: { symbol: "SPY", days } }),
+  });
+
+  const chartData = rows.map((r, i) => {
+    const point: { date: string; equity: number; spy?: number } = {
+      date: new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" }),
+      equity: Number(r.equity),
+    };
+    if (showBench && spy.data?.points && spy.data.points.length > 0) {
+      // Normalize SPY to same starting equity; pick from tail to align most recent day.
+      const spyPts = spy.data.points;
+      const spyStart = spyPts[0].close;
+      const idx = Math.min(spyPts.length - 1, Math.floor((i / Math.max(1, rows.length - 1)) * (spyPts.length - 1)));
+      const ratio = spyPts[idx].close / spyStart;
+      point.spy = start * ratio;
+    }
+    return point;
+  });
 
   return (
     <Card className="p-4 sm:p-5 border-border bg-card">
@@ -386,7 +410,16 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
         <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate">
           <LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio
         </h3>
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">simulated</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowBench((v) => !v)}
+            className={cn(
+              "text-[10px] font-mono uppercase px-2 py-0.5 rounded border transition",
+              showBench ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground",
+            )}
+          >vs SPY</button>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">simulated</span>
+        </div>
       </header>
       {chartData.length >= 2 ? (
         <div className="h-40 mb-3">
@@ -402,9 +435,12 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
               <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" domain={["auto", "auto"]} />
               <RTooltip
                 contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
-                formatter={(v: number) => [`$${v.toFixed(2)}`, "Equity"]}
+                formatter={(v: number, name: string) => [`$${v.toFixed(2)}`, name === "spy" ? "SPY (norm)" : "Equity"]}
               />
               <Area type="monotone" dataKey="equity" stroke={stroke} fill="url(#eq-fill)" strokeWidth={2} />
+              {showBench && spy.data?.points && (
+                <Area type="monotone" dataKey="spy" stroke="hsl(var(--muted-foreground))" fill="none" strokeWidth={1.5} strokeDasharray="4 3" />
+              )}
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -428,5 +464,6 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
     </Card>
   );
 }
+
 
 
