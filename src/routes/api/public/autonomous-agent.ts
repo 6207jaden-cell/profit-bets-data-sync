@@ -520,7 +520,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
       instrument: t.instrument,
       options_details: (resolvedOptions ?? null) as never,
-      conviction: t.conviction ?? null,
+      conviction: (t.conviction ?? null) as never,
       rationale: enrichedRationale,
     });
     if (error) { console.error("[autonomous] insert trade", error); continue; }
