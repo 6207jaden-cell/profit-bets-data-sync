@@ -246,16 +246,15 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
                 </div>
 
                 <div className="flex items-center justify-between md:contents">
-                  <div className="md:col-span-1 md:text-right">
-                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Live</div>
-                    <div className="font-mono text-sm">
-                      {row.liveTradeCount === 0 ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <span>{row.liveWinRate?.toFixed(0)}% · {row.liveTradeCount}</span>
-                      )}
-                    </div>
+                  <div className="md:col-span-1 md:text-right flex md:justify-end items-center gap-2">
+                    <HealthRing
+                      score={healthScore(row)}
+                      subtitle={row.liveTradeCount === 0
+                        ? "no trades"
+                        : `${row.liveWinRate?.toFixed(0) ?? "—"}% · ${row.liveTradeCount}`}
+                    />
                   </div>
+
 
                   <div className="md:col-span-1 flex items-center md:justify-end gap-1">
                     <Button
