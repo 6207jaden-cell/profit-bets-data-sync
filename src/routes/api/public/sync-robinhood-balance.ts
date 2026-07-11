@@ -143,7 +143,7 @@ export const Route = createFileRoute("/api/public/sync-robinhood-balance")({
 
             await supabaseAdmin
               .from("paper_portfolios")
-              .update(updates)
+              .update(updates as never)
               .eq("id", portfolio.id);
 
             // Post sync notification

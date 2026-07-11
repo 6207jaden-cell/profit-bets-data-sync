@@ -30,9 +30,10 @@ export async function loadRelevantMemories(
   symbols: string[],
   maxTotal = 20,
 ): Promise<string> {
+  const dbAny = db as unknown as SupabaseClient;
   // Load symbol-specific memories for symbols in this scan
   const { data: symbolMems } = symbols.length > 0
-    ? await db
+    ? await dbAny
         .from("agent_memory")
         .select("id, symbol, memory_type, content, relevance, created_at")
         .eq("user_id", userId)
@@ -40,10 +41,10 @@ export async function loadRelevantMemories(
         .gt("relevance", 0.2)
         .order("relevance", { ascending: false })
         .limit(Math.ceil(maxTotal * 0.6))
-    : { data: [] };
+    : { data: [] as unknown[] };
 
   // Load global memories (no symbol)
-  const { data: globalMems } = await db
+  const { data: globalMems } = await dbAny
     .from("agent_memory")
     .select("id, symbol, memory_type, content, relevance, created_at")
     .eq("user_id", userId)
@@ -89,7 +90,7 @@ export async function saveMemories(
       ? new Date(Date.now() + m.expires_days * 86400_000).toISOString()
       : null,
   }));
-  await db.from("agent_memory").insert(rows);
+  await (db as unknown as SupabaseClient).from("agent_memory").insert(rows);
 }
 
 /**

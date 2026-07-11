@@ -17,11 +17,13 @@ import { Route as AuthenticatedTradingRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedMarketsRouteImport } from './routes/_authenticated/markets'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as ApiPublicSyncRobinhoodBalanceRouteImport } from './routes/api/public/sync-robinhood-balance'
 import { Route as ApiPublicSnapshotPortfolioRouteImport } from './routes/api/public/snapshot-portfolio'
 import { Route as ApiPublicResolveSignalsRouteImport } from './routes/api/public/resolve-signals'
 import { Route as ApiPublicGenerateStrategiesRouteImport } from './routes/api/public/generate-strategies'
 import { Route as ApiPublicEvaluateStrategiesRouteImport } from './routes/api/public/evaluate-strategies'
 import { Route as ApiPublicEvaluateAlertsRouteImport } from './routes/api/public/evaluate-alerts'
+import { Route as ApiPublicEmergencyExitRouteImport } from './routes/api/public/emergency-exit'
 import { Route as ApiPublicDailyDigestRouteImport } from './routes/api/public/daily-digest'
 import { Route as ApiPublicAutonomousLearningRouteImport } from './routes/api/public/autonomous-learning'
 import { Route as ApiPublicAutonomousExitCheckRouteImport } from './routes/api/public/autonomous-exit-check'
@@ -68,6 +70,12 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiPublicSyncRobinhoodBalanceRoute =
+  ApiPublicSyncRobinhoodBalanceRouteImport.update({
+    id: '/api/public/sync-robinhood-balance',
+    path: '/api/public/sync-robinhood-balance',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicSnapshotPortfolioRoute =
   ApiPublicSnapshotPortfolioRouteImport.update({
     id: '/api/public/snapshot-portfolio',
@@ -94,6 +102,11 @@ const ApiPublicEvaluateStrategiesRoute =
 const ApiPublicEvaluateAlertsRoute = ApiPublicEvaluateAlertsRouteImport.update({
   id: '/api/public/evaluate-alerts',
   path: '/api/public/evaluate-alerts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicEmergencyExitRoute = ApiPublicEmergencyExitRouteImport.update({
+  id: '/api/public/emergency-exit',
+  path: '/api/public/emergency-exit',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicDailyDigestRoute = ApiPublicDailyDigestRouteImport.update({
@@ -144,11 +157,13 @@ export interface FileRoutesByFullPath {
   '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/autonomous-learning': typeof ApiPublicAutonomousLearningRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
+  '/api/public/emergency-exit': typeof ApiPublicEmergencyExitRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
+  '/api/public/sync-robinhood-balance': typeof ApiPublicSyncRobinhoodBalanceRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRoutesByTo {
@@ -164,11 +179,13 @@ export interface FileRoutesByTo {
   '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/autonomous-learning': typeof ApiPublicAutonomousLearningRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
+  '/api/public/emergency-exit': typeof ApiPublicEmergencyExitRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
+  '/api/public/sync-robinhood-balance': typeof ApiPublicSyncRobinhoodBalanceRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRoutesById {
@@ -186,11 +203,13 @@ export interface FileRoutesById {
   '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/autonomous-learning': typeof ApiPublicAutonomousLearningRoute
   '/api/public/daily-digest': typeof ApiPublicDailyDigestRoute
+  '/api/public/emergency-exit': typeof ApiPublicEmergencyExitRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
+  '/api/public/sync-robinhood-balance': typeof ApiPublicSyncRobinhoodBalanceRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 export interface FileRouteTypes {
@@ -208,11 +227,13 @@ export interface FileRouteTypes {
     | '/api/public/autonomous-exit-check'
     | '/api/public/autonomous-learning'
     | '/api/public/daily-digest'
+    | '/api/public/emergency-exit'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
+    | '/api/public/sync-robinhood-balance'
     | '/api/public/mcp/robinhood/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -228,11 +249,13 @@ export interface FileRouteTypes {
     | '/api/public/autonomous-exit-check'
     | '/api/public/autonomous-learning'
     | '/api/public/daily-digest'
+    | '/api/public/emergency-exit'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
+    | '/api/public/sync-robinhood-balance'
     | '/api/public/mcp/robinhood/callback'
   id:
     | '__root__'
@@ -249,11 +272,13 @@ export interface FileRouteTypes {
     | '/api/public/autonomous-exit-check'
     | '/api/public/autonomous-learning'
     | '/api/public/daily-digest'
+    | '/api/public/emergency-exit'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
+    | '/api/public/sync-robinhood-balance'
     | '/api/public/mcp/robinhood/callback'
   fileRoutesById: FileRoutesById
 }
@@ -267,11 +292,13 @@ export interface RootRouteChildren {
   ApiPublicAutonomousExitCheckRoute: typeof ApiPublicAutonomousExitCheckRoute
   ApiPublicAutonomousLearningRoute: typeof ApiPublicAutonomousLearningRoute
   ApiPublicDailyDigestRoute: typeof ApiPublicDailyDigestRoute
+  ApiPublicEmergencyExitRoute: typeof ApiPublicEmergencyExitRoute
   ApiPublicEvaluateAlertsRoute: typeof ApiPublicEvaluateAlertsRoute
   ApiPublicEvaluateStrategiesRoute: typeof ApiPublicEvaluateStrategiesRoute
   ApiPublicGenerateStrategiesRoute: typeof ApiPublicGenerateStrategiesRoute
   ApiPublicResolveSignalsRoute: typeof ApiPublicResolveSignalsRoute
   ApiPublicSnapshotPortfolioRoute: typeof ApiPublicSnapshotPortfolioRoute
+  ApiPublicSyncRobinhoodBalanceRoute: typeof ApiPublicSyncRobinhoodBalanceRoute
   ApiPublicMcpRobinhoodCallbackRoute: typeof ApiPublicMcpRobinhoodCallbackRoute
 }
 
@@ -333,6 +360,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/sync-robinhood-balance': {
+      id: '/api/public/sync-robinhood-balance'
+      path: '/api/public/sync-robinhood-balance'
+      fullPath: '/api/public/sync-robinhood-balance'
+      preLoaderRoute: typeof ApiPublicSyncRobinhoodBalanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/snapshot-portfolio': {
       id: '/api/public/snapshot-portfolio'
       path: '/api/public/snapshot-portfolio'
@@ -366,6 +400,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/evaluate-alerts'
       fullPath: '/api/public/evaluate-alerts'
       preLoaderRoute: typeof ApiPublicEvaluateAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/emergency-exit': {
+      id: '/api/public/emergency-exit'
+      path: '/api/public/emergency-exit'
+      fullPath: '/api/public/emergency-exit'
+      preLoaderRoute: typeof ApiPublicEmergencyExitRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/daily-digest': {
@@ -440,11 +481,13 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicAutonomousExitCheckRoute: ApiPublicAutonomousExitCheckRoute,
   ApiPublicAutonomousLearningRoute: ApiPublicAutonomousLearningRoute,
   ApiPublicDailyDigestRoute: ApiPublicDailyDigestRoute,
+  ApiPublicEmergencyExitRoute: ApiPublicEmergencyExitRoute,
   ApiPublicEvaluateAlertsRoute: ApiPublicEvaluateAlertsRoute,
   ApiPublicEvaluateStrategiesRoute: ApiPublicEvaluateStrategiesRoute,
   ApiPublicGenerateStrategiesRoute: ApiPublicGenerateStrategiesRoute,
   ApiPublicResolveSignalsRoute: ApiPublicResolveSignalsRoute,
   ApiPublicSnapshotPortfolioRoute: ApiPublicSnapshotPortfolioRoute,
+  ApiPublicSyncRobinhoodBalanceRoute: ApiPublicSyncRobinhoodBalanceRoute,
   ApiPublicMcpRobinhoodCallbackRoute: ApiPublicMcpRobinhoodCallbackRoute,
 }
 export const routeTree = rootRouteImport
