@@ -6,7 +6,7 @@ import { getHistoricalBars } from "@/lib/history.functions";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
-  TrendingUp, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy, Sigma,
+  TrendingUp, TrendingDown, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy, Sigma,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
