@@ -14,8 +14,25 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { openPaperTrade, closePaperTrade } from "@/lib/execution.functions";
+import { getStockQuotes, getCryptoQuotes } from "@/lib/market.functions";
+import { estimateOptionValue } from "@/lib/indicators";
+
+const CRYPTO_ID: Record<string, string> = {
+  "BTC-USD": "bitcoin", "ETH-USD": "ethereum", "SOL-USD": "solana",
+};
+function isCrypto(sym: string): boolean {
+  return /[-/]USD[T]?$/i.test(sym) || Object.prototype.hasOwnProperty.call(CRYPTO_ID, sym.toUpperCase());
+}
+function isOption(instrument: string | null | undefined): boolean {
+  const s = String(instrument ?? "").toLowerCase();
+  return s.includes("call") || s.includes("put") || s.includes("spread") || s.includes("condor");
+}
+function optionType(instrument: string): "call" | "put" {
+  return String(instrument).toLowerCase().includes("put") ? "put" : "call";
+}
 
 export function ExecutionPanel() {
   const { userId, tier } = useProfile();
