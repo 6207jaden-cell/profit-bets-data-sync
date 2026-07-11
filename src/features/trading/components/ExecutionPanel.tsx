@@ -272,13 +272,7 @@ function OpenPositionsCard({
     } }));
     toast.message("Sent to Agent Chat", { description: `Explaining ${r.t.side.toUpperCase()} ${r.t.asset}` });
   }
-  function heatColor(pct: number | null): string {
-    if (pct == null) return "bg-muted/40";
-    const clamped = Math.max(-10, Math.min(10, pct));
-    const intensity = Math.min(1, Math.abs(clamped) / 10);
-    const alpha = (0.15 + intensity * 0.6).toFixed(2);
-    return clamped >= 0 ? `bg-bull/[${alpha}] border-bull/40` : `bg-bear/[${alpha}] border-bear/40`;
-  }
+
   return (
     <Card className="border-border bg-card">
       <header className="px-5 py-4 border-b border-border flex items-center justify-between gap-2">
