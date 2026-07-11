@@ -113,13 +113,32 @@ export function AgentPanel() {
   async function handleConnect() {
     setConnecting(true);
     setConnectError(null);
+    const attempt = async () => initFn({ data: { origin: window.location.origin } });
+    const isReloadPage = (m: string) =>
+      m.includes("FORCE_RELOAD") || m.includes("<html") || m.includes("<!doctype");
     try {
-      const { auth_url } = await initFn({ data: { origin: window.location.origin } });
-      setPendingAuthUrl(auth_url);
+      let result;
+      try {
+        result = await attempt();
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        if (isReloadPage(msg)) {
+          // Vite HMR restarted the dev worker mid-flight — retry once.
+          await new Promise((r) => setTimeout(r, 800));
+          result = await attempt();
+        } else {
+          throw err;
+        }
+      }
+      setPendingAuthUrl(result.auth_url);
       qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
     } catch (e) {
       console.error(e);
-      alert(`Could not start Robinhood connection: ${(e as Error).message}`);
+      const raw = (e as Error).message ?? String(e);
+      const msg = isReloadPage(raw)
+        ? "The dev preview reloaded mid-request. Please tap Connect Robinhood again."
+        : raw;
+      alert(`Could not start Robinhood connection: ${msg}`);
     } finally {
       setConnecting(false);
     }
