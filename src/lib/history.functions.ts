@@ -10,6 +10,6 @@ export const getHistoricalBars = createServerFn({ method: "POST" })
     const days = Math.min(365, Math.max(10, Number(data.days ?? 90)));
     const bars = await fetchBars(symbol, days);
     if (!bars || !bars.closes.length) return { ok: false, symbol, points: [], reason: "no_data" };
-    const points: BarPoint[] = bars.closes.map((c, i) => ({ t: bars.timestamps?.[i] ?? Date.now() - (bars.closes.length - i) * 86400_000, close: Number(c) }));
+    const points: BarPoint[] = bars.closes.map((c, i) => ({ t: bars.times?.[i] ?? Date.now() - (bars.closes.length - i) * 86400_000, close: Number(c) }));
     return { ok: true, symbol, points };
   });
