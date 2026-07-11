@@ -16,8 +16,7 @@ export const getRobinhoodConnection = createServerFn({ method: "GET" })
 
 export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ origin: z.string().url() }).parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ context }) => {
     const robinhoodMcpUrl = "https://agent.robinhood.com/mcp/trading";
     const robinhoodLabel = "Robinhood";
     const {
@@ -28,7 +27,11 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
     } = await import("@/lib/mcp-oauth.server");
 
     const meta = await discoverAuthServer(robinhoodMcpUrl);
-    const redirect_uri = `${data.origin.replace(/\/$/, "")}/api/public/mcp/robinhood/callback`;
+    // Robinhood's Trading MCP currently uses a native/loopback OAuth client.
+    // Its DCR endpoint echoes hosted callbacks, but the authorization step
+    // rejects them after approval. Keep this exact URI for both authorization
+    // and token exchange; the browser URL can be copied back into the app.
+    const redirect_uri = "http://localhost:1455/callback";
     let client_id: string | undefined;
     let client_secret: string | undefined;
     let dcr: unknown = null;
@@ -91,6 +94,10 @@ export const completeRobinhoodConnection = createServerFn({ method: "POST" })
       throw new Error("Paste the full localhost callback URL from Robinhood.");
     }
 
+    if (callback.origin !== "http://localhost:1455" || callback.pathname !== "/callback") {
+      throw new Error("Paste the full http://localhost:1455/callback URL shown after Robinhood approval.");
+    }
+
     const code = callback.searchParams.get("code");
     const state = callback.searchParams.get("state");
     const error = callback.searchParams.get("error");
@@ -111,7 +118,7 @@ export const completeRobinhoodConnection = createServerFn({ method: "POST" })
     const tokens = await exchangeCode({
       token_endpoint: meta.token_endpoint,
       code,
-      redirect_uri: `${callback.origin}/api/public/mcp/robinhood/callback`,
+      redirect_uri: "http://localhost:1455/callback",
       client_id: row.client_id,
       client_secret: row.client_secret ?? undefined,
       code_verifier: row.code_verifier,
