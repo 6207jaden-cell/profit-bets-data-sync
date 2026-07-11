@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
-import { Zap, X, TrendingUp, TrendingDown, Loader2, Bot, ChevronDown, ChevronRight, BookOpen, Gauge } from "lucide-react";
+import { Zap, X, TrendingUp, TrendingDown, Loader2, Bot, ChevronDown, ChevronRight, BookOpen, Gauge, LayoutGrid, List, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
