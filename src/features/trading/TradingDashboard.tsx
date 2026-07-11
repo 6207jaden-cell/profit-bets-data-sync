@@ -22,6 +22,7 @@ import { StrategiesPanel } from "./components/StrategiesPanel";
 import { BacktestingPanel, ExitAnalysisPanel } from "./components/BacktestingPanel";
 import { RiskReportPanel } from "./components/RiskReportPanel";
 import { AgentAuditLog } from "./components/AgentAuditLog";
+import { AbTestingPanel } from "./components/AbTestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
 import { BrokerPanel } from "./components/BrokerPanel";
@@ -38,6 +39,7 @@ const TAB_ITEMS = [
   { value: "backtest", label: "Backtest", Icon: FlaskConical },
   { value: "exit-analysis", label: "Exit Analysis", Icon: TrendingDown },
   { value: "audit-log", label: "Agent Log", Icon: ScrollText },
+  { value: "ab-testing", label: "A/B Tests", Icon: FlaskConical },
   { value: "risk-report", label: "Risk Report", Icon: ShieldCheck },
   { value: "execution", label: "Execution", Icon: Zap },
   { value: "risk", label: "Risk", Icon: Shield },
@@ -296,6 +298,11 @@ export default function TradingDashboard() {
 
           <TabsContent value="strategies">
             <StrategiesPanel />
+          </TabsContent>
+          <TabsContent value="ab-testing">
+            <div className="space-y-4">
+              <AbTestingPanel />
+            </div>
           </TabsContent>
           <TabsContent value="audit-log">
             <div className="space-y-4">

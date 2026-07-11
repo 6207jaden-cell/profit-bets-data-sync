@@ -25,6 +25,7 @@ import { PriceAlertsPanel } from "./components/PriceAlertsPanel";
 import { SmartAlertsPanel } from "./components/SmartAlertsPanel";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import { SignalHistoryPanel } from "./components/SignalHistoryPanel";
+import { OptionsFlowPanel } from "./components/OptionsFlowPanel";
 import { PortfolioPanel } from "./components/PortfolioPanel";
 import { LivePriceTicker } from "./components/LivePriceTicker";
 import { AssetDetailDrawer } from "./components/AssetDetailDrawer";
@@ -200,6 +201,7 @@ export default function MarketsDashboard() {
             <TabsTrigger value="alerts">Smart Alerts</TabsTrigger>
             <TabsTrigger value="history">Signal History</TabsTrigger>
             <TabsTrigger value="consensus">Consensus</TabsTrigger>
+            <TabsTrigger value="options-flow">Options Flow</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -332,6 +334,9 @@ export default function MarketsDashboard() {
           <TabsContent value="portfolio"><PortfolioPanel /></TabsContent>
           <TabsContent value="alerts"><SmartAlertsPanel /></TabsContent>
           <TabsContent value="history"><SignalHistoryPanel /></TabsContent>
+          <TabsContent value="options-flow" className="space-y-4">
+            <OptionsFlowPanel />
+          </TabsContent>
           <TabsContent value="consensus" className="space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
               <input

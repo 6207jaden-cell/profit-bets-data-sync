@@ -13,6 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PremiumLock } from "@/components/PremiumLock";
 import { AgentBacktestModal } from "./AgentBacktestModal";
+import { applyLearningAdjustment } from "@/lib/learning-adjustment.functions";
+import { toast } from "sonner";
 import { AgentPerformancePanel } from "./AgentPerformancePanel";
 import { cn } from "@/lib/utils";
 import {
@@ -597,6 +599,72 @@ function AgentPerformanceCard() {
   );
 }
 
+function ApplyAdjustmentButtons({ content }: { content: string }) {
+  const { userId } = useProfile();
+  const [applying, setApplying] = useState<string | null>(null);
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const applyFn = useServerFn(applyLearningAdjustment);
+
+  // Extract adjustments from the message content (look for bullet points or numbered items)
+  const adjustments = content
+    .split(/
+/)
+    .map((l) => l.replace(/^[-•*\d.]+\s*/, "").trim())
+    .filter((l) => l.length > 20 && l.length < 400);
+
+  const { data: strategies } = useQuery({
+    queryKey: ["strategies-for-adjustment", userId],
+    enabled: !!userId,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await supabase.from("strategies")
+        .select("id, name")
+        .eq("user_id", userId!)
+        .eq("active", true)
+        .limit(10);
+      return data ?? [];
+    },
+  });
+
+  if (!adjustments.length || !strategies?.length) return null;
+
+  async function apply(adj: string) {
+    if (!strategies?.length || applying) return;
+    setApplying(adj);
+    try {
+      // Apply to the first active strategy (most relevant)
+      const result = await applyFn({ data: { strategy_id: strategies[0].id, adjustment: adj } });
+      if (result.ok) {
+        toast.success(`Applied to "${result.strategy_name}": ${result.change_summary}`);
+        setDone((d) => new Set([...d, adj]));
+      } else {
+        toast.error(`Failed: ${result.error}`);
+      }
+    } catch (e) {
+      toast.error("Failed to apply adjustment");
+    } finally {
+      setApplying(null);
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="text-[10px] text-purple-300 font-medium">Apply to strategy:</div>
+      {adjustments.slice(0, 3).map((adj) => (
+        <button
+          key={adj}
+          disabled={!!applying || done.has(adj)}
+          onClick={() => apply(adj)}
+          className="w-full text-left text-[10px] px-2 py-1.5 rounded bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-purple-200"
+        >
+          {done.has(adj) ? "✓ " : applying === adj ? "⏳ " : "→ "}
+          {adj.slice(0, 100)}{adj.length > 100 ? "…" : ""}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AutonomousMessage({ m }: { m: AgentMsg }) {
   const [showReasoning, setShowReasoning] = useState(false);
   const labelMap: Record<string, string> = {
@@ -628,13 +696,16 @@ function AutonomousMessage({ m }: { m: AgentMsg }) {
       <div className="flex-1 min-w-0">
         <div className="text-[10px] text-purple-400 mb-0.5">Autonomous Agent • {label} • {time}</div>
         <div className="rounded-lg bg-purple-950/30 border border-purple-800/40 px-3 py-2 text-sm whitespace-pre-wrap">{m.content}</div>
-        <button
-          onClick={() => setShowReasoning((v) => !v)}
-          className="mt-1 text-[10px] text-purple-300 hover:text-purple-200 flex items-center gap-1"
-        >
-          {showReasoning ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          {showReasoning ? "Hide reasoning" : "Show reasoning chain"}
-        </button>
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          <button
+            onClick={() => setShowReasoning((v) => !v)}
+            className="text-[10px] text-purple-300 hover:text-purple-200 flex items-center gap-1"
+          >
+            {showReasoning ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {showReasoning ? "Hide reasoning" : "Show reasoning chain"}
+          </button>
+          {m.session_type === "weekly_learning" && <ApplyAdjustmentButtons content={m.content} />}
+        </div>
         {showReasoning && (
           <div className="mt-1 rounded-md bg-background/60 border border-purple-800/30 p-2 text-[11px] space-y-1.5">
             {!decision.data ? (

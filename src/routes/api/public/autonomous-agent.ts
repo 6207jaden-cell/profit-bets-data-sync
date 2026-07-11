@@ -153,6 +153,49 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           }
         } catch { /* ignore */ }
 
+        // Macro overlay: 10Y Treasury yield, DXY, and yield curve shape
+        // These are the top macro factors driving stocks and crypto
+        let tenYearYield: number | null = null;
+        let twoYearYield: number | null = null;
+        let dxyLevel: number | null = null;
+        let yieldCurveShape = "unknown";
+        try {
+          const finKey = process.env.FINNHUB_API_KEY;
+          if (finKey) {
+            // 10Y Treasury yield via Finnhub (symbol: ^TNX or US10Y)
+            // DXY (dollar index) via Finnhub
+            const [r10y, r2y, rdxy] = await Promise.all([
+              fetch(`https://finnhub.io/api/v1/quote?symbol=US10Y&token=${finKey}`),
+              fetch(`https://finnhub.io/api/v1/quote?symbol=US02Y&token=${finKey}`),
+              fetch(`https://finnhub.io/api/v1/quote?symbol=DXY&token=${finKey}`),
+            ]);
+            if (r10y.ok) { const j = (await r10y.json()) as { c?: number }; tenYearYield = j.c ?? null; }
+            if (r2y.ok) { const j = (await r2y.json()) as { c?: number }; twoYearYield = j.c ?? null; }
+            if (rdxy.ok) { const j = (await rdxy.json()) as { c?: number }; dxyLevel = j.c ?? null; }
+          }
+        } catch { /* ignore */ }
+        // Fallback: try alternative symbols if Finnhub doesn't have them
+        if (!tenYearYield) {
+          try {
+            const r = await fetch("https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&limit=1&sort_order=desc&api_key=demo&file_type=json");
+            if (r.ok) {
+              const j = (await r.json()) as { observations?: Array<{ value: string }> };
+              const v = j.observations?.[0]?.value;
+              if (v && v !== ".") tenYearYield = Number(v);
+            }
+          } catch { /* ignore */ }
+        }
+        if (tenYearYield && twoYearYield) {
+          const spread = tenYearYield - twoYearYield;
+          yieldCurveShape = spread > 0.5 ? "normal_steep" : spread > 0 ? "normal_flat" : "inverted";
+        }
+        const macroContext = [
+          tenYearYield != null ? `10Y yield: ${tenYearYield.toFixed(2)}%` : null,
+          twoYearYield != null ? `2Y yield: ${twoYearYield.toFixed(2)}%` : null,
+          yieldCurveShape !== "unknown" ? `curve: ${yieldCurveShape}` : null,
+          dxyLevel != null ? `DXY: ${dxyLevel.toFixed(1)}` : null,
+        ].filter(Boolean).join(", ") || "macro data unavailable";
+
         // Dynamic universe: augment with top news catalysts (symbol format A-Z + optional -USD).
         const catalysts = await scanCatalystsInternal(15).catch(() => []);
         const catalystSymbols = catalysts
@@ -434,6 +477,30 @@ async function runForUser(args: {
     const qty = Number(t.quantity), entry = Number(t.entry_price);
     unrealized += (q - entry) * qty * (t.side === "buy" ? 1 : -1);
   }
+
+  // ---- Portfolio-level Expected Value ----
+  // EV = Σ(position: prob_win × target_gain% + prob_lose × -stop_loss%)
+  // We use a simplified Bayesian estimate: assume 55% base win probability,
+  // adjusted by how far the position is from its target vs stop.
+  let portfolioEV = 0;
+  for (const t of openList) {
+    const currentPrice = quotes.get(String(t.asset)) ?? Number(t.entry_price);
+    const entry = Number(t.entry_price);
+    const pnlPct = ((currentPrice - entry) / entry) * 100 * (t.side === "buy" ? 1 : -1);
+    const stopPct = Number(t.stop_loss_pct ?? 7);
+    const targetPct = Number(t.take_profit_pct ?? 15);
+    const distToTarget = targetPct - pnlPct;
+    const distToStop = stopPct + pnlPct; // positive = above stop
+    // Win probability: adjust base 55% by risk/reward remaining
+    const rrRatio = distToStop > 0 ? distToTarget / distToStop : 1;
+    const probWin = Math.min(0.85, Math.max(0.15, 0.55 + (rrRatio - 1) * 0.05));
+    const positionEV = (probWin * distToTarget) + ((1 - probWin) * -distToStop);
+    const notional = Number(t.quantity) * currentPrice;
+    portfolioEV += positionEV * notional / 100; // weighted by position size
+  }
+  const portfolioEVPct = openList.length > 0 && Number(portfolio.equity) > 0
+    ? (portfolioEV / Number(portfolio.equity)) * 100
+    : 0;
   const currentEquity = cash + openList.reduce((s, t) => {
     const q = quotes.get(String(t.asset)) ?? Number(t.entry_price);
     return s + q * Number(t.quantity);
@@ -528,6 +595,58 @@ async function runForUser(args: {
   const scanSymbols = (candidates as Array<{symbol?: string}>).map((c) => String(c.symbol ?? "")).filter(Boolean);
   const memories = await loadRelevantMemories(supabaseAdmin as never, userId, scanSymbols);
 
+  // Options flow: check for unusual institutional options activity on scan symbols
+  // High vol/OI ratio on calls = bullish institutional bet; on puts = bearish hedge
+  const optionsFlowMap = new Map<string, { signal: "bullish" | "bearish"; premium: number; vol_oi: number }>();
+  const polyKey = process.env.POLYGON_API_KEY;
+  if (polyKey) {
+    const today = new Date().toISOString().slice(0, 10);
+    const exp30 = new Date(Date.now() + 35 * 86400_000).toISOString().slice(0, 10);
+    await Promise.allSettled(
+      [...UNIVERSE.large_cap, ...UNIVERSE.small_mid_cap].slice(0, 15).map(async (sym) => {
+        try {
+          const url = `https://api.polygon.io/v3/snapshot/options/${sym}?expiration_date.gte=${today}&expiration_date.lte=${exp30}&limit=30&apiKey=${polyKey}`;
+          const r = await fetch(url);
+          if (!r.ok) return;
+          const j = (await r.json()) as { results?: Array<{
+            details?: { contract_type: string; strike_price: number };
+            day?: { volume?: number };
+            open_interest?: number;
+            last_quote?: { bid?: number; ask?: number };
+          }> };
+          let bullishPremium = 0, bearishPremium = 0;
+          let topVolOi = 0;
+          for (const c of j.results ?? []) {
+            const vol = c.day?.volume ?? 0;
+            const oi = c.open_interest ?? 1;
+            const volOi = vol / oi;
+            if (vol < 200 || volOi < 0.5) continue;
+            const mid = ((c.last_quote?.bid ?? 0) + (c.last_quote?.ask ?? 0)) / 2;
+            const premium = mid * vol * 100;
+            const type = c.details?.contract_type?.toLowerCase();
+            if (type === "call") bullishPremium += premium;
+            else bearishPremium += premium;
+            topVolOi = Math.max(topVolOi, volOi);
+          }
+          const total = bullishPremium + bearishPremium;
+          if (total > 50_000) {
+            optionsFlowMap.set(sym, {
+              signal: bullishPremium > bearishPremium * 1.5 ? "bullish" :
+                      bearishPremium > bullishPremium * 1.5 ? "bearish" : "bullish",
+              premium: total,
+              vol_oi: topVolOi,
+            });
+          }
+        } catch { /* skip */ }
+      })
+    );
+  }
+  const optionsFlowContext = optionsFlowMap.size > 0
+    ? `Unusual options flow detected: ${[...optionsFlowMap.entries()].map(([s, f]) =>
+        `${s} (${f.signal}, $${(f.premium/1000).toFixed(0)}K premium, vol/OI ${f.vol_oi.toFixed(1)}x)`
+      ).join(", ")}`
+    : "No unusual options flow detected.";
+
   // Earnings surprise signal: stocks that beat earnings recently have post-earnings drift
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
   const earningsBeatMap = new Map<string, number>(); // symbol → surprise pct
@@ -599,7 +718,7 @@ async function runForUser(args: {
 
   const userMessage = {
     session, regime, vix_level: vixLevel,
-    portfolio: { cash, equity: currentEquity, cash_pct: cashPct, open_positions_count: openList.length, day_pnl_pct: dayPnlPct, drawdown_pct: drawdownPct },
+    portfolio: { cash, equity: currentEquity, cash_pct: cashPct, open_positions_count: openList.length, day_pnl_pct: dayPnlPct, drawdown_pct: drawdownPct, portfolio_ev_pct: Number(portfolioEVPct.toFixed(2)) },
     defensive_mode: defensive,
     settings: {
       max_position_pct: effectiveMaxPositionPct,
@@ -640,7 +759,9 @@ async function runForUser(args: {
     recent_ai_signals: signalContext,
     manual_strategies_firing: strategyBridgeContext,
     earnings_surprises: earningsContext,
+    unusual_options_flow: optionsFlowContext,
     fear_greed_index: fearGreedValue != null ? `${fearGreedValue}/100 (${fearGreedLabel})` : "unavailable",
+    macro_overlay: macroContext,
     margin_available: false,
   };
 
@@ -669,10 +790,13 @@ HARD RULES — never violate these:
 - When vol_surge_pct > 50, that stock is moving on unusual volume — prioritize it.
 - When five_day_return shows strong momentum (>3% or <-3%), that is a high-quality signal.
 - When recent_ai_signals contains signals for a candidate, use them as additional evidence. Aligned signals increase conviction; contradicting signals decrease it.
+- macro_overlay provides 10Y yield, 2Y yield, yield curve shape, and DXY: Rising 10Y yield = headwind for tech/growth stocks, tailwind for financials. Inverted yield curve = recession warning, favor defensive positions. Rising DXY = headwind for crypto and international stocks. Normal-steep curve = risk-on environment. Factor these into your conviction and sector preferences.
 - fear_greed_index: <20 = Extreme Fear (buy quality names aggressively, high expected value), 20-40 = Fear (be opportunistic), 40-60 = Neutral, 60-80 = Greed (be selective, smaller positions), >80 = Extreme Greed (be very cautious, reduce sizes, take profits on existing positions).
 - mtf_label on each candidate shows multi-timeframe alignment (1h↑ = hourly bullish, W↑ = weekly bullish). Prefer candidates where 1h and W align with your intended direction. Heavily penalize trades where MTF is against you (e.g. going long on 1h↓ W↓).
-- When earnings_surprises shows a recent positive earnings beat (>5%), that stock has post-earnings drift momentum — weight it as +20 conviction for long positions. Negative surprises (<-5%) = +20 for short/put.
+- When earnings_surprises shows a recent positive earnings beat (>5%), that stock has post-earnings drift momentum
+- unusual_options_flow shows institutional positioning via options. Large call premium (bullish) = smart money buying upside. Large put premium (bearish) = smart money hedging or betting on downside. This is one of the most reliable leading indicators — weight it as +20 conviction when aligned with your technical view. — weight it as +20 conviction for long positions. Negative surprises (<-5%) = +20 for short/put.
 - Use MACD histogram: positive = bullish momentum building (buy signal), negative and falling = bearish (short/put signal).
+- portfolio_ev_pct is the expected value of current open positions as a % of portfolio. If EV > 5%: existing positions are doing well — be selective about new entries, prefer high conviction (>75) only. If EV < -2%: portfolio is under water — consider being more aggressive to recover, or if EV < -5% consider closing weak positions. If EV is near zero: neutral, trade normally.
 - Trailing stops are automatically set at entry_price × (1 - stop_pct%) once a position gains >5%. When reviewing current_positions, if pnl_pct > 5% the position already has a trailing stop protecting profits — factor this into hold/exit decisions.
 - Use Bollinger Bands: bb_pct_b < 0.05 = near lower band (oversold, buy/call), bb_pct_b > 0.95 = near upper band (overbought, sell/put).
 - Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
