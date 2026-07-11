@@ -128,8 +128,37 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           }
         } catch { /* ignore */ }
 
+        // Dynamic universe: augment with top news catalysts (symbol format A-Z + optional -USD).
+        const catalysts = await scanCatalystsInternal(15).catch(() => []);
+        const catalystSymbols = catalysts
+          .map((c) => c.symbol)
+          .filter((s) => /^[A-Z]{1,6}(-USD)?$/.test(s));
         // Build candidate universe once (shared across users). Per-user extras added later.
-        const symbolsThisRun = marketOpen ? ALL_SYMBOLS : UNIVERSE.crypto;
+        const baseSymbols = marketOpen ? ALL_SYMBOLS : UNIVERSE.crypto;
+        const symbolsThisRun = Array.from(new Set([...baseSymbols, ...catalystSymbols]));
+
+        // ---- Weekend prep: research-only brief, no trades. ----
+        if (session === "weekend_prep") {
+          const catalystsBrief = catalysts.slice(0, 10)
+            .map((c) => `${c.symbol} (×${c.mentions}, sent ${c.sentiment >= 0 ? "+" : ""}${c.sentiment.toFixed(2)})`)
+            .join(", ") || "no notable catalysts";
+          for (const u of eligibleUsers) {
+            await supabaseAdmin.from("agent_messages").insert({
+              user_id: u.user_id, role: "assistant", is_autonomous: true, session_type: "weekend_prep",
+              content: `🗓️ Weekend prep brief\n\nMarket regime heading into Monday: **${regime}**${vixLevel != null ? ` (VIX ${vixLevel.toFixed(1)})` : ""}.\n\nTop news catalysts I'm watching: ${catalystsBrief}.\n\nI'll re-evaluate open positions at Monday's morning scan. No trades taken during weekend prep.`,
+            });
+            await supabaseAdmin.from("agent_decisions").insert({
+              user_id: u.user_id, session_type: "weekend_prep", regime, trades_opened: 0,
+              payload: { catalysts: catalysts.slice(0, 15), vix: vixLevel } as never,
+            });
+          }
+          return Response.json({
+            ok: true, session, regime, vix: vixLevel,
+            users: eligibleUsers.length, trades_opened: 0,
+            catalysts: catalysts.slice(0, 15),
+          });
+        }
+
         const candidateMap = new Map<string, {
           symbol: string; price: number; rsi: number | null;
           sma20: number | null; sma50: number | null; ema12: number | null; ema26: number | null;
