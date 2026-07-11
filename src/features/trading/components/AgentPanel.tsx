@@ -14,6 +14,8 @@ import { PremiumLock } from "@/components/PremiumLock";
 import { cn } from "@/lib/utils";
 import {
   getRobinhoodConnection,
+  initiateRobinhoodConnection,
+  completeRobinhoodConnection,
   disconnectRobinhood,
 } from "@/lib/mcp-client.functions";
 
@@ -29,8 +31,13 @@ export function AgentPanel() {
   const { hasElite, loading: profileLoading, userId } = useProfile();
   const [input, setInput] = useState("");
   const [authTokenReady, setAuthTokenReady] = useState(false);
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const getConnFn = useServerFn(getRobinhoodConnection);
+  const initiateConnFn = useServerFn(initiateRobinhoodConnection);
+  const completeConnFn = useServerFn(completeRobinhoodConnection);
   const disconnectFn = useServerFn(disconnectRobinhood);
 
   const conn = useQuery({
@@ -69,6 +76,38 @@ export function AgentPanel() {
   async function handleDisconnect() {
     await disconnectFn();
     qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
+  }
+
+  async function handleConnect() {
+    setConnectionBusy(true);
+    setConnectionError(null);
+    const authWindow = window.open("about:blank", "robinhood-oauth");
+    try {
+      const result = await initiateConnFn();
+      if (authWindow) authWindow.location.href = result.auth_url;
+      else window.location.href = result.auth_url;
+      await qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
+    } catch (error) {
+      authWindow?.close();
+      setConnectionError(error instanceof Error ? error.message : "Could not start the Robinhood connection.");
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+
+  async function handleCompleteConnection() {
+    if (!callbackUrl.trim()) return;
+    setConnectionBusy(true);
+    setConnectionError(null);
+    try {
+      await completeConnFn({ data: { callback: callbackUrl.trim() } });
+      setCallbackUrl("");
+      await qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : "Could not finish the Robinhood connection.");
+    } finally {
+      setConnectionBusy(false);
+    }
   }
 
   async function send(prompt: string) {
@@ -123,29 +162,40 @@ export function AgentPanel() {
             <li className="flex gap-2"><Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" /> Analyze positions with real-time context.</li>
             <li className="flex gap-2"><Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" /> Propose trades that Robinhood confirms on their side.</li>
           </ul>
-          <div className="rounded-md border border-border bg-muted/40 p-4 text-left space-y-2">
-            <div className="text-sm font-medium">Direct connection is not available yet</div>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Robinhood currently approves its Trading connection only for supported agent platforms and rejects custom app callback addresses. This is why Robinhood showed an unexpected-error page; retrying here would return the same error.
-            </p>
-            {conn.data?.state === "authenticating" && (
-              <Button type="button" variant="outline" size="sm" onClick={handleDisconnect} className="w-full">
-                Clear pending connection
-              </Button>
-            )}
-          </div>
-          <a
-            href="https://robinhood.com/us/en/support/articles/agentic-trading-overview/"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <ExternalLink className="h-4 w-4" />
-            View supported Robinhood setup
-          </a>
-          <p className="text-[10px] text-muted-foreground">
-            Robinhood requires initial Agentic account setup and authorization on a desktop device.
-          </p>
+           <div className="rounded-md border border-border bg-muted/40 p-4 text-left space-y-3">
+             <div className="text-sm font-medium">Connect with Robinhood Trading MCP</div>
+             <p className="text-xs leading-relaxed text-muted-foreground">
+               Approve access in Robinhood. Your browser will then try to open a localhost page; it may look blank or say it cannot connect. That is expected—copy the full URL from that page's address bar and paste it below.
+             </p>
+             <Button type="button" onClick={handleConnect} disabled={connectionBusy} className="w-full">
+               {connectionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+               {conn.data?.state === "authenticating" ? "Open Robinhood again" : "Connect Robinhood"}
+             </Button>
+             {conn.data?.state === "authenticating" && (
+               <div className="space-y-2 border-t border-border pt-3">
+                 <label htmlFor="robinhood-callback" className="text-xs font-medium">Finish connection</label>
+                 <input
+                   id="robinhood-callback"
+                   value={callbackUrl}
+                   onChange={(event) => setCallbackUrl(event.target.value)}
+                   placeholder="http://localhost:1455/callback?code=…&state=…"
+                   autoCapitalize="none"
+                   autoCorrect="off"
+                   className="h-10 w-full rounded-md border border-border bg-background px-3 text-xs outline-none focus:border-primary"
+                 />
+                 <Button type="button" onClick={handleCompleteConnection} disabled={connectionBusy || !callbackUrl.trim()} className="w-full">
+                   Finish connection
+                 </Button>
+                 <Button type="button" variant="ghost" size="sm" onClick={handleDisconnect} disabled={connectionBusy} className="w-full">
+                   Start over
+                 </Button>
+               </div>
+             )}
+             {connectionError && <p role="alert" className="text-xs text-destructive break-words">{connectionError}</p>}
+           </div>
+           <a href="https://robinhood.com/us/en/support/articles/agentic-trading-overview/" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+             Robinhood setup requirements <ExternalLink className="h-3 w-3" />
+           </a>
         </div>
       </Card>
       </div>
