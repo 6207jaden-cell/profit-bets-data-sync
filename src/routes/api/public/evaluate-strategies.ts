@@ -389,6 +389,13 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     if (confidence < 60) allocPct *= 0.5;
                     else if (confidence < 80) allocPct *= 0.75;
                   }
+                  // Defensive mode: require higher confidence (>=75) if we have a signal, block otherwise.
+                  if (defensiveMode) {
+                    if (confidence == null || confidence < 75) {
+                      errors.push({ user_id: userId, strategy_id: strat.id, symbol, reason: `blocked:defensive_mode_low_conviction drawdown=${drawdownPct.toFixed(1)}%` });
+                      continue;
+                    }
+                  }
 
                   // ATR volatility sizing — reuse the same Bars fetched above.
                   let volPct: number | null = null;
@@ -397,6 +404,15 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     volPct = (a / quote.price) * 100;
                     if (volPct > 10) allocPct *= 0.25;
                     else if (volPct > 5) allocPct *= 0.5;
+                  }
+
+                  // VIX-based allocation scaling (equities only — crypto has its own vol profile).
+                  let vixMult = 1;
+                  if (!symIsCrypto && vixLevel != null) {
+                    if (vixLevel > 35) vixMult = 0.25;
+                    else if (vixLevel > 25) vixMult = 0.5;
+                    else if (vixLevel < 15) vixMult = 1.1;
+                    allocPct *= vixMult;
                   }
                   allocPct = Math.max(2, allocPct);
 
@@ -415,6 +431,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     continue;
                   }
                   const quantity = allocCash / quote.price;
+
 
                   const { data: newTrade, error: tErr } = await supabaseAdmin
                     .from("paper_trades").insert({
