@@ -90,7 +90,7 @@ export async function saveMemories(
       ? new Date(Date.now() + m.expires_days * 86400_000).toISOString()
       : null,
   }));
-  await db.from("agent_memory").insert(rows);
+  await (db as unknown as SupabaseClient).from("agent_memory").insert(rows);
 }
 
 /**
