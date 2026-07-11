@@ -26,6 +26,7 @@ import { Route as ApiPublicDailyDigestRouteImport } from './routes/api/public/da
 import { Route as ApiPublicAutonomousLearningRouteImport } from './routes/api/public/autonomous-learning'
 import { Route as ApiPublicAutonomousExitCheckRouteImport } from './routes/api/public/autonomous-exit-check'
 import { Route as ApiPublicAutonomousAgentRouteImport } from './routes/api/public/autonomous-agent'
+import { Route as ApiPublicAgentBacktestRouteImport } from './routes/api/public/agent-backtest'
 import { Route as ApiPublicMcpRobinhoodCallbackRouteImport } from './routes/api/public/mcp/robinhood/callback'
 
 const AuthRoute = AuthRouteImport.update({
@@ -118,6 +119,11 @@ const ApiPublicAutonomousAgentRoute =
     path: '/api/public/autonomous-agent',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicAgentBacktestRoute = ApiPublicAgentBacktestRouteImport.update({
+  id: '/api/public/agent-backtest',
+  path: '/api/public/agent-backtest',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicMcpRobinhoodCallbackRoute =
   ApiPublicMcpRobinhoodCallbackRouteImport.update({
     id: '/api/public/mcp/robinhood/callback',
@@ -133,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/public/agent-backtest': typeof ApiPublicAgentBacktestRoute
   '/api/public/autonomous-agent': typeof ApiPublicAutonomousAgentRoute
   '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/autonomous-learning': typeof ApiPublicAutonomousLearningRoute
@@ -152,6 +159,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/public/agent-backtest': typeof ApiPublicAgentBacktestRoute
   '/api/public/autonomous-agent': typeof ApiPublicAutonomousAgentRoute
   '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/autonomous-learning': typeof ApiPublicAutonomousLearningRoute
@@ -173,6 +181,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/trading': typeof AuthenticatedTradingRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/public/agent-backtest': typeof ApiPublicAgentBacktestRoute
   '/api/public/autonomous-agent': typeof ApiPublicAutonomousAgentRoute
   '/api/public/autonomous-exit-check': typeof ApiPublicAutonomousExitCheckRoute
   '/api/public/autonomous-learning': typeof ApiPublicAutonomousLearningRoute
@@ -194,6 +203,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/trading'
     | '/api/chat'
+    | '/api/public/agent-backtest'
     | '/api/public/autonomous-agent'
     | '/api/public/autonomous-exit-check'
     | '/api/public/autonomous-learning'
@@ -213,6 +223,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/trading'
     | '/api/chat'
+    | '/api/public/agent-backtest'
     | '/api/public/autonomous-agent'
     | '/api/public/autonomous-exit-check'
     | '/api/public/autonomous-learning'
@@ -233,6 +244,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/trading'
     | '/api/chat'
+    | '/api/public/agent-backtest'
     | '/api/public/autonomous-agent'
     | '/api/public/autonomous-exit-check'
     | '/api/public/autonomous-learning'
@@ -250,6 +262,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiPublicAgentBacktestRoute: typeof ApiPublicAgentBacktestRoute
   ApiPublicAutonomousAgentRoute: typeof ApiPublicAutonomousAgentRoute
   ApiPublicAutonomousExitCheckRoute: typeof ApiPublicAutonomousExitCheckRoute
   ApiPublicAutonomousLearningRoute: typeof ApiPublicAutonomousLearningRoute
@@ -383,6 +396,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicAutonomousAgentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/agent-backtest': {
+      id: '/api/public/agent-backtest'
+      path: '/api/public/agent-backtest'
+      fullPath: '/api/public/agent-backtest'
+      preLoaderRoute: typeof ApiPublicAgentBacktestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/mcp/robinhood/callback': {
       id: '/api/public/mcp/robinhood/callback'
       path: '/api/public/mcp/robinhood/callback'
@@ -415,6 +435,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiPublicAgentBacktestRoute: ApiPublicAgentBacktestRoute,
   ApiPublicAutonomousAgentRoute: ApiPublicAutonomousAgentRoute,
   ApiPublicAutonomousExitCheckRoute: ApiPublicAutonomousExitCheckRoute,
   ApiPublicAutonomousLearningRoute: ApiPublicAutonomousLearningRoute,

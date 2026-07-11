@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketOpen } from "@/lib/indicators";
+import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
 const UNIVERSE = {
   large_cap: ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM","WMT","JNJ","HD","BAC","PG","DIS","NFLX","AMD","CRM","UBER"],
@@ -83,8 +84,13 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           return new Response("Unauthorized", { status: 401 });
         }
         const body = (await request.json().catch(() => ({}))) as { session?: string };
-        const session = body.session === "midday" ? "midday" : "morning";
-        const sessionType = session === "midday" ? "midday_scan" : "morning_scan";
+        const session: "morning" | "midday" | "weekend_prep" =
+          body.session === "midday" ? "midday"
+          : body.session === "weekend_prep" ? "weekend_prep"
+          : "morning";
+        const sessionType = session === "midday" ? "midday_scan"
+          : session === "weekend_prep" ? "weekend_prep"
+          : "morning_scan";
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
