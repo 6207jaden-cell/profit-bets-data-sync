@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Bot, ExternalLink, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, ExternalLink, Link2, Loader2, Pause, Send, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
