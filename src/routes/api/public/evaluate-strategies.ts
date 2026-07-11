@@ -218,6 +218,7 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
               lastExecRes,
               openAllRes,
               closedTradesRes,
+              peakSnapshotRes,
             ] = await Promise.all([
               supabaseAdmin.from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle(),
               supabaseAdmin.from("risk_limits").select("*").eq("user_id", userId).maybeSingle(),
@@ -226,13 +227,13 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                 .gte("closed_at", dayStart.toISOString()),
               supabaseAdmin.from("signals_executions").select("created_at")
                 .eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-              // Batch ALL open trades once — indexed by strategy_id+asset for later lookup.
               supabaseAdmin.from("paper_trades").select("*")
                 .eq("user_id", userId).eq("is_open", true),
-              // Single closed-trades pull covers both the retirement check and any per-strategy stats.
               supabaseAdmin.from("paper_trades")
                 .select("strategy_id, pnl")
                 .eq("user_id", userId).eq("is_open", false),
+              supabaseAdmin.from("portfolio_snapshots").select("equity")
+                .eq("user_id", userId).order("equity", { ascending: false }).limit(1).maybeSingle(),
             ]);
 
             const portfolio = portfolioRes.data;
@@ -246,10 +247,24 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
             const startBal = Number(portfolio.starting_balance);
             const dailyLossHit = startBal > 0 && (-dayPnl / startBal) * 100 >= maxDailyLossPct;
 
+            // ---- Portfolio circuit breaker: block ALL entries if down > 5% today ----
+            const dayPnlPct = startBal > 0 ? (dayPnl / startBal) * 100 : 0;
+            const circuitBreaker = dayPnlPct < -5;
+            if (circuitBreaker) {
+              errors.push({ user_id: userId, reason: `circuit_breaker_triggered pct=${dayPnlPct.toFixed(2)}` });
+            }
+
+            // ---- Drawdown protection: peak-to-current > 15% ----
+            const currentEquity = Number(portfolio.equity) || Number(portfolio.balance) || 0;
+            const peakEquity = Math.max(Number(peakSnapshotRes.data?.equity ?? 0), currentEquity, startBal);
+            const drawdownPct = peakEquity > 0 ? ((peakEquity - currentEquity) / peakEquity) * 100 : 0;
+            const defensiveMode = drawdownPct > 15;
+
             const lastExec = lastExecRes.data;
             const cooldownRemaining = lastExec
               ? Math.max(0, cooldown - (Date.now() - new Date(lastExec.created_at).getTime()) / 1000)
               : 0;
+
 
             // Index open trades by strategy_id+asset for O(1) lookup during the loop.
             const openAll = openAllRes.data ?? [];
