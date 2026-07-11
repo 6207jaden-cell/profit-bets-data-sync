@@ -434,12 +434,46 @@ function AutonomousSection({ userId }: { userId: string | null }) {
       {autonomous && (
         <>
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-bull animate-pulse" />Active</span>
+            {pausedUntil ? (
+              <span className="flex items-center gap-1.5 text-amber-500">
+                <Pause className="h-3 w-3" />
+                Paused until {pausedUntil.toLocaleString([], { hour: "numeric", minute: "2-digit", month: "short", day: "numeric" })}
+                <button
+                  onClick={() => setPause(null)}
+                  className="ml-1 underline hover:text-amber-400"
+                >resume</button>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-bull animate-pulse" />Active</span>
+            )}
             <span>Last scan: {status.data?.lastScan ? new Date(status.data.lastScan).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET" : "—"}</span>
             <span>Next: {nextScan}</span>
             <span>Open: {status.data?.openPositions ?? 0}</span>
             <span>Cash: {(status.data?.cashPct ?? 0).toFixed(0)}%</span>
             <div className="ml-auto flex items-center gap-1">
+              {!pausedUntil && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="px-2 py-0.5 rounded border border-border hover:border-amber-500 hover:text-amber-500 flex items-center gap-1">
+                      <Pause className="h-3 w-3" />Pause
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-40 p-1">
+                    {[
+                      { label: "1 hour", hours: 1 },
+                      { label: "4 hours", hours: 4 },
+                      { label: "Today", hours: 12 },
+                      { label: "1 week", hours: 24 * 7 },
+                    ].map((opt) => (
+                      <button
+                        key={opt.label}
+                        onClick={() => setPause(opt.hours)}
+                        className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-accent"
+                      >{opt.label}</button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              )}
               <button
                 onClick={() => setExecMode("paper")}
                 className={cn("px-2 py-0.5 rounded", execMode === "paper" ? "bg-primary text-primary-foreground" : "border border-border")}
