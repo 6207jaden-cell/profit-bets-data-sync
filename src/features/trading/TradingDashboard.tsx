@@ -26,6 +26,8 @@ import { BrokerPanel } from "./components/BrokerPanel";
 import { AgentPanel } from "./components/AgentPanel";
 import { LeaderboardPanel } from "./components/LeaderboardPanel";
 import { OptionsFlowPanel } from "./components/OptionsFlowPanel";
+import { CatalystsPanel } from "./components/CatalystsPanel";
+import { AgentBacktestModal } from "./components/AgentBacktestModal";
 import { TopNav } from "@/components/TopNav";
 
 const TAB_ITEMS = [
@@ -38,6 +40,7 @@ const TAB_ITEMS = [
   { value: "agent", label: "Agent", Icon: Bot },
   { value: "leaderboard", label: "Leaderboard", Icon: Trophy },
   { value: "options", label: "Options", Icon: Sigma },
+  { value: "catalysts", label: "Catalysts", Icon: Activity },
 ] as const;
 
 export default function TradingDashboard() {
@@ -223,9 +226,17 @@ export default function TradingDashboard() {
                   <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("agent")}>
                     <Bot className="h-3.5 w-3.5 mr-2 text-primary" /> Ask the agent
                   </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("catalysts")}>
+                    <Activity className="h-3.5 w-3.5 mr-2 text-primary" /> News catalysts
+                  </Button>
                   <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("leaderboard")}>
                     <Trophy className="h-3.5 w-3.5 mr-2 text-primary" /> View leaderboard
                   </Button>
+                  {userId && (
+                    <div className="pt-2">
+                      <AgentBacktestModal userId={userId} />
+                    </div>
+                  )}
                 </div>
               </Card>
             </section>
@@ -301,6 +312,9 @@ export default function TradingDashboard() {
           </TabsContent>
           <TabsContent value="options">
             <OptionsFlowPanel />
+          </TabsContent>
+          <TabsContent value="catalysts">
+            <CatalystsPanel />
           </TabsContent>
         </Tabs>
       </main>
