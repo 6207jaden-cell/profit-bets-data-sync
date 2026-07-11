@@ -64,7 +64,7 @@ export function AgentPerformancePanel() {
         .not("pnl", "is", null)
         .order("closed_at", { ascending: false })
         .limit(200);
-      return (data ?? []) as ClosedTrade[];
+      return ((data ?? []) as unknown) as ClosedTrade[];
     },
   });
 
