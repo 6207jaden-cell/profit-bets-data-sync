@@ -3,6 +3,7 @@ import { buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketO
 import { getValidToken, placeLiveBuy, placeLiveSell } from "@/lib/robinhood-live";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
+import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
 const UNIVERSE = {
@@ -362,6 +363,19 @@ async function runForUser(args: {
   const scanSymbols = (candidates as Array<{symbol?: string}>).map((c) => String(c.symbol ?? "")).filter(Boolean);
   const memories = await loadRelevantMemories(supabaseAdmin as never, userId, scanSymbols);
 
+  // Signal → trade bridge: load recent open market signals for context
+  const sixHoursAgo = new Date(Date.now() - 6 * 3600_000).toISOString();
+  const { data: recentSignals } = await supabaseAdmin
+    .from("market_signals")
+    .select("asset, direction, confidence, signal_type, thesis, entry_price, target_price, stop_price")
+    .eq("result", "open")
+    .gte("created_at", sixHoursAgo)
+    .order("confidence", { ascending: false })
+    .limit(15);
+  const signalContext = (recentSignals ?? []).map((s) =>
+    `${s.asset} ${s.direction} (${s.signal_type}, confidence ${s.confidence}, thesis: ${(s.thesis ?? "").slice(0, 100)})`
+  ).join("\n") || "No recent signals.";
+
   const userMessage = {
     session, regime, vix_level: vixLevel,
     portfolio: { cash, equity: currentEquity, cash_pct: cashPct, open_positions_count: openList.length, day_pnl_pct: dayPnlPct, drawdown_pct: drawdownPct },
@@ -379,11 +393,19 @@ async function runForUser(args: {
     })),
     learnings_summary: learningsSummary,
     agent_memory: memories,
+    recent_ai_signals: signalContext,
     margin_available: false,
   };
 
   // Inject memory into user message
   const userMessageWithMemory = { ...userMessage, agent_memory: buildMemorySection(memories) };
+
+  // Build dynamic hard rules from recent weekly learning adjustments
+  const learningAdjustments = (learnings ?? [])
+    .flatMap((l) => Array.isArray(l.adjustments) ? l.adjustments as string[] : [])
+    .slice(0, 8)
+    .map((a, i) => `- LEARNED RULE ${i + 1}: ${a}`)
+    .join("\n");
 
   const systemPrompt = `You are an autonomous portfolio manager with deep expertise in equities, ETFs, crypto, and options (calls, puts, vertical spreads, iron condors). You manage a ring-fenced trading account. Your only goal is to maximize risk-adjusted returns over time.
 
@@ -396,6 +418,8 @@ HARD RULES — never violate these:
 - Session "midday" is intraday only — set hold_duration="intraday" for all midday trades.
 - If defensive_mode is true: LONG stock/etf/crypto only (no shorts, no options, no spreads), conviction must be >= 75.
 - If nothing compelling, return an empty trades array. Doing nothing is always valid.
+- When recent_ai_signals contains signals for a candidate, use them as additional evidence. Aligned signals increase conviction; contradicting signals decrease it.
+${learningAdjustments ? "\nLEARNED RULES FROM PAST PERFORMANCE (treat as hard rules):\n" + learningAdjustments : ""}
 
 Respond with ONLY valid JSON — no prose, no markdown fences:
 {
@@ -439,6 +463,22 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     const sect = SECTOR[t.symbol.toUpperCase()] ?? "other";
     if ((sectorCount.get(sect) ?? 0) >= Math.max(2, Math.floor(openList.length * 0.4))) continue;
 
+    // Trade similarity detector: skip if already open in same asset + same instrument + same direction
+    const alreadyHasSimilar = openList.some((o) => {
+      const sameAsset = String(o.asset).toUpperCase() === t.symbol.toUpperCase();
+      const sameDir = (o.side === "buy") === (t.direction === "long");
+      const oInstr = String(o.instrument ?? "stock").toLowerCase();
+      const tInstr = (t.instrument ?? "stock").toLowerCase();
+      const sameInstrType = (oInstr.includes("call") && tInstr.includes("call")) ||
+        (oInstr.includes("put") && tInstr.includes("put")) ||
+        (["stock","etf","crypto"].includes(oInstr) && ["stock","etf","crypto"].includes(tInstr));
+      return sameAsset && sameDir && sameInstrType;
+    });
+    if (alreadyHasSimilar) {
+      console.log(`[autonomous] skip duplicate position: ${t.symbol} ${t.direction} ${t.instrument}`);
+      continue;
+    }
+
     const price = await fetchQuotePrice(t.symbol);
     if (!price || price <= 0) continue;
     const qty = allocCash / price;
@@ -480,6 +520,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
       instrument: t.instrument,
       options_details: (resolvedOptions ?? null) as never,
+      conviction: t.conviction ?? null,
       rationale: enrichedRationale,
     });
     if (error) { console.error("[autonomous] insert trade", error); continue; }
@@ -503,10 +544,16 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   }
 
   const newCashPct = currentEquity > 0 ? (cashRemaining / currentEquity) * 100 : 0;
+  const agentMsgContent = `${ai.message_to_user}\n\n📊 **Positions opened:** ${opened} | **Cash remaining:** ${newCashPct.toFixed(0)}%${defensive ? " · defensive mode" : ""}${vixLevel != null ? ` · VIX ${vixLevel.toFixed(1)}` : ""}`;
   await supabaseAdmin.from("agent_messages").insert({
     user_id: userId, role: "assistant", is_autonomous: true, session_type: sessionType,
-    content: `${ai.message_to_user}\n\n📊 **Positions opened:** ${opened} | **Cash remaining:** ${newCashPct.toFixed(0)}%${defensive ? " · defensive mode" : ""}${vixLevel != null ? ` · VIX ${vixLevel.toFixed(1)}` : ""}`,
+    content: agentMsgContent,
   });
+  // Fire webhook for agent scan notification
+  await fireWebhook(userId, "agent_scan", {
+    session: sessionType, regime, opened, cash_pct: newCashPct.toFixed(0),
+    message: ai.message_to_user?.slice(0, 500),
+  }).catch(() => {});
   await supabaseAdmin.from("agent_decisions").insert({
     user_id: userId, session_type: sessionType, regime,
     market_assessment: ai.market_assessment, payload: ai as never,

@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { StrategiesPanel } from "./components/StrategiesPanel";
 import { BacktestingPanel, ExitAnalysisPanel } from "./components/BacktestingPanel";
 import { RiskReportPanel } from "./components/RiskReportPanel";
+import { AgentAuditLog } from "./components/AgentAuditLog";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
 import { BrokerPanel } from "./components/BrokerPanel";
@@ -36,6 +37,7 @@ const TAB_ITEMS = [
   { value: "strategies", label: "Strategies", Icon: Brain },
   { value: "backtest", label: "Backtest", Icon: FlaskConical },
   { value: "exit-analysis", label: "Exit Analysis", Icon: TrendingDown },
+  { value: "audit-log", label: "Agent Log", Icon: Brain },
   { value: "risk-report", label: "Risk Report", Icon: Shield },
   { value: "execution", label: "Execution", Icon: Zap },
   { value: "risk", label: "Risk", Icon: Shield },
@@ -294,6 +296,15 @@ export default function TradingDashboard() {
 
           <TabsContent value="strategies">
             <StrategiesPanel />
+          </TabsContent>
+          <TabsContent value="audit-log">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-medium mb-1">Agent Decision Log</h3>
+                <p className="text-xs text-muted-foreground">Every autonomous decision the agent has made — click any row to see what it considered and why.</p>
+              </div>
+              <AgentAuditLog />
+            </div>
           </TabsContent>
           <TabsContent value="exit-analysis">
             {userId && (

@@ -100,14 +100,30 @@ export async function resolveOptionsContract(
 
     // Find closest matching contract
     const candidates = json.results
-      .filter((c) => c.details?.contract_type?.toLowerCase() === direction)
+      .filter((c) => {
+        if (c.details?.contract_type?.toLowerCase() !== direction) return false;
+        // Liquidity filter: skip illiquid contracts
+        const oi = c.open_interest ?? 0;
+        const bid = c.last_quote?.bid ?? 0;
+        const ask = c.last_quote?.ask ?? 0;
+        const mid = (bid + ask) / 2;
+        if (oi < 100) return false; // too little open interest
+        if (mid > 0 && (ask - bid) / mid > 0.25) return false; // spread > 25% of mid = too wide
+        return true;
+      })
       .map((c) => ({
         ...c,
         strikeDiff: Math.abs((c.details?.strike_price ?? 0) - idealStrike),
       }))
       .sort((a, b) => a.strikeDiff - b.strikeDiff);
 
-    const best = candidates[0];
+    // If no liquid contracts found, fall back to best available without liquidity filter
+    const allCandidates = candidates.length > 0 ? candidates : json.results
+      .filter((c) => c.details?.contract_type?.toLowerCase() === direction)
+      .map((c) => ({ ...c, strikeDiff: Math.abs((c.details?.strike_price ?? 0) - idealStrike) }))
+      .sort((a, b) => a.strikeDiff - b.strikeDiff);
+
+    const best = allCandidates[0];
     if (!best?.details) return null;
 
     const bid = best.last_quote?.bid ?? 0;

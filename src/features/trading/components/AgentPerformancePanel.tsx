@@ -19,6 +19,7 @@ type ClosedTrade = {
   hold_duration: string | null;
   stop_loss_pct: number | null;
   take_profit_pct: number | null;
+  conviction: number | null;
   created_at: string;
   closed_at: string | null;
 };
@@ -57,7 +58,7 @@ export function AgentPerformancePanel() {
     queryFn: async () => {
       const { data } = await supabase
         .from("paper_trades")
-        .select("id, asset, side, instrument, pnl, hold_duration, stop_loss_pct, take_profit_pct, created_at, closed_at")
+        .select("id, asset, side, instrument, pnl, hold_duration, stop_loss_pct, take_profit_pct, conviction, created_at, closed_at")
         .eq("user_id", userId!)
         .eq("is_open", false)
         .not("pnl", "is", null)
@@ -184,6 +185,68 @@ export function AgentPerformancePanel() {
 
   return (
     <div className="space-y-4">
+      {/* Conviction calibration chart */}
+      {(() => {
+        const convBuckets = [
+          { label: "0-40 (Low)", min: 0, max: 40 },
+          { label: "40-60 (Med)", min: 40, max: 60 },
+          { label: "60-80 (High)", min: 60, max: 80 },
+          { label: "80-100 (Max)", min: 80, max: 101 },
+        ];
+        const convData = convBuckets.map(({ label, min, max }) => {
+          const bucket = allTrades.filter((t) => {
+            const c = t.conviction;
+            return c != null && c >= min && c < max;
+          });
+          return {
+            label,
+            trades: bucket.length,
+            winRate: Number(winRate(bucket).toFixed(1)),
+            avgPnl: Number(avgPnl(bucket).toFixed(2)),
+          };
+        }).filter((b) => b.trades > 0);
+        if (convData.length < 2) return null;
+        return (
+          <Card className="p-4 border-border/50">
+            <div className="text-xs font-medium mb-1 text-muted-foreground uppercase tracking-wide">
+              Conviction Calibration
+            </div>
+            <p className="text-[10px] text-muted-foreground mb-3">
+              Are high-conviction trades actually winning more? If not, Claude's self-assessment needs tuning.
+            </p>
+            <ResponsiveContainer width="100%" height={140}>
+              <BarChart data={convData}>
+                <XAxis dataKey="label" tick={{ fontSize: 9 }} />
+                <YAxis tick={{ fontSize: 9 }} domain={[0, 100]} unit="%" />
+                <Tooltip
+                  formatter={(v: number) => [`${v.toFixed(0)}%`, "Win Rate"]}
+                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 11 }}
+                />
+                <Bar dataKey="winRate" name="Win Rate" radius={[3, 3, 0, 0]}>
+                  {convData.map((entry, i) => (
+                    <Cell
+                      key={i}
+                      fill={entry.winRate >= 55 ? "hsl(var(--bull))" : entry.winRate >= 45 ? "#f59e0b" : "hsl(var(--bear))"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="mt-2 grid grid-cols-4 gap-1">
+              {convData.map((b) => (
+                <div key={b.label} className="text-center">
+                  <div className="text-[9px] text-muted-foreground">{b.label}</div>
+                  <div className="text-[10px] font-mono">{b.trades} trades</div>
+                  <div className={cn("text-[10px] font-mono", b.avgPnl >= 0 ? "text-emerald-400" : "text-red-400")}>
+                    {b.avgPnl >= 0 ? "+" : ""}${b.avgPnl.toFixed(2)} avg
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        );
+      })()}
+
       {/* Weekly P&L chart */}
       <Card className="p-4 border-border/50">
         <div className="text-xs font-medium mb-3 text-muted-foreground uppercase tracking-wide">
