@@ -348,7 +348,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
         // Only worth doing for the cream of the crop to limit API calls.
         const poly = process.env.POLYGON_API_KEY;
         const mtfMap = new Map<string, { score: number; label: string }>();
-        if (poly && session !== "weekend_prep") {
+        if (poly) {
           const top12 = sorted.slice(0, 12);
           await Promise.allSettled(top12.map(async (c) => {
             try {
