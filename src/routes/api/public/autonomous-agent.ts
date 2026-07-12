@@ -874,7 +874,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
           const scaleCash = (cash * scaleAllocPct) / 100;
           if (scaleCash > 10 && scaleCash < cashRemaining * 0.5) {
             const scaleQty = scaleCash / existingPrice;
-            await supabaseAdmin.from("paper_trades").insert({
+            await (supabaseAdmin as any).from("paper_trades").insert({
               user_id: userId, portfolio_id: portfolio.id,
               asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
               quantity: scaleQty, entry_price: existingPrice, is_open: true,
