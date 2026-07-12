@@ -84,7 +84,7 @@ export function AbTestingPanel() {
   const createTest = useMutation({
     mutationFn: async () => {
       if (!stratA || !stratB || stratA === stratB) throw new Error("Select two different strategies");
-      const { error } = await supabase.from("strategy_ab_tests").insert({
+      const { error } = await (supabase as any).from("strategy_ab_tests").insert({
         user_id: userId!,
         name: testName || `A/B: ${strategies?.find((s) => s.id === stratA)?.name?.slice(0, 20)} vs ${strategies?.find((s) => s.id === stratB)?.name?.slice(0, 20)}`,
         strategy_a_id: stratA,
