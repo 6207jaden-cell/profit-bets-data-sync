@@ -312,9 +312,8 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
 
         // Composite opportunity score: momentum + volume surge + 5-day return + regime alignment
         function opportunityScore(c: typeof allCandidates[0]): number {
-          // Earnings beat bonus (applied before other scoring)
-          const earningsBeat = earningsBeatMap.get(c.symbol);
-          let score = (earningsBeat ? Math.min(Math.abs(earningsBeat) * 0.5, 15) : 0); // earnings surprise bonus
+          // Earnings beat bonus is applied per-user in runForUser; skipped in scan-scope scoring
+          let score = 0;
           score += Math.abs(c.momentum_pct) * 0.3;          // SMA50 momentum
           score += Math.min(c.vol_surge_pct, 200) * 0.02;      // volume surge (capped at 200%)
           score += Math.abs(c.five_day_return) * 0.25;          // 5-day momentum
@@ -349,12 +348,12 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
         // Only worth doing for the cream of the crop to limit API calls.
         const poly = process.env.POLYGON_API_KEY;
         const mtfMap = new Map<string, { score: number; label: string }>();
-        if (poly && session !== "weekend_prep") {
+        if (poly) {
           const top12 = sorted.slice(0, 12);
           await Promise.allSettled(top12.map(async (c) => {
             try {
               const sym = String(c.symbol);
-              const isCrypto = isCryptoSymbol(sym);
+              const isCrypto = /-?USD$/i.test(sym);
               const polySym = isCrypto ? `X:${sym.replace(/-?USD.*$/i, "")}USD` : sym;
 
               // Fetch 1h bars (last 7 days) and weekly bars (last 1 year)
@@ -760,8 +759,8 @@ async function runForUser(args: {
     manual_strategies_firing: strategyBridgeContext,
     earnings_surprises: earningsContext,
     unusual_options_flow: optionsFlowContext,
-    fear_greed_index: fearGreedValue != null ? `${fearGreedValue}/100 (${fearGreedLabel})` : "unavailable",
-    macro_overlay: macroContext,
+    fear_greed_index: "unavailable",
+    macro_overlay: null,
     margin_available: false,
   };
 
@@ -874,11 +873,11 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
           const scaleAllocPct = Math.min(allocPct * 0.5, effectiveMaxPositionPct * 0.3);
           const scaleCash = (cash * scaleAllocPct) / 100;
           if (scaleCash > 10 && scaleCash < cashRemaining * 0.5) {
-            const scaleQty = scaleCash / price;
-            await supabaseAdmin.from("paper_trades").insert({
+            const scaleQty = scaleCash / existingPrice;
+            await (supabaseAdmin as any).from("paper_trades").insert({
               user_id: userId, portfolio_id: portfolio.id,
               asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
-              quantity: scaleQty, entry_price: price, is_open: true,
+              quantity: scaleQty, entry_price: existingPrice, is_open: true,
               hold_duration: t.hold_duration,
               stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
               take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,

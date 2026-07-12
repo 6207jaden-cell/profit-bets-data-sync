@@ -12,14 +12,14 @@ export type IndicatorContext = {
   ema12: number | null;
   ema26: number | null;
   entry_price: number | null;
-  macd: number | null;
-  macd_signal: number | null;
-  macd_histogram: number | null;
-  bb_upper: number | null;
-  bb_lower: number | null;
-  bb_pct_b: number | null;
-  stoch_rsi_k: number | null;
-  stoch_rsi_d: number | null;
+  macd?: number | null;
+  macd_signal?: number | null;
+  macd_histogram?: number | null;
+  bb_upper?: number | null;
+  bb_lower?: number | null;
+  bb_pct_b?: number | null;
+  stoch_rsi_k?: number | null;
+  stoch_rsi_d?: number | null;
 };
 
 // ---------- Indicators ----------

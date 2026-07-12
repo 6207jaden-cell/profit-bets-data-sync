@@ -110,12 +110,14 @@ Respond ONLY with valid JSON (no markdown):
 
     // Save a version snapshot before modifying (for version history)
     const versionNote = `Before applying: "${data.adjustment.slice(0, 100)}"`;
-    await supabase.from("strategy_versions").insert({
-      strategy_id: strategy.id,
-      user_id: userId,
-      strategy_json: strategy.strategy_json,
-      note: versionNote,
-    }).select().maybeSingle().catch(() => null); // silent fail if table doesn't exist yet
+    try {
+      await (supabase as any).from("strategy_versions").insert({
+        strategy_id: strategy.id,
+        user_id: userId,
+        strategy_json: strategy.strategy_json,
+        note: versionNote,
+      });
+    } catch { /* silent fail if table doesn't exist yet */ }
 
     // Apply the changes
     const newStrategyJson = {

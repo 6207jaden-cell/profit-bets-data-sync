@@ -73,7 +73,7 @@ export function AbTestingPanel() {
     enabled: !!userId,
     refetchInterval: 120_000,
     queryFn: async () => {
-      const { data } = await supabase.from("strategy_ab_tests")
+      const { data } = await (supabase as any).from("strategy_ab_tests")
         .select("*")
         .eq("user_id", userId!)
         .order("created_at", { ascending: false });
@@ -84,7 +84,7 @@ export function AbTestingPanel() {
   const createTest = useMutation({
     mutationFn: async () => {
       if (!stratA || !stratB || stratA === stratB) throw new Error("Select two different strategies");
-      const { error } = await supabase.from("strategy_ab_tests").insert({
+      const { error } = await (supabase as any).from("strategy_ab_tests").insert({
         user_id: userId!,
         name: testName || `A/B: ${strategies?.find((s) => s.id === stratA)?.name?.slice(0, 20)} vs ${strategies?.find((s) => s.id === stratB)?.name?.slice(0, 20)}`,
         strategy_a_id: stratA,
