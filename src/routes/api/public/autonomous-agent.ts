@@ -353,7 +353,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           await Promise.allSettled(top12.map(async (c) => {
             try {
               const sym = String(c.symbol);
-              const isCrypto = isCryptoSymbol(sym);
+              const isCrypto = /-?USD$/i.test(sym);
               const polySym = isCrypto ? `X:${sym.replace(/-?USD.*$/i, "")}USD` : sym;
 
               // Fetch 1h bars (last 7 days) and weekly bars (last 1 year)
