@@ -21,6 +21,7 @@ import { Route as ApiPublicSyncRobinhoodBalanceRouteImport } from './routes/api/
 import { Route as ApiPublicSnapshotPortfolioRouteImport } from './routes/api/public/snapshot-portfolio'
 import { Route as ApiPublicResolveSignalsRouteImport } from './routes/api/public/resolve-signals'
 import { Route as ApiPublicGenerateStrategiesRouteImport } from './routes/api/public/generate-strategies'
+import { Route as ApiPublicFridayReviewRouteImport } from './routes/api/public/friday-review'
 import { Route as ApiPublicEvaluateStrategiesRouteImport } from './routes/api/public/evaluate-strategies'
 import { Route as ApiPublicEvaluateAlertsRouteImport } from './routes/api/public/evaluate-alerts'
 import { Route as ApiPublicEmergencyExitRouteImport } from './routes/api/public/emergency-exit'
@@ -93,6 +94,11 @@ const ApiPublicGenerateStrategiesRoute =
     path: '/api/public/generate-strategies',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicFridayReviewRoute = ApiPublicFridayReviewRouteImport.update({
+  id: '/api/public/friday-review',
+  path: '/api/public/friday-review',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicEvaluateStrategiesRoute =
   ApiPublicEvaluateStrategiesRouteImport.update({
     id: '/api/public/evaluate-strategies',
@@ -160,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/api/public/emergency-exit': typeof ApiPublicEmergencyExitRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
+  '/api/public/friday-review': typeof ApiPublicFridayReviewRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
@@ -182,6 +189,7 @@ export interface FileRoutesByTo {
   '/api/public/emergency-exit': typeof ApiPublicEmergencyExitRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
+  '/api/public/friday-review': typeof ApiPublicFridayReviewRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
@@ -206,6 +214,7 @@ export interface FileRoutesById {
   '/api/public/emergency-exit': typeof ApiPublicEmergencyExitRoute
   '/api/public/evaluate-alerts': typeof ApiPublicEvaluateAlertsRoute
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
+  '/api/public/friday-review': typeof ApiPublicFridayReviewRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
@@ -230,6 +239,7 @@ export interface FileRouteTypes {
     | '/api/public/emergency-exit'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
+    | '/api/public/friday-review'
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
@@ -252,6 +262,7 @@ export interface FileRouteTypes {
     | '/api/public/emergency-exit'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
+    | '/api/public/friday-review'
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
@@ -275,6 +286,7 @@ export interface FileRouteTypes {
     | '/api/public/emergency-exit'
     | '/api/public/evaluate-alerts'
     | '/api/public/evaluate-strategies'
+    | '/api/public/friday-review'
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
@@ -295,6 +307,7 @@ export interface RootRouteChildren {
   ApiPublicEmergencyExitRoute: typeof ApiPublicEmergencyExitRoute
   ApiPublicEvaluateAlertsRoute: typeof ApiPublicEvaluateAlertsRoute
   ApiPublicEvaluateStrategiesRoute: typeof ApiPublicEvaluateStrategiesRoute
+  ApiPublicFridayReviewRoute: typeof ApiPublicFridayReviewRoute
   ApiPublicGenerateStrategiesRoute: typeof ApiPublicGenerateStrategiesRoute
   ApiPublicResolveSignalsRoute: typeof ApiPublicResolveSignalsRoute
   ApiPublicSnapshotPortfolioRoute: typeof ApiPublicSnapshotPortfolioRoute
@@ -386,6 +399,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/generate-strategies'
       fullPath: '/api/public/generate-strategies'
       preLoaderRoute: typeof ApiPublicGenerateStrategiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/friday-review': {
+      id: '/api/public/friday-review'
+      path: '/api/public/friday-review'
+      fullPath: '/api/public/friday-review'
+      preLoaderRoute: typeof ApiPublicFridayReviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/evaluate-strategies': {
@@ -484,6 +504,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicEmergencyExitRoute: ApiPublicEmergencyExitRoute,
   ApiPublicEvaluateAlertsRoute: ApiPublicEvaluateAlertsRoute,
   ApiPublicEvaluateStrategiesRoute: ApiPublicEvaluateStrategiesRoute,
+  ApiPublicFridayReviewRoute: ApiPublicFridayReviewRoute,
   ApiPublicGenerateStrategiesRoute: ApiPublicGenerateStrategiesRoute,
   ApiPublicResolveSignalsRoute: ApiPublicResolveSignalsRoute,
   ApiPublicSnapshotPortfolioRoute: ApiPublicSnapshotPortfolioRoute,
