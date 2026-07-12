@@ -22,6 +22,7 @@ import { StrategiesPanel } from "./components/StrategiesPanel";
 import { BacktestingPanel, ExitAnalysisPanel } from "./components/BacktestingPanel";
 import { RiskReportPanel } from "./components/RiskReportPanel";
 import { AgentAuditLog } from "./components/AgentAuditLog";
+import { GettingStartedBanner } from "./components/GettingStartedBanner";
 import { AbTestingPanel } from "./components/AbTestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
@@ -33,22 +34,46 @@ import { CatalystsPanel } from "./components/CatalystsPanel";
 import { AgentBacktestModal } from "./components/AgentBacktestModal";
 import { TopNav } from "@/components/TopNav";
 
-const TAB_ITEMS = [
-  { value: "overview", label: "Overview", Icon: Activity },
-  { value: "strategies", label: "Strategies", Icon: Brain },
-  { value: "backtest", label: "Backtest", Icon: FlaskConical },
-  { value: "exit-analysis", label: "Exit Analysis", Icon: TrendingDown },
-  { value: "audit-log", label: "Agent Log", Icon: ScrollText },
-  { value: "ab-testing", label: "A/B Tests", Icon: TestTubes },
-  { value: "risk-report", label: "Risk Report", Icon: ShieldCheck },
-  { value: "execution", label: "Execution", Icon: Zap },
-  { value: "risk", label: "Risk", Icon: Shield },
-  { value: "broker", label: "Broker", Icon: Link2 },
-  { value: "agent", label: "Agent", Icon: Bot },
-  { value: "leaderboard", label: "Leaderboard", Icon: Trophy },
-  { value: "options", label: "Options", Icon: Sigma },
-  { value: "catalysts", label: "Catalysts", Icon: Newspaper },
+// Tab groups for organized navigation
+const TAB_GROUPS = [
+  {
+    label: "Main",
+    items: [
+      { value: "overview", label: "Overview", Icon: Activity },
+      { value: "agent", label: "Agent", Icon: Bot },
+      { value: "execution", label: "Positions", Icon: Zap },
+      { value: "leaderboard", label: "Leaderboard", Icon: Trophy },
+    ],
+  },
+  {
+    label: "Strategy",
+    items: [
+      { value: "strategies", label: "Strategies", Icon: Brain },
+      { value: "backtest", label: "Backtest", Icon: FlaskConical },
+      { value: "ab-testing", label: "A/B Tests", Icon: TestTubes },
+    ],
+  },
+  {
+    label: "Analysis",
+    items: [
+      { value: "risk-report", label: "Risk Report", Icon: ShieldCheck },
+      { value: "exit-analysis", label: "Exit Analysis", Icon: TrendingDown },
+      { value: "options", label: "Options Flow", Icon: Sigma },
+      { value: "catalysts", label: "Catalysts", Icon: Newspaper },
+    ],
+  },
+  {
+    label: "Logs & Config",
+    items: [
+      { value: "audit-log", label: "Agent Log", Icon: ScrollText },
+      { value: "risk", label: "Risk Config", Icon: Shield },
+      { value: "broker", label: "Broker", Icon: Link2 },
+    ],
+  },
 ] as const;
+
+const TAB_ITEMS = TAB_GROUPS.flatMap((g) => g.items);
+type TabValue = typeof TAB_ITEMS[number]["value"];
 
 export default function TradingDashboard() {
   const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
@@ -149,8 +174,8 @@ export default function TradingDashboard() {
 
       <aside className="hidden md:flex w-56 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground p-4 sticky top-0 h-screen">
         <div className="flex items-center gap-2 mb-8">
-          <TrendingUp className="h-5 w-5 text-primary" />
-          <span className="font-display font-semibold">Markets</span>
+          <Brain className="h-5 w-5 text-primary" />
+          <span className="font-display font-semibold">AI Trading</span>
         </div>
         <nav className="flex-1 space-y-1 text-sm">
           <Link to="/markets" className="flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-sidebar-accent/50">
@@ -205,15 +230,42 @@ export default function TradingDashboard() {
 
         <Tabs value={tab} onValueChange={setTab} className="p-4 sm:p-6">
           <MobileTabSelect value={tab} onChange={setTab} />
-          <TabsList className="mb-6 hidden md:flex w-full flex-wrap gap-1 h-auto justify-start">
-            {TAB_ITEMS.map(({ value, label, Icon }) => (
-              <TabsTrigger key={value} value={value}>
-                <Icon className="h-3.5 w-3.5 mr-1.5" />{label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          {/* Grouped tab navigation — desktop */}
+          <div className="mb-6 hidden md:flex flex-col gap-0 border-b border-border pb-3">
+            <div className="flex flex-wrap gap-4 items-start">
+              {TAB_GROUPS.map((group) => (
+                <div key={group.label} className="flex flex-col gap-0.5">
+                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1 px-1">
+                    {group.label}
+                  </span>
+                  <div className="flex flex-wrap gap-0.5">
+                    {group.items.map(({ value, label, Icon }) => (
+                      <button
+                        key={value}
+                        onClick={() => setTab(value)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                          tab === value
+                            ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                        )}
+                      >
+                        <Icon className="h-3 w-3" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
           <TabsContent value="overview" className="space-y-6">
+            {/* Getting started banner — only shown when account is empty */}
+            <GettingStartedBanner
+              userId={userId}
+              onNavigate={setTab}
+            />
             <section aria-labelledby="paper-portfolio" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <h2 id="paper-portfolio" className="sr-only">Paper Portfolio</h2>
               <div className="lg:col-span-2">
@@ -221,23 +273,27 @@ export default function TradingDashboard() {
               </div>
               <Card className="p-4 sm:p-5 border-border bg-card">
                 <header className="flex items-center justify-between mb-4">
-                  <h3 className="font-display font-semibold">Quick Actions</h3>
+                  <h3 className="font-display font-semibold">Go to</h3>
                 </header>
                 <div className="space-y-1">
-                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("strategies")}>
-                    <Brain className="h-3.5 w-3.5 mr-2 text-primary" /> Build a strategy
-                  </Button>
-                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("backtest")}>
-                    <FlaskConical className="h-3.5 w-3.5 mr-2 text-primary" /> Run a backtest
-                  </Button>
                   <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("agent")}>
-                    <Bot className="h-3.5 w-3.5 mr-2 text-primary" /> Ask the agent
+                    <Bot className="h-3.5 w-3.5 mr-2 text-primary" /> AI Agent
+                    <span className="ml-auto text-[10px] text-muted-foreground">Main feature</span>
                   </Button>
-                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("catalysts")}>
-                    <Activity className="h-3.5 w-3.5 mr-2 text-primary" /> News catalysts
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("execution")}>
+                    <Zap className="h-3.5 w-3.5 mr-2 text-primary" /> Open Positions
                   </Button>
                   <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("leaderboard")}>
-                    <Trophy className="h-3.5 w-3.5 mr-2 text-primary" /> View leaderboard
+                    <Trophy className="h-3.5 w-3.5 mr-2 text-primary" /> Strategy Leaderboard
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("strategies")}>
+                    <Brain className="h-3.5 w-3.5 mr-2 text-primary" /> Strategies
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("backtest")}>
+                    <FlaskConical className="h-3.5 w-3.5 mr-2 text-primary" /> Backtest
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setTab("catalysts")}>
+                    <Newspaper className="h-3.5 w-3.5 mr-2 text-primary" /> News Catalysts
                   </Button>
                   {userId && (
                     <div className="pt-2">
@@ -394,20 +450,27 @@ function MobileTabSelect({ value, onChange }: { value: string; onChange: (v: str
   return (
     <div className="mb-4 md:hidden">
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="w-full h-10">
           <span className="flex items-center gap-2">
             <CurrentIcon className="h-4 w-4 text-primary" />
-            <span>{current.label}</span>
+            <span className="font-medium">{current.label}</span>
           </span>
         </SelectTrigger>
         <SelectContent>
-          {TAB_ITEMS.map(({ value: v, label, Icon }) => (
-            <SelectItem key={v} value={v}>
-              <span className="flex items-center gap-2">
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </span>
-            </SelectItem>
+          {TAB_GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="px-2 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
+                {group.label}
+              </div>
+              {group.items.map(({ value: v, label, Icon }) => (
+                <SelectItem key={v} value={v}>
+                  <span className="flex items-center gap-2">
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </span>
+                </SelectItem>
+              ))}
+            </div>
           ))}
         </SelectContent>
       </Select>
