@@ -607,8 +607,7 @@ function ApplyAdjustmentButtons({ content }: { content: string }) {
 
   // Extract adjustments from the message content (look for bullet points or numbered items)
   const adjustments = content
-    .split(/
-/)
+    .split(/\n/)
     .map((l) => l.replace(/^[-•*\d.]+\s*/, "").trim())
     .filter((l) => l.length > 20 && l.length < 400);
 
