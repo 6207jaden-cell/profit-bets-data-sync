@@ -480,9 +480,11 @@ function MobileTabSelect({ value, onChange }: { value: string; onChange: (v: str
 
 function EquityCurveCard({ userId, equity, cash, start }: { userId: string | null; equity: number; cash: number; start: number }) {
   const [showBench, setShowBench] = useState(false);
+
   const snaps = useQuery({
     queryKey: ["equity-snapshots", userId],
     enabled: !!userId,
+    staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("portfolio_snapshots")
@@ -493,78 +495,172 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
       return data ?? [];
     },
   });
+
   const rows = snaps.data ?? [];
   const positive = equity >= start;
   const stroke = positive ? "hsl(var(--bull))" : "hsl(var(--bear))";
 
+  // Fetch SPY bars covering the same period as our snapshots
   const barsFn = useServerFn(getHistoricalBars);
-  const days = Math.max(30, rows.length);
+  const firstSnapDate = rows.length > 0 ? new Date(rows[0].created_at) : null;
+  const daysSinceFirst = firstSnapDate
+    ? Math.max(15, Math.ceil((Date.now() - firstSnapDate.getTime()) / 86_400_000) + 5)
+    : 30;
+
   const spy = useQuery({
-    queryKey: ["spy-bench", days],
+    queryKey: ["spy-bench-v2", daysSinceFirst],
     enabled: showBench && rows.length >= 2,
     staleTime: 6 * 3600_000,
-    queryFn: () => barsFn({ data: { symbol: "SPY", days } }),
+    queryFn: () => barsFn({ data: { symbol: "SPY", days: daysSinceFirst } }),
   });
 
-  const chartData = rows.map((r, i) => {
+  // Build chart data with proper date-aligned SPY values
+  const chartData = rows.map((r) => {
     const point: { date: string; equity: number; spy?: number } = {
       date: new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" }),
       equity: Number(r.equity),
     };
-    if (showBench && spy.data?.points && spy.data.points.length > 0) {
-      // Normalize SPY to same starting equity; pick from tail to align most recent day.
+
+    if (showBench && spy.data?.ok && spy.data.points.length > 0) {
       const spyPts = spy.data.points;
-      const spyStart = spyPts[0].close;
-      const idx = Math.min(spyPts.length - 1, Math.floor((i / Math.max(1, rows.length - 1)) * (spyPts.length - 1)));
-      const ratio = spyPts[idx].close / spyStart;
-      point.spy = start * ratio;
+      // Find the SPY bar whose timestamp is closest to this snapshot's date
+      const snapTs = new Date(r.created_at).getTime();
+      let bestIdx = 0;
+      let bestDiff = Math.abs(spyPts[0].t - snapTs);
+      for (let j = 1; j < spyPts.length; j++) {
+        const diff = Math.abs(spyPts[j].t - snapTs);
+        if (diff < bestDiff) { bestDiff = diff; bestIdx = j; }
+      }
+      // Normalize: SPY starting price maps to our starting balance
+      const spyStartClose = spyPts[0].close;
+      const spyCurrentClose = spyPts[bestIdx].close;
+      point.spy = Number((start * (spyCurrentClose / spyStartClose)).toFixed(2));
     }
+
     return point;
   });
 
+  // Compute alpha: how much we beat/lost vs SPY
+  let vsSpyPct: number | null = null;
+  if (showBench && spy.data?.ok && rows.length >= 2) {
+    const lastSpyValue = chartData[chartData.length - 1]?.spy;
+    if (lastSpyValue != null && lastSpyValue > 0) {
+      const portfolioPct = ((equity - start) / start) * 100;
+      const spyPct = ((lastSpyValue - start) / start) * 100;
+      vsSpyPct = portfolioPct - spyPct;
+    }
+  }
+
   return (
     <Card className="p-4 sm:p-5 border-border bg-card">
-      <header className="flex items-center justify-between mb-3 gap-2">
+      <header className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate">
           <LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* VS SPY toggle */}
           <button
             onClick={() => setShowBench((v) => !v)}
             className={cn(
-              "text-[10px] font-mono uppercase px-2 py-0.5 rounded border transition",
-              showBench ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground",
+              "text-[10px] font-mono uppercase px-2.5 py-1 rounded border transition-all",
+              showBench
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/50"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-amber-500/40",
             )}
-          >vs SPY</button>
+          >
+            {spy.isLoading ? "Loading…" : "vs SPY"}
+          </button>
+
+          {/* Alpha badge */}
+          {vsSpyPct != null && (
+            <span className={cn(
+              "text-[11px] font-mono font-bold px-1.5 py-0.5 rounded",
+              vsSpyPct >= 0
+                ? "text-emerald-300 bg-emerald-500/15"
+                : "text-red-300 bg-red-500/15"
+            )}>
+              {vsSpyPct >= 0 ? "+" : ""}{vsSpyPct.toFixed(1)}% vs SPY
+            </span>
+          )}
+
+          {/* Error */}
+          {showBench && !spy.isLoading && spy.data && !spy.data.ok && (
+            <span className="text-[10px] text-red-400">SPY data unavailable</span>
+          )}
+
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">simulated</span>
         </div>
       </header>
+
+      {/* Legend */}
+      {showBench && spy.data?.ok && (
+        <div className="flex items-center gap-4 mb-2 text-[10px] text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-[2px] w-5 rounded" style={{ background: stroke }} />
+            Your portfolio
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-[2px] w-5 rounded" style={{ background: "#f59e0b", borderTop: "2px dashed #f59e0b" }} />
+            SPY (normalized to $start)
+          </span>
+        </div>
+      )}
+
       {chartData.length >= 2 ? (
-        <div className="h-40 mb-3">
+        <div className="h-44 mb-3">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
+            <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="eq-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={stroke} stopOpacity={0.35} />
+                  <stop offset="0%" stopColor={stroke} stopOpacity={0.3} />
                   <stop offset="100%" stopColor={stroke} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" domain={["auto", "auto"]} />
-              <RTooltip
-                contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
-                formatter={(v: number, name: string) => [`$${v.toFixed(2)}`, name === "spy" ? "SPY (norm)" : "Equity"]}
+              <YAxis
+                tick={{ fontSize: 10 }}
+                stroke="hsl(var(--muted-foreground))"
+                domain={["auto", "auto"]}
+                width={58}
+                tickFormatter={(v: number) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`}
               />
-              <Area type="monotone" dataKey="equity" stroke={stroke} fill="url(#eq-fill)" strokeWidth={2} />
-              {showBench && spy.data?.points && (
-                <Area type="monotone" dataKey="spy" stroke="hsl(var(--muted-foreground))" fill="none" strokeWidth={1.5} strokeDasharray="4 3" />
+              <RTooltip
+                contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12, borderRadius: 8 }}
+                formatter={(v: number, key: string) => [
+                  `$${Number(v).toFixed(2)}`,
+                  key === "spy" ? "SPY (normalized)" : "Your portfolio",
+                ]}
+              />
+              <Area
+                type="monotone"
+                dataKey="equity"
+                stroke={stroke}
+                fill="url(#eq-fill)"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 3 }}
+              />
+              {showBench && spy.data?.ok && (
+                <Area
+                  type="monotone"
+                  dataKey="spy"
+                  stroke="#f59e0b"
+                  fill="none"
+                  strokeWidth={2}
+                  strokeDasharray="5 3"
+                  dot={false}
+                  activeDot={{ r: 3, fill: "#f59e0b" }}
+                />
               )}
             </AreaChart>
           </ResponsiveContainer>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground mb-3">Chart builds after first daily snapshot.</p>
+        <p className="text-xs text-muted-foreground mb-3 py-6 text-center">
+          Chart builds after the first daily snapshot runs at 9am ET.
+        </p>
       )}
+
       <div className="grid grid-cols-3 gap-3 sm:gap-4">
         <div className="min-w-0">
           <div className="text-xs text-muted-foreground">Equity</div>
