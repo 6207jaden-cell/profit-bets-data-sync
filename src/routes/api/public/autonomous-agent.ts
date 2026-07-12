@@ -312,9 +312,8 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
 
         // Composite opportunity score: momentum + volume surge + 5-day return + regime alignment
         function opportunityScore(c: typeof allCandidates[0]): number {
-          // Earnings beat bonus (applied before other scoring)
-          const earningsBeat = earningsBeatMap.get(c.symbol);
-          let score = (earningsBeat ? Math.min(Math.abs(earningsBeat) * 0.5, 15) : 0); // earnings surprise bonus
+          // Earnings beat bonus is applied per-user in runForUser; skipped in scan-scope scoring
+          let score = 0;
           score += Math.abs(c.momentum_pct) * 0.3;          // SMA50 momentum
           score += Math.min(c.vol_surge_pct, 200) * 0.02;      // volume surge (capped at 200%)
           score += Math.abs(c.five_day_return) * 0.25;          // 5-day momentum
