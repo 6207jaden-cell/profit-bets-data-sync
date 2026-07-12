@@ -48,7 +48,7 @@ export function PortfolioHeatMap({ onExplain }: { onExplain?: (asset: string, pn
         .select("id, asset, side, instrument, quantity, entry_price, stop_loss_pct, take_profit_pct, conviction, created_at")
         .eq("user_id", userId!)
         .eq("is_open", true);
-      return (data ?? []) as OpenTrade[];
+      return (data ?? []) as unknown as OpenTrade[];
     },
   });
 
