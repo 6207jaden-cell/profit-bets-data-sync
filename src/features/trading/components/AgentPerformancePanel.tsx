@@ -20,7 +20,7 @@ type ClosedTrade = {
   hold_duration: string | null;
   stop_loss_pct: number | null;
   take_profit_pct: number | null;
-  conviction: number | null;
+  conviction?: number | null;  // optional - column may not exist yet
   created_at: string;
   closed_at: string | null;
 };
@@ -59,7 +59,7 @@ export function AgentPerformancePanel() {
     queryFn: async () => {
       const { data } = await supabase
         .from("paper_trades")
-        .select("id, asset, side, instrument, pnl, hold_duration, stop_loss_pct, take_profit_pct, conviction, created_at, closed_at")
+        .select("id, asset, side, instrument, pnl, hold_duration, stop_loss_pct, take_profit_pct, created_at, closed_at")
         .eq("user_id", userId!)
         .eq("is_open", false)
         .not("pnl", "is", null)

@@ -271,7 +271,7 @@ export default function TradingDashboard() {
               <div className="lg:col-span-2">
                 <EquityCurveCard userId={userId} equity={equity} cash={Number(p?.balance ?? 0)} start={start} />
               </div>
-              <Card className="p-4 sm:p-5 border-border bg-card">
+              <Card className="p-4 sm:p-5 border-border/60 bg-card shadow-sm">
                 <header className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold">Go to</h3>
                 </header>
@@ -509,7 +509,7 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
 
   const spy = useQuery({
     queryKey: ["spy-bench-v2", daysSinceFirst],
-    enabled: showBench && rows.length >= 2,
+    enabled: showBench && rows.length >= 1,
     staleTime: 6 * 3600_000,
     queryFn: () => barsFn({ data: { symbol: "SPY", days: daysSinceFirst } }),
   });
@@ -561,14 +561,23 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
           {/* VS SPY toggle */}
           <button
             onClick={() => setShowBench((v) => !v)}
+            title="Compare your portfolio returns against the S&P 500"
             className={cn(
-              "text-[10px] font-mono uppercase px-2.5 py-1 rounded border transition-all",
+              "text-[10px] font-semibold uppercase px-2.5 py-1 rounded border transition-all",
               showBench
                 ? "bg-amber-500/20 text-amber-300 border-amber-500/50"
-                : "border-border text-muted-foreground hover:text-foreground hover:border-amber-500/40",
+                : "border-border/60 text-muted-foreground hover:text-amber-300 hover:border-amber-500/40 hover:bg-amber-500/10",
             )}
           >
-            {spy.isLoading ? "Loading…" : "vs SPY"}
+            {spy.isLoading ? (
+              <span className="flex items-center gap-1">
+                <svg className="h-2.5 w-2.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                Loading
+              </span>
+            ) : "vs SPY"}
           </button>
 
           {/* Alpha badge */}
@@ -606,7 +615,7 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
         </div>
       )}
 
-      {chartData.length >= 2 ? (
+      {chartData.length >= 1 ? (
         <div className="h-44 mb-3">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
@@ -656,9 +665,13 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
           </ResponsiveContainer>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground mb-3 py-6 text-center">
-          Chart builds after the first daily snapshot runs at 9am ET.
-        </p>
+        <div className="py-8 text-center space-y-2">
+          <p className="text-sm text-muted-foreground">No equity history yet.</p>
+          <p className="text-xs text-muted-foreground/70">
+            The portfolio snapshot runs daily at 9am ET.<br />
+            Your first chart point will appear tomorrow morning.
+          </p>
+        </div>
       )}
 
       <div className="grid grid-cols-3 gap-3 sm:gap-4">

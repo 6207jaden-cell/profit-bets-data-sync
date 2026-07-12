@@ -14,7 +14,6 @@ type OpenTrade = {
   entry_price: number;
   stop_loss_pct: number | null;
   take_profit_pct: number | null;
-  conviction: number | null;
   created_at: string;
 };
 
@@ -45,7 +44,7 @@ export function PortfolioHeatMap({ onExplain }: { onExplain?: (asset: string, pn
     queryFn: async () => {
       const { data } = await supabase
         .from("paper_trades")
-        .select("id, asset, side, instrument, quantity, entry_price, stop_loss_pct, take_profit_pct, conviction, created_at")
+        .select("id, asset, side, instrument, quantity, entry_price, stop_loss_pct, take_profit_pct, created_at")
         .eq("user_id", userId!)
         .eq("is_open", true);
       return (data ?? []) as unknown as OpenTrade[];
@@ -170,16 +169,7 @@ export function PortfolioHeatMap({ onExplain }: { onExplain?: (asset: string, pn
                 <Badge className="text-[8px] bg-white/10 text-white/80 border-none py-0 px-1">
                   {instr.slice(0, 5)}
                 </Badge>
-                {pos.conviction != null && (
-                  <Badge className={cn(
-                    "text-[8px] border-none py-0 px-1",
-                    pos.conviction >= 80 ? "bg-emerald-900/60 text-emerald-200" :
-                    pos.conviction >= 60 ? "bg-amber-900/60 text-amber-200" :
-                    "bg-zinc-900/60 text-zinc-300"
-                  )}>
-                    {pos.conviction}%
-                  </Badge>
-                )}
+
               </div>
               {stopDist != null && pos.livePrice && (
                 <div className="text-[9px] text-white/50 mt-0.5">
