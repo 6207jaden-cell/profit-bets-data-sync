@@ -419,7 +419,9 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               userId: u.user_id,
               executionMode: u.autonomous_execution_mode ?? "paper",
               session, sessionType, regime, vixLevel,
-              candidates: sortedWithMtf, supabaseAdmin, settings,
+              fearGreedIndex: fearGreedValue != null ? `${fearGreedValue}/100 (${fearGreedLabel})` : "unavailable",
+            macroOverlay: macroContext,
+            candidates: sortedWithMtf, supabaseAdmin, settings,
             });
             if (result.skipped) skipped.push({ user: u.user_id, reason: result.skipped });
             totalOpened += result.opened;
@@ -445,11 +447,13 @@ async function runForUser(args: {
   sessionType: string;
   regime: string;
   vixLevel: number | null;
+  fearGreedIndex: string;
+  macroOverlay: string;
   candidates: Array<Record<string, unknown>>;
   supabaseAdmin: Awaited<ReturnType<typeof getAdmin>>;
   settings: AgentSettings;
 }): Promise<{ opened: number; skipped?: string }> {
-  const { userId, session, sessionType, regime, vixLevel, candidates, supabaseAdmin, executionMode, settings } = args;
+  const { userId, session, sessionType, regime, vixLevel, fearGreedIndex, macroOverlay, candidates, supabaseAdmin, executionMode, settings } = args;
 
   const { data: portfolio } = await supabaseAdmin
     .from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
@@ -759,8 +763,8 @@ async function runForUser(args: {
     manual_strategies_firing: strategyBridgeContext,
     earnings_surprises: earningsContext,
     unusual_options_flow: optionsFlowContext,
-    fear_greed_index: fearGreedValue != null ? `${fearGreedValue}/100 (${fearGreedLabel})` : "unavailable",
-    macro_overlay: macroContext,
+    fear_greed_index: fearGreedIndex,
+    macro_overlay: macroOverlay,
     margin_available: false,
   };
 

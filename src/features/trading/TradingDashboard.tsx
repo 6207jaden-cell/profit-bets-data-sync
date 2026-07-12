@@ -72,8 +72,8 @@ const TAB_GROUPS = [
   },
 ] as const;
 
-const TAB_ITEMS = TAB_GROUPS.flatMap((g) => g.items);
-type TabValue = typeof TAB_ITEMS[number]["value"];
+type TabItem = { value: string; label: string; Icon: React.ComponentType<{ className?: string }> };
+const TAB_ITEMS: TabItem[] = TAB_GROUPS.flatMap((g) => [...g.items] as TabItem[]);
 
 export default function TradingDashboard() {
   const { tier, tierLabel, isAdmin, email, userId, loading } = useProfile();
@@ -445,7 +445,7 @@ function LiveStatus({ updatedAt }: { updatedAt?: string | null }) {
 function MobileTabSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const isMobile = useMediaQuery("(max-width: 767px)");
   if (!isMobile) return null;
-  const current = TAB_ITEMS.find((t) => t.value === value) ?? TAB_ITEMS[0];
+  const current: TabItem = (TAB_ITEMS.find((t) => t.value === value) ?? TAB_ITEMS[0]) as TabItem;
   const CurrentIcon = current.Icon;
   return (
     <div className="mb-4 md:hidden">
