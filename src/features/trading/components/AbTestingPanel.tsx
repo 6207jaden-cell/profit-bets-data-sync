@@ -73,7 +73,7 @@ export function AbTestingPanel() {
     enabled: !!userId,
     refetchInterval: 120_000,
     queryFn: async () => {
-      const { data } = await supabase.from("strategy_ab_tests")
+      const { data } = await (supabase as any).from("strategy_ab_tests")
         .select("*")
         .eq("user_id", userId!)
         .order("created_at", { ascending: false });
