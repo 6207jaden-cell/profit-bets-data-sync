@@ -118,10 +118,12 @@ export function GettingStartedBanner({
               key={i}
               onClick={() => !step.done && onNavigate(step.tab)}
               disabled={step.done}
+              aria-disabled={step.done}
+              tabIndex={step.done ? -1 : 0}
               className={cn(
                 "text-left rounded-lg border p-3 transition-all group",
                 step.done
-                  ? "border-emerald-500/30 bg-emerald-950/30 opacity-75 cursor-default"
+                  ? "border-emerald-500/30 bg-emerald-950/30 opacity-60 cursor-not-allowed pointer-events-none"
                   : "border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
               )}
             >

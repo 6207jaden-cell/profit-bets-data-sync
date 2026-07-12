@@ -336,7 +336,7 @@ function OpenPositionsCard({
           <p className="text-xs">
             Your active strategies will automatically open positions every 5 minutes when their entry conditions are met.
           </p>
-          <a href="/trading?tab=strategies" className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
+          <a href="/trading?tab=strategies" onClick={(e) => { e.preventDefault(); window.location.assign("/trading?tab=strategies"); }} className="inline-flex items-center gap-1 text-primary hover:underline text-xs font-medium">
             Go to Strategies →
           </a>
         </div>

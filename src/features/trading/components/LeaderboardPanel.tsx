@@ -191,7 +191,7 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
               Create your first strategy in the Strategies tab or wait for the AI Lab to populate this list.
             </p>
             <div className="flex justify-center gap-2 pt-1">
-              <a href="/trading?tab=strategies" className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">
+              <a href="/trading?tab=strategies" className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90" onClick={(e) => { e.preventDefault(); window.location.assign("/trading?tab=strategies"); }}>
                 Create Strategy
               </a>
               <button

@@ -1,4 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useProfile } from "@/hooks/use-profile";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +99,21 @@ async function fetchOptionsFlow(): Promise<OptionsFlow[]> {
 }
 
 export function OptionsFlowPanel() {
+  const { userId } = useProfile();
+  const qc = useQueryClient();
+  const addToWatchlist = useMutation({
+    mutationFn: async (symbol: string) => {
+      if (!userId) return;
+      const { error } = await supabase.from("market_tracking").insert({
+        user_id: userId,
+        asset: symbol.toUpperCase(),
+        asset_type: "stock",
+      });
+      if (error && !error.message.includes("duplicate")) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["market-tracking"] }),
+  });
+
   const { data: flow, isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["options-flow"],
     queryFn: fetchOptionsFlow,
@@ -199,13 +216,25 @@ export function OptionsFlowPanel() {
                   </span>
                 </div>
               </div>
-              <div className="flex gap-3 mt-1.5 text-[10px] text-muted-foreground font-mono">
-                <span>Vol: {f.volume.toLocaleString()}</span>
-                <span>OI: {f.open_interest.toLocaleString()}</span>
-                <span className={cn(f.vol_oi_ratio > 2 ? "text-amber-400" : "")}>
-                  Vol/OI: {f.vol_oi_ratio}x
-                </span>
-                <span>IV: {f.implied_vol}%</span>
+              <div className="flex items-center justify-between mt-1.5">
+                <div className="flex gap-3 text-[10px] text-muted-foreground font-mono">
+                  <span>Vol: {f.volume.toLocaleString()}</span>
+                  <span>OI: {f.open_interest.toLocaleString()}</span>
+                  <span className={cn(f.vol_oi_ratio > 2 ? "text-amber-400" : "")}>
+                    Vol/OI: {f.vol_oi_ratio}x
+                  </span>
+                  <span>IV: {f.implied_vol}%</span>
+                </div>
+                {userId && (
+                  <button
+                    onClick={() => addToWatchlist.mutate(f.symbol)}
+                    disabled={addToWatchlist.isPending}
+                    className="text-[10px] text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-primary/10"
+                    title="Add to watchlist"
+                  >
+                    + Watch
+                  </button>
+                )}
               </div>
             </Card>
           ))}

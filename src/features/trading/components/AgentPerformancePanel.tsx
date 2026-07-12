@@ -52,7 +52,7 @@ function avgPnl(trades: ClosedTrade[]): number {
 export function AgentPerformancePanel() {
   const { userId } = useProfile();
 
-  const { data: trades, isLoading: tradesLoading } = useQuery({
+  const { data: trades, isLoading: tradesLoading, refetch } = useQuery({
     queryKey: ["agent-perf-trades", userId],
     enabled: !!userId,
     staleTime: 300_000,
@@ -94,6 +94,7 @@ export function AgentPerformancePanel() {
       <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
         <Brain className="h-8 w-8 opacity-30" />
         <p>Need at least 3 closed trades to show analytics.</p>
+        <button onClick={() => refetch()} className="text-xs text-primary hover:underline mt-1">Refresh</button>
       </div>
     );
   }

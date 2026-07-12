@@ -45,7 +45,7 @@ const BETA_PROXY: Record<string, number> = {
 export function RiskReportPanel() {
   const { userId } = useProfile();
 
-  const { data: trades, isLoading } = useQuery({
+  const { data: trades, isLoading, refetch } = useQuery({
     queryKey: ["risk-report-trades", userId],
     enabled: !!userId,
     staleTime: 60_000,
@@ -173,6 +173,10 @@ export function RiskReportPanel() {
             <Shield className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Portfolio Risk Score</span>
           </div>
+          <button onClick={() => refetch()} className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            Refresh
+          </button>
           <div className="flex items-center gap-2">
             <span className={cn("text-2xl font-mono font-bold", riskScore.color)}>
               {riskScore.score.toFixed(1)}

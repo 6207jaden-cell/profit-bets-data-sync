@@ -270,7 +270,7 @@ export function BacktestingPanel() {
 
       {result && <BacktestResultView result={result} title="Backtest" />}
       {wfResult && <WalkForwardResultView wf={wfResult} />}
-      {optResult && <OptimizationResultView opt={optResult} />}
+      {optResult && <OptimizationResultView opt={optResult} strategyId={selectedId} />}
       {mcResult && <MonteCarloResultView mc={mcResult} />}
 
       {history.data && history.data.length > 0 && (
@@ -404,7 +404,44 @@ function MiniStats({ label, r, accent }: { label: string; r: WFSuccess["train"];
   );
 }
 
-function OptimizationResultView({ opt }: { opt: OptSuccess }) {
+function OptimizationResultView({ opt, strategyId }: { opt: OptSuccess; strategyId: string | null }) {
+  const [applying, setApplying] = useState<number | null>(null);
+  const [applied, setApplied] = useState<number | null>(null);
+  const qc = useQueryClient();
+
+  async function applyParams(idx: number) {
+    const r = opt.top[idx];
+    if (!strategyId || !r) return;
+    setApplying(idx);
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data: strat } = await supabase.from("strategies").select("strategy_json").eq("id", strategyId).maybeSingle();
+      if (!strat) return;
+      const sj = strat.strategy_json as Record<string, unknown>;
+      // Replace indicator periods in entry/exit conditions
+      const replaceParams = (cond: string) =>
+        cond
+          .replace(/RSI\(\d+\)/gi, `RSI(${r.params.rsi_period})`)
+          .replace(/rsi\(\d+\)/gi, `rsi(${r.params.rsi_period})`)
+          .replace(/SMA\(20\)/gi, `SMA(${r.params.sma_short})`)
+          .replace(/SMA\(50\)/gi, `SMA(${r.params.sma_long})`)
+          .replace(/sma20/gi, `sma${r.params.sma_short}`)
+          .replace(/sma50/gi, `sma${r.params.sma_long}`);
+      const newSj = {
+        ...sj,
+        entry: { ...(sj.entry as Record<string,unknown>), conditions: ((sj.entry as Record<string,unknown[]>).conditions as string[]).map(replaceParams) },
+        exit: { ...(sj.exit as Record<string,unknown>), conditions: ((sj.exit as Record<string,unknown[]>).conditions as string[]).map(replaceParams) },
+      };
+      await supabase.from("strategies").update({ strategy_json: newSj as never }).eq("id", strategyId);
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+      setApplied(idx);
+    } catch (e) {
+      console.error("Apply params error:", e);
+    } finally {
+      setApplying(null);
+    }
+  }
+
   return (
     <Card className="p-5 border-border bg-card">
       <header className="flex items-center justify-between mb-3">
@@ -415,6 +452,7 @@ function OptimizationResultView({ opt }: { opt: OptSuccess }) {
           {opt.evaluated} combos · top 5 by Sharpe
         </span>
       </header>
+      <p className="text-[11px] text-amber-400 mb-3">⚠️ Optimized on same data — validate with Walk-Forward before trusting.</p>
       <div className="overflow-x-auto">
         <table className="w-full text-xs font-mono">
           <thead className="text-[10px] uppercase text-muted-foreground border-b border-border">
@@ -426,6 +464,7 @@ function OptimizationResultView({ opt }: { opt: OptSuccess }) {
               <th className="text-right py-2">ROI</th>
               <th className="text-right py-2">Win %</th>
               <th className="text-right py-2">Sharpe</th>
+              {strategyId && <th className="text-right py-2">Apply</th>}
             </tr>
           </thead>
           <tbody>
@@ -440,6 +479,22 @@ function OptimizationResultView({ opt }: { opt: OptSuccess }) {
                 </td>
                 <td className="text-right">{r.win_rate.toFixed(1)}%</td>
                 <td className="text-right font-semibold">{r.sharpe.toFixed(2)}</td>
+                {strategyId && (
+                  <td className="text-right py-1">
+                    <button
+                      onClick={() => applyParams(i)}
+                      disabled={applying === i || applied !== null}
+                      className={cn(
+                        "px-2 py-0.5 rounded text-[10px] transition-colors",
+                        applied === i
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50"
+                      )}
+                    >
+                      {applying === i ? "…" : applied === i ? "✓" : "Use"}
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
