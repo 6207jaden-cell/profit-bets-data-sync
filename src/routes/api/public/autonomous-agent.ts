@@ -759,8 +759,8 @@ async function runForUser(args: {
     manual_strategies_firing: strategyBridgeContext,
     earnings_surprises: earningsContext,
     unusual_options_flow: optionsFlowContext,
-    fear_greed_index: fearGreedValue != null ? `${fearGreedValue}/100 (${fearGreedLabel})` : "unavailable",
-    macro_overlay: macroContext,
+    fear_greed_index: "unavailable",
+    macro_overlay: null,
     margin_available: false,
   };
 
