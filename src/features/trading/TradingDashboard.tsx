@@ -5,7 +5,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { getHistoricalBars } from "@/lib/history.functions";
 import { motion } from "framer-motion";
 import {
-  Activity, Brain, FlaskConical, Zap, Shield, LineChart as LineChartIcon,
+  Activity, Brain, FlaskConical, TestTubes, Zap, Shield, LineChart as LineChartIcon,
   TrendingUp, TrendingDown, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy, Sigma, ScrollText, Newspaper,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
@@ -39,7 +39,7 @@ const TAB_ITEMS = [
   { value: "backtest", label: "Backtest", Icon: FlaskConical },
   { value: "exit-analysis", label: "Exit Analysis", Icon: TrendingDown },
   { value: "audit-log", label: "Agent Log", Icon: ScrollText },
-  { value: "ab-testing", label: "A/B Tests", Icon: FlaskConical },
+  { value: "ab-testing", label: "A/B Tests", Icon: TestTubes },
   { value: "risk-report", label: "Risk Report", Icon: ShieldCheck },
   { value: "execution", label: "Execution", Icon: Zap },
   { value: "risk", label: "Risk", Icon: Shield },
