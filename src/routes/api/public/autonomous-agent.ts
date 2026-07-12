@@ -873,11 +873,11 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
           const scaleAllocPct = Math.min(allocPct * 0.5, effectiveMaxPositionPct * 0.3);
           const scaleCash = (cash * scaleAllocPct) / 100;
           if (scaleCash > 10 && scaleCash < cashRemaining * 0.5) {
-            const scaleQty = scaleCash / price;
+            const scaleQty = scaleCash / existingPrice;
             await supabaseAdmin.from("paper_trades").insert({
               user_id: userId, portfolio_id: portfolio.id,
               asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
-              quantity: scaleQty, entry_price: price, is_open: true,
+              quantity: scaleQty, entry_price: existingPrice, is_open: true,
               hold_duration: t.hold_duration,
               stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
               take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
