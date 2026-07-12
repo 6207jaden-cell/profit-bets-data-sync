@@ -526,7 +526,7 @@ function AutonomousSection({ userId }: { userId: string | null }) {
                     ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                     : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
                 )}>
-                  {execMode === "live" ? "LIVE" : "PAPER"}
+                  {execMode === "live" ? "🔴 LIVE TRADING" : "📝 PAPER MODE"}
                 </span>
               </span>
             )}

@@ -70,6 +70,9 @@ export function ExecutionPanel() {
     refetchInterval: 15_000,  // 15s refresh for near-real-time P&L
   });
 
+  const isError = openTrades.isError;
+  const isLoading = openTrades.isLoading;
+
   // Real-time stop-loss / take-profit watcher — fires emergency exit between cron runs
   const anonKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
     ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";

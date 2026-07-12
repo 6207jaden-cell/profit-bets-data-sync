@@ -143,6 +143,17 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
             if (r.ok) { const j = (await r.json()) as { c?: number }; vixLevel = j.c ?? null; }
           }
         } catch { /* ignore */ }
+
+        // VIX-based position size scaling (code-level, not just AI guidance)
+        // VIX > 35: reduce allocations by 75% — high fear
+        // VIX > 25: reduce by 50% — elevated volatility
+        // VIX < 15: allow 10% boost — low volatility trending market
+        const vixScaleFactor = vixLevel == null ? 1.0
+          : vixLevel > 35 ? 0.25
+          : vixLevel > 25 ? 0.5
+          : vixLevel < 15 ? 1.1
+          : 1.0;
+
         // Fear & Greed Index (keyless, from alternative.me)
         try {
           const fgr = await fetch("https://api.alternative.me/fng/?limit=1");
@@ -421,6 +432,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               session, sessionType, regime, vixLevel,
               fearGreedIndex: fearGreedValue != null ? `${fearGreedValue}/100 (${fearGreedLabel})` : "unavailable",
             macroOverlay: macroContext,
+            vixScaleFactor,
             candidates: sortedWithMtf, supabaseAdmin, settings,
             });
             if (result.skipped) skipped.push({ user: u.user_id, reason: result.skipped });
@@ -447,13 +459,14 @@ async function runForUser(args: {
   sessionType: string;
   regime: string;
   vixLevel: number | null;
+  vixScaleFactor: number;
   fearGreedIndex: string;
   macroOverlay: string;
   candidates: Array<Record<string, unknown>>;
   supabaseAdmin: Awaited<ReturnType<typeof getAdmin>>;
   settings: AgentSettings;
 }): Promise<{ opened: number; skipped?: string }> {
-  const { userId, session, sessionType, regime, vixLevel, fearGreedIndex, macroOverlay, candidates, supabaseAdmin, executionMode, settings } = args;
+  const { userId, session, sessionType, regime, vixLevel, vixScaleFactor, fearGreedIndex, macroOverlay, candidates, supabaseAdmin, executionMode, settings } = args;
 
   const { data: portfolio } = await supabaseAdmin
     .from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
@@ -794,6 +807,7 @@ HARD RULES — never violate these:
 - When five_day_return shows strong momentum (>3% or <-3%), that is a high-quality signal.
 - When recent_ai_signals contains signals for a candidate, use them as additional evidence. Aligned signals increase conviction; contradicting signals decrease it.
 - macro_overlay provides 10Y yield, 2Y yield, yield curve shape, and DXY: Rising 10Y yield = headwind for tech/growth stocks, tailwind for financials. Inverted yield curve = recession warning, favor defensive positions. Rising DXY = headwind for crypto and international stocks. Normal-steep curve = risk-on environment. Factor these into your conviction and sector preferences.
+- vix_level: the current VIX reading. Position sizes are already scaled by code (VIX>35→25%, VIX>25→50%, VIX<15→110%), but you should further adjust allocation_pct based on VIX: high VIX means smaller positions and tighter stops.
 - fear_greed_index: <20 = Extreme Fear (buy quality names aggressively, high expected value), 20-40 = Fear (be opportunistic), 40-60 = Neutral, 60-80 = Greed (be selective, smaller positions), >80 = Extreme Greed (be very cautious, reduce sizes, take profits on existing positions).
 - mtf_label on each candidate shows multi-timeframe alignment (1h↑ = hourly bullish, W↑ = weekly bullish). Prefer candidates where 1h and W align with your intended direction. Heavily penalize trades where MTF is against you (e.g. going long on 1h↓ W↓).
 - When earnings_surprises shows a recent positive earnings beat (>5%), that stock has post-earnings drift momentum
@@ -850,7 +864,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     );
     const signalBoost = matchingSignal && Number(matchingSignal.confidence) >= 80 ? 1.15
       : matchingSignal && Number(matchingSignal.confidence) >= 65 ? 1.05 : 1.0;
-    const allocPct = Math.min(t.allocation_pct * signalBoost, effectiveMaxPositionPct);
+    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
     // Sector ETF momentum filter: skip long stock entries when sector is below SMA50
     if (t.direction === "long" && ["stock"].includes(t.instrument ?? "stock")) {
