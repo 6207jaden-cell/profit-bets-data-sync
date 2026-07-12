@@ -517,7 +517,18 @@ function AutonomousSection({ userId }: { userId: string | null }) {
                 >resume</button>
               </span>
             ) : (
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-bull animate-pulse" />Active</span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-bull animate-pulse" />
+                Active
+                <span className={cn(
+                  "text-[9px] font-bold px-1.5 py-0.5 rounded ml-1",
+                  execMode === "live"
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                    : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                )}>
+                  {execMode === "live" ? "LIVE" : "PAPER"}
+                </span>
+              </span>
             )}
             <span>Last scan: {status.data?.lastScan ? new Date(status.data.lastScan).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET" : "—"}</span>
             <span>Next: {nextScan}</span>
@@ -547,14 +558,27 @@ function AutonomousSection({ userId }: { userId: string | null }) {
                   </PopoverContent>
                 </Popover>
               )}
-              <button
-                onClick={() => setExecMode("paper")}
-                className={cn("px-2 py-0.5 rounded", execMode === "paper" ? "bg-primary text-primary-foreground" : "border border-border")}
-              >Paper</button>
-              <button
-                onClick={() => setExecMode("live")}
-                className={cn("px-2 py-0.5 rounded", execMode === "live" ? "bg-primary text-primary-foreground" : "border border-border")}
-              >Live</button>
+              <div className="flex items-center gap-1 text-[10px]">
+                <span className="text-muted-foreground">Mode:</span>
+                <button
+                  onClick={() => setExecMode("paper")}
+                  className={cn(
+                    "px-2 py-0.5 rounded font-medium transition-all",
+                    execMode === "paper"
+                      ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                      : "text-muted-foreground hover:text-foreground border border-transparent"
+                  )}
+                >Paper</button>
+                <button
+                  onClick={() => setExecMode("live")}
+                  className={cn(
+                    "px-2 py-0.5 rounded font-medium transition-all",
+                    execMode === "live"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse"
+                      : "text-muted-foreground hover:text-foreground border border-transparent"
+                  )}
+                >Live</button>
+              </div>
             </div>
           </div>
           {autonomousMsgs.length > 0 && (

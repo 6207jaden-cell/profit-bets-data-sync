@@ -175,7 +175,13 @@ export default function MarketsDashboard() {
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button className="md:hidden text-muted-foreground"><SidebarIcon className="h-5 w-5" /></button>
-              <h1 className="text-xl font-display font-semibold">Markets Dashboard</h1>
+              <h1 className="text-xl font-display font-semibold flex items-center gap-2">
+                Markets
+                <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live
+                </span>
+              </h1>
             </div>
             <LiveBadge updatedAt={stats.data?.updatedAt} />
           </div>

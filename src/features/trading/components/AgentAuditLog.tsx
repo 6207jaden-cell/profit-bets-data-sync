@@ -1,3 +1,4 @@
+import { LoadingState, ErrorState } from "@/components/StateViews";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -191,7 +192,7 @@ export function AgentAuditLog() {
   const { userId } = useProfile();
   const [limit, setLimit] = useState(20);
 
-  const { data: decisions, isLoading } = useQuery({
+  const { data: decisions, isLoading, isError, refetch } = useQuery({
     queryKey: ["agent-audit-log", userId, limit],
     enabled: !!userId,
     staleTime: 60_000,
@@ -208,7 +209,7 @@ export function AgentAuditLog() {
   });
 
   if (isLoading) {
-    return <div className="text-center py-8 text-muted-foreground text-sm">Loading audit log…</div>;
+    return <LoadingState />;
   }
 
   if (!decisions || decisions.length === 0) {

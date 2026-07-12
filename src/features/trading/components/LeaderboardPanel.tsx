@@ -1,3 +1,4 @@
+import { LoadingState, ErrorState } from "@/components/StateViews";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Play, Pause, Trophy, Sparkles, User, ChevronDown, ChevronRight, BarChart3 } from "lucide-react";
@@ -148,31 +149,40 @@ export function LeaderboardPanel({ userId }: { userId: string }) {
             Ranked across your strategies and the AI Lab. Live P&amp;L reflects closed paper trades only.
           </p>
         </div>
-        <div className="flex items-center gap-1 rounded-md border border-border p-0.5 bg-card text-xs font-mono">
-          <button
-            onClick={() => setSortMode("backtest_roi")}
-            className={cn(
-              "px-2.5 py-1 rounded-sm transition-colors",
-              sortMode === "backtest_roi" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Backtest ROI
-          </button>
-          <button
-            onClick={() => setSortMode("live_pnl")}
-            className={cn(
-              "px-2.5 py-1 rounded-sm transition-colors",
-              sortMode === "live_pnl" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Live P&amp;L
-          </button>
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">Sort by</span>
+          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 bg-card text-xs">
+            <button
+              onClick={() => setSortMode("backtest_roi")}
+              className={cn(
+                "px-3 py-1.5 rounded-md transition-all font-medium",
+                sortMode === "backtest_roi"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+              )}
+            >
+              Backtest ROI
+            </button>
+            <button
+              onClick={() => setSortMode("live_pnl")}
+              className={cn(
+                "px-3 py-1.5 rounded-md transition-all font-medium",
+                sortMode === "live_pnl"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+              )}
+            >
+              Live P&L
+            </button>
+          </div>
         </div>
       </header>
 
       <Card className="border-border bg-card overflow-hidden">
         {data.isLoading ? (
-          <div className="p-8 text-center text-muted-foreground text-sm">Loading leaderboard…</div>
+          <LoadingState />
+        ) : data.isError ? (
+          <ErrorState message="Failed to load leaderboard." onRetry={() => data.refetch()} />
         ) : sorted.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground text-sm space-y-3">
             <p>No strategies yet.</p>
@@ -381,7 +391,7 @@ function AttributionPanel({ strategyId }: { strategyId: string }) {
     },
   });
 
-  if (q.isLoading) return <div className="text-xs text-muted-foreground p-2">Loading attribution…</div>;
+  if (q.isLoading) return <LoadingState />;
   const trades = q.data ?? [];
   if (trades.length === 0) {
     return (

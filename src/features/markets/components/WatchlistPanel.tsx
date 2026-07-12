@@ -1,3 +1,4 @@
+import { LoadingState, ErrorState } from "@/components/StateViews";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -207,7 +208,7 @@ function WatchlistChartSheet({
         </SheetHeader>
         <div className="mt-4">
           {bars.isLoading ? (
-            <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">Loading chart…</div>
+            <LoadingState />
           ) : data.length < 2 ? (
             <div className="h-64 flex items-center justify-center text-xs text-muted-foreground">No historical data available for this asset.</div>
           ) : (

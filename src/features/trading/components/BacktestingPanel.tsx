@@ -1,3 +1,4 @@
+import { LoadingState, ErrorState } from "@/components/StateViews";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -530,7 +531,7 @@ export function ExitAnalysisPanel({ userId }: { userId: string }) {
     },
   });
 
-  if (isLoading) return <div className="text-center py-8 text-muted-foreground text-sm">Loading trade history…</div>;
+  if (isLoading) return <LoadingState />;
   if (!closedTrades || closedTrades.length < 5) {
     return (
       <div className="text-center py-8 text-muted-foreground text-sm">

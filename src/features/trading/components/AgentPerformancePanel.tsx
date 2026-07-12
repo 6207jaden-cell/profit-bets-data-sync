@@ -1,3 +1,4 @@
+import { LoadingState, ErrorState } from "@/components/StateViews";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
@@ -84,7 +85,7 @@ export function AgentPerformancePanel() {
   });
 
   if (tradesLoading) {
-    return <div className="text-center py-8 text-muted-foreground text-sm">Loading performance data…</div>;
+    return <LoadingState />;
   }
 
   const allTrades = trades ?? [];

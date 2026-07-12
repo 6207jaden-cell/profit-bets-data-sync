@@ -1,3 +1,4 @@
+import { LoadingState, ErrorState } from "@/components/StateViews";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -68,7 +69,7 @@ export function AbTestingPanel() {
     },
   });
 
-  const { data: tests, isLoading } = useQuery({
+  const { data: tests, isLoading, isError, refetch } = useQuery({
     queryKey: ["ab-tests", userId],
     enabled: !!userId,
     refetchInterval: 120_000,
@@ -304,7 +305,7 @@ export function AbTestingPanel() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-8 text-muted-foreground text-sm">Loading tests…</div>
+        <LoadingState />
       ) : !tests || tests.length === 0 ? (
         <Card className="p-6 text-center border-border/50">
           <FlaskConical className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
