@@ -199,9 +199,10 @@ export const closePaperTrade = createServerFn({ method: "POST" })
     }).eq("id", trade.id);
 
     const newCash = Number(portfolio.balance) + proceeds;
+    const newEquity = await recomputeEquity(supabase, { id: portfolio.id, balance: newCash });
     await supabase.from("paper_portfolios").update({
       balance: newCash,
-      equity: newCash,
+      equity: newEquity,
       updated_at: new Date().toISOString(),
     }).eq("id", portfolio.id);
 
