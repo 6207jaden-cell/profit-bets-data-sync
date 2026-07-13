@@ -245,3 +245,19 @@ export const upsertRiskLimits = createServerFn({ method: "POST" })
     }
     return { ok: true };
   });
+
+export const markToMarketPortfolio = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ ok: true; balance: number; equity: number } | { ok: false; reason: string }> => {
+    const { supabase, userId } = context;
+    const { data: portfolio } = await supabase
+      .from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
+    if (!portfolio) return { ok: false, reason: "no_portfolio" };
+    const balance = Number(portfolio.balance);
+    const equity = await recomputeEquity(supabase, { id: portfolio.id, balance });
+    await supabase.from("paper_portfolios").update({
+      equity,
+      updated_at: new Date().toISOString(),
+    }).eq("id", portfolio.id);
+    return { ok: true, balance, equity };
+  });
