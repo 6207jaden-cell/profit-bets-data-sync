@@ -35,6 +35,10 @@ const ALL_JOBS: Array<{ name: string; schedule: string; endpoint: string; body: 
   { name: "friday-position-review",     schedule: "45 19 * * 5",            endpoint: "/api/public/friday-review",          body: '{}' },
   { name: "sync-robinhood-balance",     schedule: "15 13 * * 1-5",          endpoint: "/api/public/sync-robinhood-balance", body: '{}' },
   { name: "decay-agent-memory",         schedule: "0 4 * * *",              endpoint: "/api/public/agent-memory-decay",     body: '{}' },
+  // Crypto 24/7 scans — nights + weekends, every 30 min
+  { name: "crypto-weeknight-early", schedule: "*/30 0-12 * * 1-5",  endpoint: "/api/public/autonomous-agent", body: '{"session":"crypto"}' },
+  { name: "crypto-weeknight-late",  schedule: "*/30 20-23 * * 1-5", endpoint: "/api/public/autonomous-agent", body: '{"session":"crypto"}' },
+  { name: "crypto-weekend",         schedule: "*/30 * * * 0,6",     endpoint: "/api/public/autonomous-agent", body: '{"session":"crypto"}' },
 ];
 
 export const Route = createFileRoute("/api/public/sync-crons")({

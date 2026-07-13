@@ -23,6 +23,10 @@ DECLARE
     ARRAY['friday-position-review',     '45 19 * * 5',    '/api/public/friday-review',          '{}'],
     ARRAY['sync-robinhood-balance',     '15 13 * * 1-5',  '/api/public/sync-robinhood-balance', '{}'],
     ARRAY['decay-agent-memory',         '0 4 * * *',      '/api/public/agent-memory-decay',     '{}'],
+    -- ── Crypto 24/7 scans (nights + weekends, every 30 min) ────────────────
+    ARRAY['crypto-weeknight-early', '*/30 0-12 * * 1-5', '/api/public/autonomous-agent', '{"session":"crypto"}'],
+    ARRAY['crypto-weeknight-late',  '*/30 20-23 * * 1-5', '/api/public/autonomous-agent', '{"session":"crypto"}'],
+    ARRAY['crypto-weekend',         '*/30 * * * 0,6',     '/api/public/autonomous-agent', '{"session":"crypto"}'],
     -- Scalp scans every 30 min during market hours (10am-3:30pm ET)
     ARRAY['scalp-1000',  '0 14 * * 1-5',  '/api/public/autonomous-agent', '{"session":"scalp"}'],
     ARRAY['scalp-1030',  '30 14 * * 1-5', '/api/public/autonomous-agent', '{"session":"scalp"}'],

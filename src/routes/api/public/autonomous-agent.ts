@@ -10,7 +10,12 @@ const UNIVERSE = {
   large_cap: ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM","WMT","JNJ","HD","BAC","PG","DIS","NFLX","AMD","CRM","UBER","ORCL","ADBE","INTC","QCOM","MU","NOW","SNOW","SHOP"],
   small_mid_cap: ["PLTR","SOFI","RIVN","HOOD","COIN","RBLX","SNAP","LYFT","ABNB","ROKU","DKNG","OPEN","IONQ","SMCI","MSTR","SOUN","BBAI","ACHR","JOBY","LUNR","RKLB","DNA","ARQT","HIMS","RXRX"],
   etfs: ["SPY","QQQ","IWM","GLD","TLT","XLF","XLK","XLE","ARKK","SOXL","TQQQ","LABU","FNGU","MIDU","UDOW"],
-  crypto: ["BTC-USD","ETH-USD","SOL-USD","AVAX-USD","LINK-USD","DOT-USD","MATIC-USD"],
+  // Expanded crypto universe — all trade 24/7 and are supported by Finnhub + Polygon
+  crypto: [
+    "BTC-USD","ETH-USD","SOL-USD","AVAX-USD","LINK-USD","DOT-USD","MATIC-USD",
+    "XRP-USD","ADA-USD","DOGE-USD","LTC-USD","UNI-USD","AAVE-USD",
+    "ARB-USD","NEAR-USD","OP-USD","INJ-USD","SUI-USD",
+  ],
 };
 const ALL_SYMBOLS = [
   ...UNIVERSE.large_cap, ...UNIVERSE.small_mid_cap, ...UNIVERSE.etfs, ...UNIVERSE.crypto,
@@ -92,14 +97,16 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           return new Response("Unauthorized", { status: 401 });
         }
         const body = (await request.json().catch(() => ({}))) as { session?: string };
-        const session: "morning" | "midday" | "weekend_prep" | "scalp" =
+        const session: "morning" | "midday" | "weekend_prep" | "scalp" | "crypto" =
           body.session === "midday" ? "midday"
           : body.session === "weekend_prep" ? "weekend_prep"
           : body.session === "scalp" ? "scalp"
+          : body.session === "crypto" ? "crypto"
           : "morning";
         const sessionType = session === "midday" ? "midday_scan"
           : session === "weekend_prep" ? "weekend_prep"
           : session === "scalp" ? "scalp_scan"
+          : session === "crypto" ? "crypto_scan"
           : "morning_scan";
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -230,7 +237,11 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           .map((c) => c.symbol)
           .filter((s) => /^[A-Z]{1,6}(-USD)?$/.test(s));
         // Build candidate universe once (shared across users). Per-user extras added later.
-        const baseSymbols = marketOpen ? ALL_SYMBOLS : UNIVERSE.crypto;
+        // Crypto session always scans only crypto (runs 24/7 including nights + weekends)
+        // Other sessions scan all symbols when market is open, crypto-only when closed
+        const baseSymbols = session === "crypto"
+          ? UNIVERSE.crypto
+          : marketOpen ? ALL_SYMBOLS : UNIVERSE.crypto;
         const symbolsThisRun = Array.from(new Set([...baseSymbols, ...catalystSymbols]));
 
         // ---- Weekend prep: research-only brief, no trades. ----
@@ -381,9 +392,10 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
         // Only worth doing for the cream of the crop to limit API calls.
         const poly = process.env.POLYGON_API_KEY;
         const mtfMap = new Map<string, { score: number; label: string }>();
-        // Skip MTF for scalp sessions — weekly bars are irrelevant for intraday trades
-        // and the extra API calls would slow down every 30-min scan
-        if (poly && session !== "scalp") {
+        // Skip MTF for scalp and crypto sessions:
+        // - Scalp: weekly bars irrelevant for same-day trades
+        // - Crypto: 24/7 markets don't have weekly bars in the same way; 1h/4h matter more
+        if (poly && session !== "scalp" && session !== "crypto") {
           const top12 = sorted.slice(0, 12);
           await Promise.allSettled(top12.map(async (c) => {
             try {
@@ -479,7 +491,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
 async function runForUser(args: {
   userId: string;
   executionMode: string;
-  session: "morning" | "midday" | "weekend_prep" | "scalp";
+  session: "morning" | "midday" | "weekend_prep" | "scalp" | "crypto";
   sessionType: string;
   regime: string;
   vixLevel: number | null;
@@ -635,6 +647,10 @@ async function runForUser(args: {
   const scanSymbols = (candidates as Array<{symbol?: string}>).map((c) => String(c.symbol ?? "")).filter(Boolean);
   const memories = await loadRelevantMemories(supabaseAdmin as never, userId, scanSymbols);
 
+  // Options flow: only relevant for stocks during market hours — skip for crypto session
+  if (session === "crypto") {
+    // Crypto session — skip options flow, it's stock-market-hours data
+  }
   // Options flow: check for unusual institutional options activity on scan symbols
   // High vol/OI ratio on calls = bullish institutional bet; on puts = bearish hedge
   const optionsFlowMap = new Map<string, { signal: "bullish" | "bearish"; premium: number; vol_oi: number }>();
@@ -817,8 +833,51 @@ async function runForUser(args: {
 
   // ── Session-specific system prompt ──────────────────────────────────────
   const isScalp = session === "scalp";
+  const isCrypto = session === "crypto";
 
-  const systemPrompt = isScalp
+  const systemPrompt = isCrypto
+    ? `You are a 24/7 crypto trading specialist. Crypto markets never close — you trade Bitcoin, Ethereum, Solana and altcoins around the clock including nights and weekends. Your edge is momentum, volatility and speed.
+
+CRYPTO TRADING RULES — follow exactly:
+- ALL trades must be crypto instruments (instrument="crypto"). No stocks or ETFs.
+- Prefix every rationale with [CRYPTO].
+- Overnight/weekend hours: wider stops (5-8%) because crypto can gap 15% on news with no circuit breakers. Protect capital first.
+- During daytime hours (if called): tighter stops (3-5%), more aggressive targets (5-10%).
+- Position sizes: 5-10% per trade. Smaller sizes let you hold more coins simultaneously.
+- Open 3-6 positions per scan when signals are strong.
+- hold_duration: use "intraday" for same-session closes, "swing" for 1-3 day holds.
+
+EXISTING POSITION MANAGEMENT — critical:
+- Review current_positions carefully. For each open crypto position:
+  - If RSI > 65 AND price momentum is still up AND pnl_pct < take_profit_pct: consider adding (scale in) — use direction="long" with rationale explaining it's an add.
+  - If price is falling, RSI < 45, or you see a trend reversal on the 1h chart: CLOSE IT by including it in trades with direction="close" OR let the stop handle it.
+  - If position is up >5% and momentum is slowing: recommend closing (lock in profit).
+- Do NOT just ignore existing positions — actively manage them every scan.
+
+CRYPTO SIGNALS TO PRIORITIZE:
+1. BTC and ETH lead the market — if BTC RSI > 55 and vol_surge > 20%, all altcoins are likely to follow.
+2. Volume surge (vol_surge_pct > 40%) on any crypto = high probability momentum trade.
+3. RSI crossing 50 from below = momentum ignition — strong buy signal.
+4. RSI > 75 = approaching overbought — reduce or close, not a buy.
+5. bb_pct_b < 0.1 = near lower Bollinger Band = potential bounce — look for RSI confirming.
+6. Altcoins with BTC correlation: if BTC dumps, alts dump harder. If BTC pumps, alts pump more.
+7. Crypto is correlated overnight — don't open 6 altcoin positions if BTC is in downtrend.
+
+RISK RULES:
+- Never allocate more than 10% to any single crypto position overnight.
+- Always keep at least ${effectiveMinCashPct}% cash reserve.
+- If total crypto allocation > 50% of portfolio, be very selective — only highest conviction.
+- If VIX > 30, crypto volatility is elevated — reduce all position sizes by 30%.
+
+Respond with ONLY valid JSON:
+{
+  "market_assessment": "1-2 sentence crypto market overview (BTC trend, overall sentiment)",
+  "regime": "bull|bear|sideways",
+  "cash_deployment_pct": <0-${100 - effectiveMinCashPct}>,
+  "trades": [ { "symbol": "BTC-USD", "direction": "long|short", "instrument": "crypto", "conviction": <0-100>, "allocation_pct": <5-10>, "stop_loss_pct": <5-8>, "take_profit_pct": <8-20>, "hold_duration": "intraday|swing", "rationale": "[CRYPTO] explanation", "options_details": null } ],
+  "message_to_user": "Brief crypto market summary."
+}`
+    : isScalp
     ? `You are an intraday scalp trader. Your job is to find fast momentum plays that can return 0.5–2.5% within the same trading day. You scan stocks AND crypto for the highest-probability setups right now.
 
 SCALP RULES — follow exactly:
