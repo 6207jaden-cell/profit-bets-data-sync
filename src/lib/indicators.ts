@@ -421,6 +421,19 @@ export async function fetchQuotePrice(symbol: string): Promise<number | null> {
   const fin = process.env.FINNHUB_API_KEY;
   const poly = process.env.POLYGON_API_KEY;
   const alpha = process.env.ALPHA_VANTAGE_API_KEY;
+  // Yahoo Finance (keyless) — works for both stocks and crypto pairs like ETH-USD.
+  // Tried FIRST for crypto because Finnhub free tier does not return BINANCE quotes.
+  try {
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(S)}?interval=1d&range=1d`,
+      { headers: { "User-Agent": "Mozilla/5.0" } },
+    );
+    if (r.ok) {
+      const j = (await r.json()) as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } };
+      const p = j.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (p && p > 0) return p;
+    }
+  } catch { /* fall */ }
   try {
     if (fin && !isCrypto) {
       const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${S}&token=${fin}`);

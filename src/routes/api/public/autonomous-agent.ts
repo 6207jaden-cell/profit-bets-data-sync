@@ -91,7 +91,16 @@ const SECTOR: Record<string, string> = {
   XOM:"energy",XLE:"energy",WMT:"consumer",JNJ:"health",HD:"consumer",PG:"consumer",
   DIS:"consumer",UBER:"consumer",LYFT:"consumer",ABNB:"consumer",RBLX:"consumer",
   SNAP:"consumer",ROKU:"consumer",DKNG:"consumer",OPEN:"consumer",RIVN:"consumer",
+  SPY:"broad_etf",QQQ:"broad_etf",IWM:"broad_etf",DIA:"broad_etf",VOO:"broad_etf",VTI:"broad_etf",
 };
+
+function sectorFor(sym: string): string {
+  const S = sym.toUpperCase();
+  if (SECTOR[S]) return SECTOR[S];
+  if (/[-/]USD[T]?$/.test(S) || /^(BTC|ETH|SOL)$/.test(S)) return "crypto";
+  return "other";
+}
+
 
 type AgentSettings = {
   max_position_pct: number;
@@ -1008,12 +1017,13 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
 
   const sectorCount = new Map<string, number>();
   for (const t of openList) {
-    const s = SECTOR[String(t.asset).toUpperCase()] ?? "other";
+    const s = sectorFor(String(t.asset));
     sectorCount.set(s, (sectorCount.get(s) ?? 0) + 1);
   }
 
   let opened = 0;
   let cashRemaining = cash;
+  const debugSkips: Array<{ symbol: string; reason: string; detail?: unknown }> = [];
   for (const raw of ai.trades ?? []) {
     let t = raw;
     if (t.direction === "short" && !userMessage.margin_available) {
@@ -1067,7 +1077,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
               hold_duration: t.hold_duration,
               stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
               take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
-              instrument: t.instrument, conviction: t.conviction ?? null,
+              instrument: t.instrument,
               rationale: `[SCALE-IN conviction:${t.conviction}] Adding to winning ${t.symbol} position (+${existPnlPct.toFixed(1)}%). ${t.rationale}`,
             });
             cashRemaining -= scaleCash;
@@ -1084,11 +1094,14 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     const alreadyDeployed = cash - cashRemaining;
     if (alreadyDeployed + allocCash > deployableCash * 1.02) {
       console.log(`[autonomous] skip ${t.symbol}: cumulative allocation would exceed deployable cash`);
+      debugSkips.push({ symbol: t.symbol, reason: "cum_alloc_exceeded", detail: { alreadyDeployed, allocCash, deployableCash } });
       continue;
     }
-    if (allocCash > cashRemaining * 0.99) continue;
-    const sect = SECTOR[t.symbol.toUpperCase()] ?? "other";
-    if ((sectorCount.get(sect) ?? 0) >= Math.max(2, Math.floor(openList.length * 0.4))) continue;
+    if (allocCash > cashRemaining * 0.99) { debugSkips.push({ symbol: t.symbol, reason: "alloc_gt_cash", detail: { allocCash, cashRemaining } }); continue; }
+    const sect = sectorFor(t.symbol);
+    // Cap concentration per real sector; skip the guard entirely for "other" so
+    // unclassified assets do not cross-block each other.
+    if (sect !== "other" && (sectorCount.get(sect) ?? 0) >= Math.max(3, Math.floor(openList.length * 0.5))) { debugSkips.push({ symbol: t.symbol, reason: "sector_cap", detail: sect }); continue; }
 
     // Sector ETF momentum filter: don't buy individual stocks when their sector ETF is below SMA50
     const SECTOR_ETF: Record<string, string> = {
@@ -1133,7 +1146,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     }
 
     const price = await fetchQuotePrice(t.symbol);
-    if (!price || price <= 0) continue;
+    if (!price || price <= 0) { debugSkips.push({ symbol: t.symbol, reason: "no_price" }); continue; }
     const qty = allocCash / price;
 
     // For options trades, resolve the real contract from Polygon before inserting
@@ -1173,10 +1186,9 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
       instrument: t.instrument,
       options_details: (resolvedOptions ?? null) as never,
-      conviction: (t.conviction ?? null) as never,
       rationale: enrichedRationale,
     });
-    if (error) { console.error("[autonomous] insert trade", error); continue; }
+    if (error) { console.error("[autonomous] insert trade", error); debugSkips.push({ symbol: t.symbol, reason: "insert_error", detail: error.message }); continue; }
     cashRemaining -= allocCash;
     sectorCount.set(sect, (sectorCount.get(sect) ?? 0) + 1);
     opened += 1;
@@ -1222,7 +1234,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   }).catch(() => {});
   await supabaseAdmin.from("agent_decisions").insert({
     user_id: userId, session_type: sessionType, regime,
-    market_assessment: ai.market_assessment, payload: ai as never,
+    market_assessment: ai.market_assessment, payload: { ...(ai as object), debug_skips: debugSkips } as never,
     trades_opened: opened,
   });
   // ---- Live Robinhood execution for strategies in live mode ----
