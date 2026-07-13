@@ -561,10 +561,11 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
   }
 
   return (
-    <Card className="p-4 sm:p-5 border-border/80 bg-card shadow-md">
-      <header className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-        <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate">
-          <LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio
+    <Card className="p-4 sm:p-5 border-primary/20 bg-card shadow-lg ring-1 ring-border/50">
+      <header className="flex items-center justify-between mb-4 gap-2 flex-wrap">
+        <h3 className="font-display text-base font-bold flex items-center gap-2 min-w-0">
+          <LineChartIcon className="h-4 w-4 shrink-0 text-primary" />
+          <span className="text-foreground">Paper Portfolio</span>
         </h3>
         <div className="flex items-center gap-2 flex-wrap">
           {/* VS SPY toggle */}
