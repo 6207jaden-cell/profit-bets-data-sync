@@ -569,29 +569,7 @@ function AutonomousSection({ userId }: { userId: string | null }) {
             <span>Open: {status.data?.openPositions ?? 0}</span>
             <span>Cash: {(status.data?.cashPct ?? 0).toFixed(0)}%</span>
             <button
-              onClick={async () => {
-                const anonKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
-                  ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
-                toast.message("Triggering morning scan…");
-                try {
-                  const res = await fetch("/api/public/autonomous-agent", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", apikey: anonKey },
-                    body: JSON.stringify({ session: "morning" }),
-                  });
-                  const j = await res.json() as { ok?: boolean; reason?: string };
-                  if (j.ok) {
-                    toast.success("Scan complete — check Agent Log for decisions");
-                    qc.invalidateQueries({ queryKey: ["autonomous-status", userId] });
-                    qc.invalidateQueries({ queryKey: ["agent-messages", userId] });
-                    qc.invalidateQueries({ queryKey: ["agent-decisions", userId] });
-                  } else {
-                    toast.error(`Scan failed: ${j.reason ?? "unknown error"}`);
-                  }
-                } catch (e) {
-                  toast.error("Could not reach agent endpoint");
-                }
-              }}
+              onClick={runScanNow}
               className="ml-2 text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 border border-primary/30 transition-colors font-medium"
             >
               ▶ Run scan now
