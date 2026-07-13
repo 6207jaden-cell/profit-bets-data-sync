@@ -493,20 +493,13 @@ function AutonomousSection({ userId }: { userId: string | null }) {
 
   return (
     <Card className="p-4 bg-card border-border space-y-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Bot className="h-4 w-4 text-primary" />
           <span className="font-display font-semibold text-sm">Autonomous Agent</span>
           <Badge variant="outline" className="border-primary/40 text-primary text-[10px]">BETA</Badge>
         </div>
         <div className="flex items-center gap-2 text-xs">
-          <button
-            onClick={runScanNow}
-            className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 border border-primary/30 font-medium"
-            title="Manually trigger a market scan"
-          >
-            ▶ Run scan now
-          </button>
           {autonomous && (
             <button
               onClick={() => toggleAutonomous(false)}
@@ -520,6 +513,14 @@ function AutonomousSection({ userId }: { userId: string | null }) {
           <Switch checked={autonomous} onCheckedChange={toggleAutonomous} />
         </div>
       </div>
+      <Button
+        type="button"
+        onClick={runScanNow}
+        variant="secondary"
+        className="w-full h-9 text-xs font-semibold"
+      >
+        ▶ Run scan now
+      </Button>
       {autonomous && !status.data?.hasFirstRun && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-1.5">
           <div className="text-xs font-semibold text-primary">First scan checklist</div>
