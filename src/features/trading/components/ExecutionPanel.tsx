@@ -197,21 +197,7 @@ function OpenPositionsCard({
   isError?: boolean;
   onRefetch?: () => void;
 }) {
-  if (isLoading) return (
-    <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
-      <svg className="h-4 w-4 animate-spin text-primary/60" fill="none" viewBox="0 0 24 24">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-      </svg>
-      Loading positions…
-    </div>
-  );
-  if (isError) return (
-    <div className="flex flex-col items-center justify-center py-12 gap-2 text-sm">
-      <p className="text-muted-foreground">Failed to load positions.</p>
-      {onRefetch && <button onClick={onRefetch} className="text-xs text-primary hover:underline">Try again</button>}
-    </div>
-  );
+  // ALL hooks must be called before any conditional returns (Rules of Hooks)
   const stockSymbols = Array.from(new Set(trades.filter((t) => t.asset && !isCrypto(String(t.asset))).map((t) => String(t.asset))));
   const cryptoIds = Array.from(
     new Set(
@@ -227,16 +213,33 @@ function OpenPositionsCard({
 
   const stockQuotes = useQuery({
     queryKey: ["exec-stock-quotes", stockSymbols],
-    enabled: stockSymbols.length > 0,
+    enabled: !isLoading && stockSymbols.length > 0,
     refetchInterval: 15_000,
     queryFn: () => stockFn({ data: { symbols: stockSymbols } }),
   });
   const cryptoQuotes = useQuery({
     queryKey: ["exec-crypto-quotes", cryptoIds],
-    enabled: cryptoIds.length > 0,
+    enabled: !isLoading && cryptoIds.length > 0,
     refetchInterval: 15_000,
     queryFn: () => cryptoFn({ data: { ids: cryptoIds } }),
   });
+
+  // Early returns AFTER all hooks
+  if (isLoading) return (
+    <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
+      <svg className="h-4 w-4 animate-spin text-primary/60" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      Loading positions…
+    </div>
+  );
+  if (isError) return (
+    <div className="flex flex-col items-center justify-center py-12 gap-2 text-sm">
+      <p className="text-muted-foreground">Failed to load positions.</p>
+      {onRefetch && <button onClick={onRefetch} className="text-xs text-primary hover:underline">Try again</button>}
+    </div>
+  );
 
   function priceFor(sym: string): number | null {
     if (isCrypto(sym)) {
