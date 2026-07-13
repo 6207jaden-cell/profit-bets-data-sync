@@ -45,7 +45,7 @@ type ExecResult =
 // Recompute portfolio equity = cash + Σ(qty × current price) across open positions.
 // Falls back to entry_price for any symbol whose live quote fails.
 async function recomputeEquity(
-  supabase: { from: (t: string) => { select: (c: string) => { eq: (k: string, v: unknown) => { eq: (k: string, v: unknown) => Promise<{ data: unknown }> } } } },
+  supabase: any,
   portfolio: { id: string; balance: number | string },
 ): Promise<number> {
   const { data: opens } = await supabase
