@@ -224,6 +224,8 @@ function OpenPositionsCard({
     queryFn: () => cryptoFn({ data: { ids: cryptoIds } }),
   });
 
+  const [heatMap, setHeatMap] = useState(false);
+
   // Early returns AFTER all hooks
   if (isLoading) return (
     <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
@@ -298,7 +300,6 @@ function OpenPositionsCard({
   const totalPct = totalCost > 0 ? (totalUnreal / totalCost) * 100 : 0;
   const isLive = stockQuotes.isFetching || cryptoQuotes.isFetching;
 
-  const [heatMap, setHeatMap] = useState(false);
   function explain(r: (typeof rows)[number]) {
     window.dispatchEvent(new CustomEvent("explain-trade", { detail: {
       id: r.t.id, asset: r.t.asset, side: r.t.side, quantity: r.qty,
