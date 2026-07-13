@@ -144,10 +144,12 @@ export const openPaperTrade = createServerFn({ method: "POST" })
       }).select().single();
     if (tErr || !trade) return { ok: false, reason: tErr?.message ?? "insert_failed" };
 
-    // Update portfolio cash (reserve)
+    // Update portfolio cash + mark-to-market equity across all open positions
+    const newBalance = cash - allocCash;
+    const newEquity = await recomputeEquity(supabase, { id: portfolio.id, balance: newBalance });
     await supabase.from("paper_portfolios").update({
-      balance: cash - allocCash,
-      equity: cash, // equity recomputed on close
+      balance: newBalance,
+      equity: newEquity,
       updated_at: new Date().toISOString(),
     }).eq("id", portfolio.id);
 
