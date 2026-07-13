@@ -561,7 +561,7 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
   }
 
   return (
-    <Card className="p-4 sm:p-5 border-primary/20 bg-card shadow-lg ring-1 ring-border/50">
+    <Card className="p-4 sm:p-5" style={{ background: "linear-gradient(135deg, #1e293b 0%, #1a2744 100%)", border: "1px solid rgba(99,102,241,0.3)", boxShadow: "0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)" }}>
       <header className="flex items-center justify-between mb-4 gap-2 flex-wrap">
         <h3 className="font-display text-base font-bold flex items-center gap-2 min-w-0">
           <LineChartIcon className="h-4 w-4 shrink-0 text-primary" />
@@ -687,7 +687,7 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
       <div className="grid grid-cols-3 gap-3 sm:gap-4">
         <div className="min-w-0">
           <div className="text-[11px] font-medium text-muted-foreground mb-0.5">Equity</div>
-          <div className="font-mono text-xl sm:text-2xl font-bold truncate text-foreground">${equity.toFixed(2)}</div>
+          <div className="font-mono text-xl sm:text-2xl font-bold truncate" style={{ color: "#f1f5f9" }}>${equity.toFixed(2)}</div>
           <div className={cn("text-[11px] font-mono mt-0.5", equity >= start ? "text-emerald-400" : "text-red-400")}>
             {equity >= start ? "+" : ""}{(((equity - start) / start) * 100).toFixed(2)}%
           </div>

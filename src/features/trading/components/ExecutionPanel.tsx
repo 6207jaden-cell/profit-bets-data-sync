@@ -475,7 +475,7 @@ function TradeJournal({ userId }: { userId: string | null }) {
         </div>
       ) : (
         <ul className="divide-y divide-border">
-          {journal.data!.map((r) => {
+          {(journal.data ?? []).map((r) => {
             const reason = String(r.reason ?? "");
             const auto = reason.includes("auto_entry") ? "entry" : reason.includes("auto_exit") ? "exit" : reason.includes("auto_retired") ? "retired" : null;
             const isOpen = expanded.has(r.id);
