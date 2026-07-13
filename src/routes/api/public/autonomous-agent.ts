@@ -7,14 +7,69 @@ import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
 const UNIVERSE = {
-  large_cap: ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM","WMT","JNJ","HD","BAC","PG","DIS","NFLX","AMD","CRM","UBER","ORCL","ADBE","INTC","QCOM","MU","NOW","SNOW","SHOP"],
-  small_mid_cap: ["PLTR","SOFI","RIVN","HOOD","COIN","RBLX","SNAP","LYFT","ABNB","ROKU","DKNG","OPEN","IONQ","SMCI","MSTR","SOUN","BBAI","ACHR","JOBY","LUNR","RKLB","DNA","ARQT","HIMS","RXRX"],
-  etfs: ["SPY","QQQ","IWM","GLD","TLT","XLF","XLK","XLE","ARKK","SOXL","TQQQ","LABU","FNGU","MIDU","UDOW"],
-  // Expanded crypto universe — all trade 24/7 and are supported by Finnhub + Polygon
+  // ── Large-cap stocks: 60 total — most liquid names across every sector ──
+  large_cap: [
+    // Mega-cap tech
+    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AMD","CRM","ADBE","ORCL","INTC","QCOM","MU","NOW","SNOW","SHOP",
+    // Semiconductors & hardware
+    "AVGO","TSM","ASML","ARM","AMAT","KLAC","TXN","MRVL",
+    // Financials
+    "JPM","V","BAC","GS","MS","WFC","AXP","BLK","COF",
+    // Healthcare
+    "UNH","LLY","ABBV","PFE","MRK","TMO","ISRG","JNJ",
+    // Consumer
+    "COST","MCD","SBUX","NKE","LOW","WMT","HD","PG",
+    // Energy
+    "XOM","CVX","COP",
+    // Industrial & Defense
+    "CAT","BA","GE","HON","LMT","RTX",
+    // Cybersecurity & Cloud
+    "PANW","CRWD","NET","DDOG","UBER","DIS","NFLX",
+    // High-growth
+    "APP","CELH",
+  ],
+  // ── Mid & small-cap: 40 total — high-beta growth, AI, fintech, space ──
+  small_mid_cap: [
+    // AI & tech
+    "PLTR","SOUN","BBAI","IONQ","SMCI","MSTR","ALAB","TEM","NVTS","SMTC",
+    // Fintech & crypto-adjacent
+    "SOFI","HOOD","COIN","PYPL","UPST","COF",
+    // Consumer & growth
+    "RIVN","RBLX","SNAP","LYFT","ABNB","ROKU","DKNG","CAVA","HIMS","CELH",
+    // Crypto miners
+    "MARA","RIOT",
+    // Space & emerging tech
+    "ACHR","JOBY","LUNR","RKLB","AXON","TTD",
+    // Biotech
+    "ARQT","RXRX","DNA",
+    // International tech
+    "BABA","BIDU",
+    // Semiconductors mid-cap
+    "GFS","OPEN",
+  ],
+  // ── ETFs: 20 total — broad market + sector + leveraged ──
+  etfs: [
+    "SPY","QQQ","IWM","GLD","TLT",
+    "XLF","XLK","XLE","XLV","XLI","XLP",
+    "ARKK","SOXX","IBIT",
+    "SOXL","TQQQ","LABU","FNGU","MIDU","UDOW",
+  ],
+  // ── Crypto: 30 total — majors + DeFi + L2s + meme coins ──
   crypto: [
-    "BTC-USD","ETH-USD","SOL-USD","AVAX-USD","LINK-USD","DOT-USD","MATIC-USD",
-    "XRP-USD","ADA-USD","DOGE-USD","LTC-USD","UNI-USD","AAVE-USD",
-    "ARB-USD","NEAR-USD","OP-USD","INJ-USD","SUI-USD",
+    // Major L1s
+    "BTC-USD","ETH-USD","SOL-USD","AVAX-USD","XRP-USD","ADA-USD","TRX-USD","TON-USD","HBAR-USD","ETC-USD","ATOM-USD",
+    // DeFi
+    "LINK-USD","AAVE-USD","UNI-USD",
+    // Layer 2s
+    "MATIC-USD","ARB-USD","OP-USD",
+    // Solana ecosystem
+    "INJ-USD","SUI-USD","NEAR-USD",
+    // Alt L1s
+    "DOT-USD","LTC-USD",
+    // AI crypto
+    "FET-USD","RENDER-USD",
+    // Meme coins (volatile, high-volume, real trading opportunities)
+    "DOGE-USD","SHIB-USD","PEPE-USD","WIF-USD","BONK-USD","FLOKI-USD",
   ],
 };
 const ALL_SYMBOLS = [

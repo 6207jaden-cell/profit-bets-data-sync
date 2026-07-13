@@ -19,6 +19,31 @@ import { LiveBadge } from "./LiveBadge";
 
 type Row = { id: string; asset: string; asset_type: "stock" | "crypto" };
 
+// Default watchlist — mirrors agent UNIVERSE. Added via "Populate defaults" button.
+const DEFAULT_STOCKS = [
+  "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AMD","CRM","ADBE","ORCL","INTC","QCOM","MU","NOW","SNOW","SHOP",
+  "AVGO","TSM","ASML","ARM","AMAT","KLAC","TXN","MRVL",
+  "JPM","V","BAC","GS","MS","WFC","AXP","BLK","COF",
+  "UNH","LLY","ABBV","PFE","MRK","TMO","ISRG","JNJ",
+  "COST","MCD","SBUX","NKE","LOW","WMT","HD","PG",
+  "XOM","CVX","COP","CAT","BA","GE","HON","LMT","RTX",
+  "PANW","CRWD","NET","DDOG","UBER","DIS","NFLX","APP","CELH",
+  "PLTR","SOUN","BBAI","IONQ","SMCI","MSTR","ALAB","TEM","NVTS","SMTC",
+  "SOFI","HOOD","COIN","PYPL","UPST","RIVN","RBLX","SNAP","LYFT","ABNB",
+  "ROKU","DKNG","CAVA","HIMS","MARA","RIOT","ACHR","JOBY","LUNR","RKLB",
+  "AXON","TTD","ARQT","RXRX","DNA","BABA","BIDU","GFS","OPEN",
+  "SPY","QQQ","IWM","GLD","TLT","XLF","XLK","XLE","XLV","XLI","XLP",
+  "ARKK","SOXX","IBIT","SOXL","TQQQ","LABU","FNGU","MIDU","UDOW",
+];
+const DEFAULT_CRYPTO = [
+  "BTC-USD","ETH-USD","SOL-USD","AVAX-USD","XRP-USD","ADA-USD","TRX-USD","TON-USD","HBAR-USD","ETC-USD","ATOM-USD",
+  "LINK-USD","AAVE-USD","UNI-USD","MATIC-USD","ARB-USD","OP-USD",
+  "INJ-USD","SUI-USD","NEAR-USD","DOT-USD","LTC-USD","FET-USD","RENDER-USD",
+  "DOGE-USD","SHIB-USD","PEPE-USD","WIF-USD","BONK-USD","FLOKI-USD",
+];
+
+
+
 export function WatchlistPanel() {
   const { userId } = useProfile();
   const qc = useQueryClient();
@@ -81,6 +106,28 @@ export function WatchlistPanel() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist", userId] }),
   });
 
+  const populateDefaults = useMutation({
+    mutationFn: async () => {
+      const { data: existing } = await supabase.from("market_tracking").select("asset").eq("user_id", userId!);
+      const existingSet = new Set((existing ?? []).map((r) => r.asset.toUpperCase()));
+      const rows = [
+        ...DEFAULT_STOCKS.filter((s) => !existingSet.has(s)).map((s) => ({ user_id: userId!, asset: s, asset_type: "stock" as const })),
+        ...DEFAULT_CRYPTO.filter((c) => !existingSet.has(c)).map((c) => ({ user_id: userId!, asset: c, asset_type: "crypto" as const })),
+      ];
+      if (rows.length === 0) return { added: 0 };
+      for (let i = 0; i < rows.length; i += 50) {
+        const { error } = await supabase.from("market_tracking").insert(rows.slice(i, i + 50));
+        if (error) throw error;
+      }
+      return { added: rows.length };
+    },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["watchlist", userId] });
+      toast.success(result?.added ? `Added ${result.added} assets to your watchlist` : "Watchlist already up to date");
+    },
+    onError: (e) => toast.error(`Failed: ${String(e)}`),
+  });
+
   const quoteFor = (asset: string, type: "stock" | "crypto") => {
     if (type === "stock" && stockData?.available) return stockData.data.find((q) => q.symbol === asset);
     if (type === "crypto" && cryptoData?.available) return cryptoData.data.find((q) => q.symbol === asset);
@@ -109,6 +156,15 @@ export function WatchlistPanel() {
         <Button onClick={() => add.mutate()} disabled={add.isPending}>
           <Plus className="h-4 w-4 mr-1" /> Track
         </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => populateDefaults.mutate()}
+        disabled={populateDefaults.isPending}
+        title="Adds all 100 stocks, 20 ETFs and 30 crypto from the agent scanning universe"
+      >
+        {populateDefaults.isPending ? "Adding…" : "＋ All defaults"}
+      </Button>
       </div>
 
       {rows.length === 0 ? (
