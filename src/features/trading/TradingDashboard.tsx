@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { getHistoricalBars } from "@/lib/history.functions";
+import { markToMarketPortfolio } from "@/lib/execution.functions";
 import { motion } from "framer-motion";
 import {
   Activity, Brain, FlaskConical, TestTubes, Zap, Shield, LineChart as LineChartIcon,
@@ -99,6 +100,23 @@ export default function TradingDashboard() {
       return created;
     },
   });
+
+  // Mark-to-market: revalue open positions at live prices so equity reflects
+  // cash + unrealized P&L, not just cash. Runs on mount and every 60s.
+  const markToMarket = useServerFn(markToMarketPortfolio);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        await markToMarket();
+        if (!cancelled) qc.invalidateQueries({ queryKey: ["paper-portfolio", userId] });
+      } catch { /* silent */ }
+    };
+    run();
+    const id = setInterval(run, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [userId, markToMarket, qc]);
 
   // Recent trades
   const trades = useQuery({

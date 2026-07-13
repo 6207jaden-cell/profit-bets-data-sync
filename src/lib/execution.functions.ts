@@ -42,6 +42,34 @@ type ExecResult =
   | { ok: true; trade_id: string; price: number; quantity: number; source: string }
   | { ok: false; reason: string };
 
+// Recompute portfolio equity = cash + Σ(qty × current price) across open positions.
+// Falls back to entry_price for any symbol whose live quote fails.
+async function recomputeEquity(
+  supabase: any,
+  portfolio: { id: string; balance: number | string },
+): Promise<number> {
+  const { data: opens } = await supabase
+    .from("paper_trades")
+    .select("asset,quantity,entry_price,side")
+    .eq("portfolio_id", portfolio.id)
+    .eq("is_open", true);
+  const cash = Number(portfolio.balance);
+  const trades = (opens ?? []) as Array<{ asset: string; quantity: number | string; entry_price: number | string; side: string }>;
+  if (trades.length === 0) return cash;
+  const symbols = Array.from(new Set(trades.map((t) => t.asset.toUpperCase())));
+  const quotes = await Promise.all(symbols.map((s) => fetchQuote(s).catch(() => null)));
+  const priceMap = new Map<string, number>();
+  symbols.forEach((s, i) => { const q = quotes[i]; if (q) priceMap.set(s, q.price); });
+  let positionsValue = 0;
+  for (const t of trades) {
+    const qty = Number(t.quantity);
+    const entry = Number(t.entry_price);
+    const px = priceMap.get(t.asset.toUpperCase()) ?? entry;
+    positionsValue += qty * px;
+  }
+  return cash + positionsValue;
+}
+
 export const openPaperTrade = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) =>
@@ -116,10 +144,12 @@ export const openPaperTrade = createServerFn({ method: "POST" })
       }).select().single();
     if (tErr || !trade) return { ok: false, reason: tErr?.message ?? "insert_failed" };
 
-    // Update portfolio cash (reserve)
+    // Update portfolio cash + mark-to-market equity across all open positions
+    const newBalance = cash - allocCash;
+    const newEquity = await recomputeEquity(supabase, { id: portfolio.id, balance: newBalance });
     await supabase.from("paper_portfolios").update({
-      balance: cash - allocCash,
-      equity: cash, // equity recomputed on close
+      balance: newBalance,
+      equity: newEquity,
       updated_at: new Date().toISOString(),
     }).eq("id", portfolio.id);
 
@@ -169,9 +199,10 @@ export const closePaperTrade = createServerFn({ method: "POST" })
     }).eq("id", trade.id);
 
     const newCash = Number(portfolio.balance) + proceeds;
+    const newEquity = await recomputeEquity(supabase, { id: portfolio.id, balance: newCash });
     await supabase.from("paper_portfolios").update({
       balance: newCash,
-      equity: newCash,
+      equity: newEquity,
       updated_at: new Date().toISOString(),
     }).eq("id", portfolio.id);
 
@@ -213,4 +244,20 @@ export const upsertRiskLimits = createServerFn({ method: "POST" })
       if (error) throw error;
     }
     return { ok: true };
+  });
+
+export const markToMarketPortfolio = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ ok: true; balance: number; equity: number } | { ok: false; reason: string }> => {
+    const { supabase, userId } = context;
+    const { data: portfolio } = await supabase
+      .from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
+    if (!portfolio) return { ok: false, reason: "no_portfolio" };
+    const balance = Number(portfolio.balance);
+    const equity = await recomputeEquity(supabase, { id: portfolio.id, balance });
+    await supabase.from("paper_portfolios").update({
+      equity,
+      updated_at: new Date().toISOString(),
+    }).eq("id", portfolio.id);
+    return { ok: true, balance, equity };
   });
