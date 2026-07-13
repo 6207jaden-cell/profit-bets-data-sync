@@ -427,6 +427,33 @@ function AutonomousSection({ userId }: { userId: string | null }) {
       Notification.requestPermission();
     }
   }, [autonomous]);
+  async function runScanNow() {
+    const anonKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
+      ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+    // Pick session by ET time so the AI prompt matches the actual context
+    const etHour = Number(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }));
+    const session = etHour < 12 ? "morning" : etHour < 15 ? "midday" : "exit_check";
+    toast.message(`Triggering ${session.replace("_", " ")} scan…`);
+    try {
+      const res = await fetch("/api/public/autonomous-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: anonKey },
+        body: JSON.stringify({ session }),
+      });
+      const j = await res.json() as { ok?: boolean; reason?: string };
+      if (j.ok) {
+        toast.success("Scan complete — check Agent Log for decisions");
+        qc.invalidateQueries({ queryKey: ["autonomous-status", userId] });
+        qc.invalidateQueries({ queryKey: ["agent-messages", userId] });
+        qc.invalidateQueries({ queryKey: ["agent-decisions", userId] });
+      } else {
+        toast.error(`Scan failed: ${j.reason ?? "unknown error"}`);
+      }
+    } catch {
+      toast.error("Could not reach agent endpoint");
+    }
+  }
+
 
   async function toggleAutonomous(next: boolean) {
     if (!userId) return;
