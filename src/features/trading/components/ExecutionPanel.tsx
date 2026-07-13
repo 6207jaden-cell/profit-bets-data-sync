@@ -244,13 +244,14 @@ function OpenPositionsCard({
   );
 
   function priceFor(sym: string): number | null {
+    const stockData = stockQuotes.data?.available ? stockQuotes.data.data : [];
+    const cryptoData = cryptoQuotes.data?.available ? cryptoQuotes.data.data : [];
     if (isCrypto(sym)) {
       const id = CRYPTO_ID[sym.toUpperCase()];
-      const q = (cryptoQuotes.data as Record<string, { price?: number }> | undefined)?.[id];
+      const q = cryptoData.find((quote) => quote.symbol === id?.toUpperCase());
       return q?.price ?? null;
     }
-    const s = (stockQuotes.data as Array<{ symbol: string; price?: number }> | undefined)
-      ?.find((x) => x.symbol === sym);
+    const s = stockData.find((quote) => quote.symbol === sym.toUpperCase());
     return s?.price ?? null;
   }
 
