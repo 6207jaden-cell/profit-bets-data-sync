@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, KeyRound, Webhook, Save, Trash2, Send, Loader2, Bot, Plus, X } from "lucide-react";
+import { Settings as SettingsIcon, KeyRound, Webhook, Save, Trash2, Send, Loader2, Bot, Plus, X, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Card } from "@/components/ui/card";
@@ -167,6 +167,8 @@ function SettingsPage() {
 
         <AgentSettingsCard userId={userId} />
 
+        <CronSyncCard />
+
         <Card className="p-5 border-border bg-card space-y-3">
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-primary" />
@@ -304,6 +306,95 @@ function AgentSettingsCard({ userId }: { userId: string | null }) {
         {save.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
         Save agent settings
       </Button>
+    </Card>
+  );
+}
+
+function CronSyncCard() {
+  const [status, setStatus] = useState<null | { ok: boolean; succeeded: number; failed: number; error?: string; failed_jobs?: string[] }>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function syncCrons() {
+    setLoading(true);
+    setStatus(null);
+    try {
+      const anonKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
+        ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+      const res = await fetch("/api/public/sync-crons", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: anonKey },
+      });
+      const data = await res.json() as { ok: boolean; succeeded: number; failed: number; error?: string; failed_jobs?: string[] };
+      setStatus(data);
+    } catch (e) {
+      setStatus({ ok: false, succeeded: 0, failed: 0, error: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="p-4 sm:p-5 space-y-4 border-border">
+      <div>
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <RefreshCw className="h-4 w-4 text-primary" />
+          Sync Cron Jobs
+        </h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          Registers all scheduled tasks in your Supabase database. Click this after any update that adds new cron jobs.
+          Requires <span className="font-mono text-xs">pg_cron</span> and <span className="font-mono text-xs">pg_net</span> extensions to be enabled in Supabase first.
+        </p>
+      </div>
+
+      <Button
+        size="sm"
+        onClick={syncCrons}
+        disabled={loading}
+        variant={status?.ok ? "outline" : "default"}
+        className={status?.ok ? "border-emerald-500/50 text-emerald-400" : ""}
+      >
+        {loading
+          ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Registering crons…</>
+          : status?.ok
+          ? <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />All {status.succeeded} crons registered</>
+          : <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Sync cron jobs</>
+        }
+      </Button>
+
+      {status && !status.ok && (
+        <div className="rounded-lg border border-red-500/30 bg-red-950/20 p-3 space-y-1.5">
+          <div className="flex items-center gap-1.5 text-xs text-red-400 font-medium">
+            <AlertCircle className="h-3.5 w-3.5" />
+            {status.error ?? `${status.failed} cron(s) failed to register`}
+          </div>
+          {status.error?.includes("pg_cron") && (
+            <div className="text-[11px] text-muted-foreground space-y-1">
+              <p>To enable extensions:</p>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>Go to <span className="font-mono">supabase.com → your project</span></li>
+                <li>Left sidebar → <span className="font-mono">Database → Extensions</span></li>
+                <li>Search <span className="font-mono">pg_cron</span> → Enable</li>
+                <li>Search <span className="font-mono">pg_net</span> → Enable</li>
+                <li>Come back here and click Sync again</li>
+              </ol>
+            </div>
+          )}
+          {(status.failed_jobs ?? []).length > 0 && (
+            <details className="text-[10px] text-muted-foreground">
+              <summary className="cursor-pointer">Show failed jobs</summary>
+              <ul className="mt-1 space-y-0.5 font-mono">
+                {(status.failed_jobs ?? []).map((j) => <li key={j}>• {j}</li>)}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      {status?.ok && (
+        <p className="text-[11px] text-emerald-400">
+          ✓ {status.succeeded} cron jobs active — all scans, learning, signals and portfolio snapshots are scheduled.
+        </p>
+      )}
     </Card>
   );
 }
