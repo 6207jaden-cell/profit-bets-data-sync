@@ -1077,7 +1077,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
               hold_duration: t.hold_duration,
               stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
               take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
-              instrument: t.instrument, conviction: t.conviction ?? null,
+              instrument: t.instrument,
               rationale: `[SCALE-IN conviction:${t.conviction}] Adding to winning ${t.symbol} position (+${existPnlPct.toFixed(1)}%). ${t.rationale}`,
             });
             cashRemaining -= scaleCash;
