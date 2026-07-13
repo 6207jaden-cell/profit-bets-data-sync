@@ -473,6 +473,13 @@ function AutonomousSection({ userId }: { userId: string | null }) {
           <Badge variant="outline" className="border-primary/40 text-primary text-[10px]">BETA</Badge>
         </div>
         <div className="flex items-center gap-2 text-xs">
+          <button
+            onClick={runScanNow}
+            className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 border border-primary/30 font-medium"
+            title="Manually trigger a market scan"
+          >
+            ▶ Run scan now
+          </button>
           {autonomous && (
             <button
               onClick={() => toggleAutonomous(false)}
