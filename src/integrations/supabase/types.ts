@@ -950,6 +950,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      register_all_crons: { Args: never; Returns: Json }
       tier_rank: {
         Args: { _tier: Database["public"]["Enums"]["app_tier"] }
         Returns: number
