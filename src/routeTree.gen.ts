@@ -18,6 +18,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedMarketsRouteImport } from './routes/_authenticated/markets'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as ApiPublicSyncRobinhoodBalanceRouteImport } from './routes/api/public/sync-robinhood-balance'
+import { Route as ApiPublicSyncCronsRouteImport } from './routes/api/public/sync-crons'
 import { Route as ApiPublicSnapshotPortfolioRouteImport } from './routes/api/public/snapshot-portfolio'
 import { Route as ApiPublicResolveSignalsRouteImport } from './routes/api/public/resolve-signals'
 import { Route as ApiPublicGenerateStrategiesRouteImport } from './routes/api/public/generate-strategies'
@@ -77,6 +78,11 @@ const ApiPublicSyncRobinhoodBalanceRoute =
     path: '/api/public/sync-robinhood-balance',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicSyncCronsRoute = ApiPublicSyncCronsRouteImport.update({
+  id: '/api/public/sync-crons',
+  path: '/api/public/sync-crons',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicSnapshotPortfolioRoute =
   ApiPublicSnapshotPortfolioRouteImport.update({
     id: '/api/public/snapshot-portfolio',
@@ -170,6 +176,7 @@ export interface FileRoutesByFullPath {
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
+  '/api/public/sync-crons': typeof ApiPublicSyncCronsRoute
   '/api/public/sync-robinhood-balance': typeof ApiPublicSyncRobinhoodBalanceRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
@@ -193,6 +200,7 @@ export interface FileRoutesByTo {
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
+  '/api/public/sync-crons': typeof ApiPublicSyncCronsRoute
   '/api/public/sync-robinhood-balance': typeof ApiPublicSyncRobinhoodBalanceRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
@@ -218,6 +226,7 @@ export interface FileRoutesById {
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
+  '/api/public/sync-crons': typeof ApiPublicSyncCronsRoute
   '/api/public/sync-robinhood-balance': typeof ApiPublicSyncRobinhoodBalanceRoute
   '/api/public/mcp/robinhood/callback': typeof ApiPublicMcpRobinhoodCallbackRoute
 }
@@ -243,6 +252,7 @@ export interface FileRouteTypes {
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
+    | '/api/public/sync-crons'
     | '/api/public/sync-robinhood-balance'
     | '/api/public/mcp/robinhood/callback'
   fileRoutesByTo: FileRoutesByTo
@@ -266,6 +276,7 @@ export interface FileRouteTypes {
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
+    | '/api/public/sync-crons'
     | '/api/public/sync-robinhood-balance'
     | '/api/public/mcp/robinhood/callback'
   id:
@@ -290,6 +301,7 @@ export interface FileRouteTypes {
     | '/api/public/generate-strategies'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
+    | '/api/public/sync-crons'
     | '/api/public/sync-robinhood-balance'
     | '/api/public/mcp/robinhood/callback'
   fileRoutesById: FileRoutesById
@@ -311,6 +323,7 @@ export interface RootRouteChildren {
   ApiPublicGenerateStrategiesRoute: typeof ApiPublicGenerateStrategiesRoute
   ApiPublicResolveSignalsRoute: typeof ApiPublicResolveSignalsRoute
   ApiPublicSnapshotPortfolioRoute: typeof ApiPublicSnapshotPortfolioRoute
+  ApiPublicSyncCronsRoute: typeof ApiPublicSyncCronsRoute
   ApiPublicSyncRobinhoodBalanceRoute: typeof ApiPublicSyncRobinhoodBalanceRoute
   ApiPublicMcpRobinhoodCallbackRoute: typeof ApiPublicMcpRobinhoodCallbackRoute
 }
@@ -378,6 +391,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/sync-robinhood-balance'
       fullPath: '/api/public/sync-robinhood-balance'
       preLoaderRoute: typeof ApiPublicSyncRobinhoodBalanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/sync-crons': {
+      id: '/api/public/sync-crons'
+      path: '/api/public/sync-crons'
+      fullPath: '/api/public/sync-crons'
+      preLoaderRoute: typeof ApiPublicSyncCronsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/snapshot-portfolio': {
@@ -508,9 +528,20 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicGenerateStrategiesRoute: ApiPublicGenerateStrategiesRoute,
   ApiPublicResolveSignalsRoute: ApiPublicResolveSignalsRoute,
   ApiPublicSnapshotPortfolioRoute: ApiPublicSnapshotPortfolioRoute,
+  ApiPublicSyncCronsRoute: ApiPublicSyncCronsRoute,
   ApiPublicSyncRobinhoodBalanceRoute: ApiPublicSyncRobinhoodBalanceRoute,
   ApiPublicMcpRobinhoodCallbackRoute: ApiPublicMcpRobinhoodCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
