@@ -547,25 +547,35 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
   ];
 
   // Build chart data with proper date-aligned SPY values
+  const spyPoints = showBench && spy.data?.ok ? spy.data.points : [];
+  const firstPortfolioTs = allDataPoints[0]?.created_at
+    ? new Date(allDataPoints[0].created_at).getTime()
+    : Date.now();
+  const nearestSpyIndex = (timestamp: number) => {
+    let bestIdx = 0;
+    let bestDiff = Math.abs((spyPoints[0]?.t ?? timestamp) - timestamp);
+    for (let j = 1; j < spyPoints.length; j++) {
+      const diff = Math.abs(spyPoints[j].t - timestamp);
+      if (diff < bestDiff) { bestDiff = diff; bestIdx = j; }
+    }
+    return bestIdx;
+  };
+  const spyStartClose = spyPoints.length > 0
+    ? spyPoints[nearestSpyIndex(firstPortfolioTs)].close
+    : null;
+
   const chartData = allDataPoints.map((r) => {
     const point: { date: string; equity: number; spy?: number } = {
       date: new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" }),
       equity: Number(r.equity),
     };
 
-    if (showBench && spy.data?.ok && spy.data.points.length > 0) {
-      const spyPts = spy.data.points;
+    if (spyStartClose != null && spyStartClose > 0) {
       // Find the SPY bar whose timestamp is closest to this snapshot's date
       const snapTs = new Date(r.created_at).getTime();
-      let bestIdx = 0;
-      let bestDiff = Math.abs(spyPts[0].t - snapTs);
-      for (let j = 1; j < spyPts.length; j++) {
-        const diff = Math.abs(spyPts[j].t - snapTs);
-        if (diff < bestDiff) { bestDiff = diff; bestIdx = j; }
-      }
+      const bestIdx = nearestSpyIndex(snapTs);
       // Normalize: SPY starting price maps to our starting balance
-      const spyStartClose = spyPts[0].close;
-      const spyCurrentClose = spyPts[bestIdx].close;
+      const spyCurrentClose = spyPoints[bestIdx].close;
       point.spy = Number((start * (spyCurrentClose / spyStartClose)).toFixed(2));
     }
 
