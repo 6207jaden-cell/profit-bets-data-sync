@@ -101,6 +101,23 @@ export default function TradingDashboard() {
     },
   });
 
+  // Mark-to-market: revalue open positions at live prices so equity reflects
+  // cash + unrealized P&L, not just cash. Runs on mount and every 60s.
+  const markToMarket = useServerFn(markToMarketPortfolio);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        await markToMarket({ data: undefined as never });
+        if (!cancelled) qc.invalidateQueries({ queryKey: ["paper-portfolio", userId] });
+      } catch { /* silent */ }
+    };
+    run();
+    const id = setInterval(run, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [userId, markToMarket, qc]);
+
   // Recent trades
   const trades = useQuery({
     queryKey: ["paper-trades", userId],
