@@ -300,7 +300,6 @@ function OpenPositionsCard({
   const totalPct = totalCost > 0 ? (totalUnreal / totalCost) * 100 : 0;
   const isLive = stockQuotes.isFetching || cryptoQuotes.isFetching;
 
-  const [heatMap, setHeatMap] = useState(false);
   function explain(r: (typeof rows)[number]) {
     window.dispatchEvent(new CustomEvent("explain-trade", { detail: {
       id: r.t.id, asset: r.t.asset, side: r.t.side, quantity: r.qty,
