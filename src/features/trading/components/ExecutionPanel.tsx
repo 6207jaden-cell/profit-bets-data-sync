@@ -224,6 +224,8 @@ function OpenPositionsCard({
     queryFn: () => cryptoFn({ data: { ids: cryptoIds } }),
   });
 
+  const [heatMap, setHeatMap] = useState(false);
+
   // Early returns AFTER all hooks
   if (isLoading) return (
     <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
