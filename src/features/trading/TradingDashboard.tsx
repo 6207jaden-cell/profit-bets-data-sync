@@ -525,14 +525,14 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
 
   // Fetch SPY bars covering the same period as our snapshots
   const barsFn = useServerFn(getHistoricalBars);
-  const firstSnapDate = rows.length > 0 ? new Date(rows[0].created_at) : null;
-  const daysSinceFirst = firstSnapDate
-    ? Math.max(15, Math.ceil((Date.now() - firstSnapDate.getTime()) / 86_400_000) + 5)
-    : 30;
+  // Use first snapshot date if available, otherwise use account creation (today minus a week)
+  // SPY fetch needs enough bars to cover the chart period
+  const firstSnapDate = rows.length > 0 ? new Date(rows[0].created_at) : new Date(Date.now() - 7 * 86_400_000);
+  const daysSinceFirst = Math.max(15, Math.ceil((Date.now() - firstSnapDate.getTime()) / 86_400_000) + 5);
 
   const spy = useQuery({
     queryKey: ["spy-bench-v2", daysSinceFirst],
-    enabled: showBench && rows.length >= 1,
+    enabled: showBench,   // fire whenever button is on - allDataPoints always has today's equity
     staleTime: 6 * 3600_000,
     queryFn: () => barsFn({ data: { symbol: "SPY", days: daysSinceFirst } }),
   });
