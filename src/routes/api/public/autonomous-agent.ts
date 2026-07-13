@@ -164,45 +164,60 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           }
         } catch { /* ignore */ }
 
-        // Macro overlay: 10Y Treasury yield, DXY, and yield curve shape
-        // These are the top macro factors driving stocks and crypto
+        // Macro overlay: 10Y & 2Y Treasury yields, DXY, and yield curve shape.
+        // Primary source: Yahoo Finance chart API (keyless, reliable for these tickers).
+        // Fallbacks: Finnhub (paid symbols) and FRED (demo key, rate-limited).
         let tenYearYield: number | null = null;
         let twoYearYield: number | null = null;
         let dxyLevel: number | null = null;
         let yieldCurveShape = "unknown";
+
+        const yahooLast = async (symbol: string): Promise<number | null> => {
+          try {
+            const r = await fetch(
+              `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`,
+              { headers: { "User-Agent": "Mozilla/5.0" } },
+            );
+            if (!r.ok) return null;
+            const j = (await r.json()) as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } };
+            const px = j.chart?.result?.[0]?.meta?.regularMarketPrice;
+            return typeof px === "number" && isFinite(px) ? px : null;
+          } catch { return null; }
+        };
+
+        // Yahoo: ^TNX = 10Y yield * 10 (e.g. 42.5 => 4.25%), ^IRX = 13-week bill * 10.
+        // 2Y isn't exposed keyless; ^IRX (3M) is a solid short-end curve anchor.
+        const [tnx, irx, dxy] = await Promise.all([
+          yahooLast("^TNX"),
+          yahooLast("^IRX"),
+          yahooLast("DX-Y.NYB"),
+        ]);
+        if (tnx != null) tenYearYield = tnx / 10;
+        if (irx != null) twoYearYield = irx / 10; // short-end proxy
+        if (dxy != null) dxyLevel = dxy;
+
+        // Finnhub fallback (if the user upgrades and these symbols resolve)
         try {
           const finKey = process.env.FINNHUB_API_KEY;
-          if (finKey) {
-            // 10Y Treasury yield via Finnhub (symbol: ^TNX or US10Y)
-            // DXY (dollar index) via Finnhub
+          if (finKey && (tenYearYield == null || twoYearYield == null || dxyLevel == null)) {
             const [r10y, r2y, rdxy] = await Promise.all([
-              fetch(`https://finnhub.io/api/v1/quote?symbol=US10Y&token=${finKey}`),
-              fetch(`https://finnhub.io/api/v1/quote?symbol=US02Y&token=${finKey}`),
-              fetch(`https://finnhub.io/api/v1/quote?symbol=DXY&token=${finKey}`),
+              tenYearYield == null ? fetch(`https://finnhub.io/api/v1/quote?symbol=US10Y&token=${finKey}`) : null,
+              twoYearYield == null ? fetch(`https://finnhub.io/api/v1/quote?symbol=US02Y&token=${finKey}`) : null,
+              dxyLevel == null ? fetch(`https://finnhub.io/api/v1/quote?symbol=DXY&token=${finKey}`) : null,
             ]);
-            if (r10y.ok) { const j = (await r10y.json()) as { c?: number }; tenYearYield = j.c ?? null; }
-            if (r2y.ok) { const j = (await r2y.json()) as { c?: number }; twoYearYield = j.c ?? null; }
-            if (rdxy.ok) { const j = (await rdxy.json()) as { c?: number }; dxyLevel = j.c ?? null; }
+            if (r10y?.ok) { const j = (await r10y.json()) as { c?: number }; if (j.c) tenYearYield = j.c; }
+            if (r2y?.ok) { const j = (await r2y.json()) as { c?: number }; if (j.c) twoYearYield = j.c; }
+            if (rdxy?.ok) { const j = (await rdxy.json()) as { c?: number }; if (j.c) dxyLevel = j.c; }
           }
         } catch { /* ignore */ }
-        // Fallback: try alternative symbols if Finnhub doesn't have them
-        if (!tenYearYield) {
-          try {
-            const r = await fetch("https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&limit=1&sort_order=desc&api_key=demo&file_type=json");
-            if (r.ok) {
-              const j = (await r.json()) as { observations?: Array<{ value: string }> };
-              const v = j.observations?.[0]?.value;
-              if (v && v !== ".") tenYearYield = Number(v);
-            }
-          } catch { /* ignore */ }
-        }
-        if (tenYearYield && twoYearYield) {
+
+        if (tenYearYield != null && twoYearYield != null) {
           const spread = tenYearYield - twoYearYield;
           yieldCurveShape = spread > 0.5 ? "normal_steep" : spread > 0 ? "normal_flat" : "inverted";
         }
         const macroContext = [
           tenYearYield != null ? `10Y yield: ${tenYearYield.toFixed(2)}%` : null,
-          twoYearYield != null ? `2Y yield: ${twoYearYield.toFixed(2)}%` : null,
+          twoYearYield != null ? `short-end (3M) yield: ${twoYearYield.toFixed(2)}%` : null,
           yieldCurveShape !== "unknown" ? `curve: ${yieldCurveShape}` : null,
           dxyLevel != null ? `DXY: ${dxyLevel.toFixed(1)}` : null,
         ].filter(Boolean).join(", ") || "macro data unavailable";
