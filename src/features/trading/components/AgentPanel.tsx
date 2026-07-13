@@ -569,12 +569,6 @@ function AutonomousSection({ userId }: { userId: string | null }) {
             <span>Next: {nextScan}</span>
             <span>Open: {status.data?.openPositions ?? 0}</span>
             <span>Cash: {(status.data?.cashPct ?? 0).toFixed(0)}%</span>
-            <button
-              onClick={runScanNow}
-              className="ml-2 text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 border border-primary/30 transition-colors font-medium"
-            >
-              ▶ Run scan now
-            </button>
             <div className="ml-auto flex items-center gap-1">
               {!pausedUntil && (
                 <Popover>
