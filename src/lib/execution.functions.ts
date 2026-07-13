@@ -42,6 +42,34 @@ type ExecResult =
   | { ok: true; trade_id: string; price: number; quantity: number; source: string }
   | { ok: false; reason: string };
 
+// Recompute portfolio equity = cash + Σ(qty × current price) across open positions.
+// Falls back to entry_price for any symbol whose live quote fails.
+async function recomputeEquity(
+  supabase: { from: (t: string) => { select: (c: string) => { eq: (k: string, v: unknown) => { eq: (k: string, v: unknown) => Promise<{ data: unknown }> } } } },
+  portfolio: { id: string; balance: number | string },
+): Promise<number> {
+  const { data: opens } = await supabase
+    .from("paper_trades")
+    .select("asset,quantity,entry_price,side")
+    .eq("portfolio_id", portfolio.id)
+    .eq("is_open", true);
+  const cash = Number(portfolio.balance);
+  const trades = (opens ?? []) as Array<{ asset: string; quantity: number | string; entry_price: number | string; side: string }>;
+  if (trades.length === 0) return cash;
+  const symbols = Array.from(new Set(trades.map((t) => t.asset.toUpperCase())));
+  const quotes = await Promise.all(symbols.map((s) => fetchQuote(s).catch(() => null)));
+  const priceMap = new Map<string, number>();
+  symbols.forEach((s, i) => { const q = quotes[i]; if (q) priceMap.set(s, q.price); });
+  let positionsValue = 0;
+  for (const t of trades) {
+    const qty = Number(t.quantity);
+    const entry = Number(t.entry_price);
+    const px = priceMap.get(t.asset.toUpperCase()) ?? entry;
+    positionsValue += qty * px;
+  }
+  return cash + positionsValue;
+}
+
 export const openPaperTrade = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) =>
