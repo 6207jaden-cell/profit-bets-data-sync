@@ -516,7 +516,12 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
 
   const rows = snaps.data ?? [];
   const positive = equity >= start;
-  const stroke = positive ? "hsl(var(--bull))" : "hsl(var(--bear))";
+  // Explicit hex colors — more reliable than CSS vars inside SVG
+  const PORTFOLIO_UP   = "#22c55e";   // green-500
+  const PORTFOLIO_DOWN = "#ef4444";   // red-500
+  const SPY_UP         = "#16a34a";   // green-600 (slightly darker to distinguish)
+  const SPY_DOWN       = "#dc2626";   // red-600
+  const stroke = positive ? PORTFOLIO_UP : PORTFOLIO_DOWN;
 
   // Fetch SPY bars covering the same period as our snapshots
   const barsFn = useServerFn(getHistoricalBars);
@@ -567,15 +572,16 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
     return point;
   });
 
-  // Compute alpha: how much we beat/lost vs SPY
+  // Compute SPY color and alpha
+  const lastSpyValue = chartData[chartData.length - 1]?.spy ?? null;
+  const spyIsUp = lastSpyValue != null && lastSpyValue >= start;
+  const spyStroke = spyIsUp ? SPY_UP : SPY_DOWN;
+
   let vsSpyPct: number | null = null;
-  if (showBench && spy.data?.ok && rows.length >= 2) {
-    const lastSpyValue = chartData[chartData.length - 1]?.spy;
-    if (lastSpyValue != null && lastSpyValue > 0) {
-      const portfolioPct = ((equity - start) / start) * 100;
-      const spyPct = ((lastSpyValue - start) / start) * 100;
-      vsSpyPct = portfolioPct - spyPct;
-    }
+  if (showBench && spy.data?.ok && lastSpyValue != null && lastSpyValue > 0) {
+    const portfolioPct = ((equity - start) / start) * 100;
+    const spyPct = ((lastSpyValue - start) / start) * 100;
+    vsSpyPct = portfolioPct - spyPct;
   }
 
   return (
@@ -629,19 +635,7 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
         </div>
       </header>
 
-      {/* Legend */}
-      {showBench && spy.data?.ok && (
-        <div className="flex items-center gap-4 mb-2 text-[10px] text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block h-[2px] w-5 rounded" style={{ background: stroke }} />
-            Your portfolio
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block h-[2px] w-5 rounded" style={{ background: "#f59e0b", borderTop: "2px dashed #f59e0b" }} />
-            SPY (normalized to $start)
-          </span>
-        </div>
-      )}
+
 
       {chartData.length >= 1 ? (
         <div className="h-44 mb-3">
@@ -649,8 +643,8 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
             <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="eq-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={stroke} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={stroke} stopOpacity={0} />
+                  <stop offset="0%" stopColor={stroke} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={stroke} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
               <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
@@ -665,7 +659,9 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
                 contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12, borderRadius: 8 }}
                 formatter={(v: number, key: string) => [
                   `$${Number(v).toFixed(2)}`,
-                  key === "spy" ? "SPY (normalized)" : "Your portfolio",
+                  key === "spy"
+                    ? `SPY — ${spyIsUp ? "▲ up" : "▼ down"} from $${start.toFixed(0)}`
+                    : `Portfolio — ${positive ? "▲ up" : "▼ down"} from $${start.toFixed(0)}`,
                 ]}
               />
               <Area
@@ -674,19 +670,43 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
                 stroke={stroke}
                 fill="url(#eq-fill)"
                 strokeWidth={2}
-                dot={false}
                 activeDot={{ r: 3 }}
+                dot={(props: Record<string, unknown>) => {
+                  const { cx, cy, index } = props as { cx: number; cy: number; index: number };
+                  if (!cx || !cy || index !== chartData.length - 1) return <g key={index} />;
+                  const label = positive ? "You ▲" : "You ▼";
+                  const w = label.length * 6.5 + 8;
+                  return (
+                    <g key={`portfolio-label-${index}`}>
+                      <circle cx={cx} cy={cy} r={4} fill={stroke} />
+                      <rect x={cx - w / 2} y={cy - 22} width={w} height={16} rx={4} fill={stroke} />
+                      <text x={cx} y={cy - 10} fill="white" fontSize={9} fontWeight="bold" textAnchor="middle" fontFamily="monospace">{label}</text>
+                    </g>
+                  );
+                }}
               />
               {showBench && spy.data?.ok && (
                 <Area
                   type="monotone"
                   dataKey="spy"
-                  stroke="#f59e0b"
+                  stroke={spyStroke}
                   fill="none"
                   strokeWidth={2}
                   strokeDasharray="5 3"
-                  dot={false}
-                  activeDot={{ r: 3, fill: "#f59e0b" }}
+                  activeDot={{ r: 3, fill: spyStroke }}
+                  dot={(props: Record<string, unknown>) => {
+                    const { cx, cy, index } = props as { cx: number; cy: number; index: number };
+                    if (!cx || !cy || index !== chartData.length - 1) return <g key={index} />;
+                    const label = spyIsUp ? "SPY ▲" : "SPY ▼";
+                    const w = label.length * 6.5 + 8;
+                    return (
+                      <g key={`spy-label-${index}`}>
+                        <circle cx={cx} cy={cy} r={4} fill={spyStroke} />
+                        <rect x={cx - w / 2} y={cy - 22} width={w} height={16} rx={4} fill={spyStroke} />
+                        <text x={cx} y={cy - 10} fill="white" fontSize={9} fontWeight="bold" textAnchor="middle" fontFamily="monospace">{label}</text>
+                      </g>
+                    );
+                  }}
                 />
               )}
             </AreaChart>
