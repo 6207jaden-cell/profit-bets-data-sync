@@ -92,12 +92,14 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           return new Response("Unauthorized", { status: 401 });
         }
         const body = (await request.json().catch(() => ({}))) as { session?: string };
-        const session: "morning" | "midday" | "weekend_prep" =
+        const session: "morning" | "midday" | "weekend_prep" | "scalp" =
           body.session === "midday" ? "midday"
           : body.session === "weekend_prep" ? "weekend_prep"
+          : body.session === "scalp" ? "scalp"
           : "morning";
         const sessionType = session === "midday" ? "midday_scan"
           : session === "weekend_prep" ? "weekend_prep"
+          : session === "scalp" ? "scalp_scan"
           : "morning_scan";
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -366,15 +368,22 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           return score;
         }
 
+        // Scalp: top 20 (need breadth for intraday momentum plays)
+        // Morning: top 25 (full analysis)
+        // Midday: top 15 (quick midday recheck)
         const sorted = session === "midday"
           ? allCandidates.sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 15)
+          : session === "scalp"
+          ? allCandidates.sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 20)
           : allCandidates.sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 25);
 
         // Multi-timeframe confirmation: for top 12 candidates, check 1h and daily alignment.
         // Only worth doing for the cream of the crop to limit API calls.
         const poly = process.env.POLYGON_API_KEY;
         const mtfMap = new Map<string, { score: number; label: string }>();
-        if (poly) {
+        // Skip MTF for scalp sessions — weekly bars are irrelevant for intraday trades
+        // and the extra API calls would slow down every 30-min scan
+        if (poly && session !== "scalp") {
           const top12 = sorted.slice(0, 12);
           await Promise.allSettled(top12.map(async (c) => {
             try {
@@ -470,7 +479,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
 async function runForUser(args: {
   userId: string;
   executionMode: string;
-  session: "morning" | "midday" | "weekend_prep";
+  session: "morning" | "midday" | "weekend_prep" | "scalp";
   sessionType: string;
   regime: string;
   vixLevel: number | null;
@@ -806,7 +815,36 @@ async function runForUser(args: {
     .map((a, i) => `- LEARNED RULE ${i + 1}: ${a}`)
     .join("\n");
 
-  const systemPrompt = `You are an autonomous portfolio manager with deep expertise in equities, ETFs, crypto, and options (calls, puts, vertical spreads, iron condors). You manage a ring-fenced trading account. Your only goal is to maximize risk-adjusted returns over time.
+  // ── Session-specific system prompt ──────────────────────────────────────
+  const isScalp = session === "scalp";
+
+  const systemPrompt = isScalp
+    ? `You are an intraday scalp trader. Your job is to find fast momentum plays that can return 0.5–2.5% within the same trading day. You scan stocks AND crypto for the highest-probability setups right now.
+
+SCALP RULES — follow exactly:
+- ALL trades must have hold_duration="intraday" — you are day trading, no overnight holds.
+- Prefix every trade rationale with [SCALP].
+- Target 1–2.5% profit per trade (take_profit_pct: 1.0–2.5).
+- Stop loss 1.5–3% (stop_loss_pct: 1.5–3.0). Tight stops are essential for scalping.
+- Position sizes 5–12% (allocation_pct: 5–12). Smaller sizes let you hold more scalps simultaneously.
+- Open 3–8 scalp positions per scan — more is better as long as signals are clear.
+- Focus on: high volume surges (vol_surge_pct > 30%), RSI breaking above 50 from below (momentum ignition), price breaking above a recent consolidation, crypto showing 15-min momentum.
+- Crypto is excellent for scalping — BTC, ETH, SOL, AVAX all move fast intraday. Include crypto when showing momentum.
+- Do NOT worry about weekly or macro alignment for scalps — you only need the next 2-4 hours to work.
+- NEVER open a scalp if current_rsi > 75 (already extended) or < 30 (still falling). Wait for the turn.
+- If you already have a scalp open in a symbol, skip it unless momentum is dramatically different.
+- Always maintain at least ${effectiveMinCashPct}% cash reserve.
+- Never allocate more than 12% to any single scalp.
+
+Respond with ONLY valid JSON:
+{
+  "market_assessment": "1-2 sentence intraday assessment",
+  "regime": "bull|bear|sideways",
+  "cash_deployment_pct": <0-${100 - effectiveMinCashPct}>,
+  "trades": [ { "symbol": "NVDA", "direction": "long|short", "instrument": "stock|etf|crypto|call|put", "conviction": <0-100>, "allocation_pct": <5-12>, "stop_loss_pct": <1.5-3.0>, "take_profit_pct": <1.0-2.5>, "hold_duration": "intraday", "rationale": "[SCALP] 2-sentence momentum explanation", "options_details": null } ],
+  "message_to_user": "Brief 1-2 sentence scalp summary."
+}`
+    : `You are an autonomous portfolio manager with deep expertise in equities, ETFs, crypto, and options (calls, puts, vertical spreads, iron condors). You manage a ring-fenced trading account. Your only goal is to maximize risk-adjusted returns over time.
 
 HARD RULES — never violate these:
 - Always maintain at least ${effectiveMinCashPct}% cash. Never deploy more than ${100 - effectiveMinCashPct}% of the portfolio.
@@ -816,7 +854,8 @@ HARD RULES — never violate these:
 - Never trade assets with earnings within 48 hours.
 - Session "midday" is intraday only — set hold_duration="intraday" for all midday trades.
 - If defensive_mode is true: LONG stock/etf/crypto only (no shorts, no options, no spreads), conviction must be >= 75.
-- Trade actively. You are a momentum-driven portfolio manager who makes 2-5 trades per scan when conditions allow. Do not default to inaction — markets always have opportunities if you look hard enough. Empty trades array should be RARE, only when ALL candidates show negative signals.
+- Trade actively. You are a momentum-driven portfolio manager who makes 3-6 trades per scan when conditions allow. Do not default to inaction — markets always have opportunities if you look hard enough. Empty trades array should be RARE, only when ALL candidates show negative signals.
+- Prefix every trade rationale with [SWING] to distinguish from intraday scalp trades.
 - Prefer smaller allocations (5-15%) to open more positions rather than large allocations (25-35%) on fewer. Diversification across 6-10 positions is better than concentration in 2-3.
 - When vol_surge_pct > 50, that stock is moving on unusual volume — prioritize it.
 - When five_day_return shows strong momentum (>3% or <-3%), that is a high-quality signal.
