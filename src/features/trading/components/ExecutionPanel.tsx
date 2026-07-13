@@ -181,6 +181,9 @@ export function ExecutionPanel() {
         trades={openTrades.data ?? []}
         closing={closing}
         onClose={closeTrade}
+        isLoading={isLoading}
+        isError={isError}
+        onRefetch={() => openTrades.refetch()}
       />
 
 
@@ -202,16 +205,39 @@ type OpenTrade = {
 };
 
 function OpenPositionsCard({
-  trades, closing, onClose,
+  trades, closing, onClose, isLoading, isError, onRefetch,
 }: {
   trades: OpenTrade[];
   closing: string | null;
   onClose: (id: string) => void;
+  isLoading?: boolean;
+  isError?: boolean;
+  onRefetch?: () => void;
 }) {
-  const stockSymbols = Array.from(new Set(trades.map((t) => t.asset).filter((s) => !isCrypto(s))));
+  if (isLoading) return (
+    <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
+      <svg className="h-4 w-4 animate-spin text-primary/60" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      Loading positions…
+    </div>
+  );
+  if (isError) return (
+    <div className="flex flex-col items-center justify-center py-12 gap-2 text-sm">
+      <p className="text-muted-foreground">Failed to load positions.</p>
+      {onRefetch && <button onClick={onRefetch} className="text-xs text-primary hover:underline">Try again</button>}
+    </div>
+  );
+  const stockSymbols = Array.from(new Set(trades.filter((t) => t.asset && !isCrypto(String(t.asset))).map((t) => String(t.asset))));
   const cryptoIds = Array.from(
-    new Set(trades.map((t) => CRYPTO_ID[t.asset.toUpperCase()]).filter(Boolean)),
-  ) as string[];
+    new Set(
+      trades
+        .filter((t) => t.asset && isCrypto(String(t.asset)))
+        .map((t) => CRYPTO_ID[String(t.asset).toUpperCase()])
+        .filter((id): id is string => Boolean(id))
+    ),
+  );
 
   const stockFn = useServerFn(getStockQuotes);
   const cryptoFn = useServerFn(getCryptoQuotes);
@@ -242,9 +268,9 @@ function OpenPositionsCard({
 
   let totalCost = 0;
   let totalValue = 0;
-  const rows = trades.map((t) => {
-    const qty = Number(t.quantity);
-    const entry = Number(t.entry_price);
+  const rows = trades.filter((t) => t && t.id && t.asset).map((t) => {
+    const qty = Math.max(0, Number(t.quantity) || 0);
+    const entry = Math.max(0, Number(t.entry_price) || 0);
     const cost = qty * entry;
     let current: number | null = null;
     let theta: number | null = null;
@@ -333,7 +359,12 @@ function OpenPositionsCard({
           )}
         </div>
       </header>
-      {trades.length === 0 ? (
+      {isError ? (
+        <div className="p-8 text-center space-y-2">
+          <p className="text-sm text-red-400">Failed to load positions.</p>
+          {onRefetch && <button onClick={onRefetch} className="text-xs text-primary hover:underline">Retry</button>}
+        </div>
+      ) : trades.length === 0 ? (
         <div className="p-8 text-center text-muted-foreground text-sm space-y-3">
           <p>No open paper positions.</p>
           <p className="text-xs">

@@ -514,8 +514,17 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
     queryFn: () => barsFn({ data: { symbol: "SPY", days: daysSinceFirst } }),
   });
 
+  // Always include today's current equity so the chart shows even before first daily snapshot
+  const allDataPoints = [
+    ...rows,
+    // Add today's live equity as the last point if it's different from latest snapshot
+    ...(rows.length === 0 || Number(rows[rows.length - 1]?.equity) !== equity
+      ? [{ created_at: new Date().toISOString(), equity }]
+      : []),
+  ];
+
   // Build chart data with proper date-aligned SPY values
-  const chartData = rows.map((r) => {
+  const chartData = allDataPoints.map((r) => {
     const point: { date: string; equity: number; spy?: number } = {
       date: new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" }),
       equity: Number(r.equity),
@@ -552,7 +561,7 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
   }
 
   return (
-    <Card className="p-4 sm:p-5 border-border bg-card">
+    <Card className="p-4 sm:p-5 border-border/80 bg-card shadow-md">
       <header className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <h3 className="font-display font-semibold flex items-center gap-2 min-w-0 truncate">
           <LineChartIcon className="h-4 w-4 shrink-0 text-primary" /> Paper Portfolio
@@ -676,16 +685,21 @@ function EquityCurveCard({ userId, equity, cash, start }: { userId: string | nul
 
       <div className="grid grid-cols-3 gap-3 sm:gap-4">
         <div className="min-w-0">
-          <div className="text-xs text-muted-foreground">Equity</div>
-          <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${equity.toFixed(2)}</div>
+          <div className="text-[11px] font-medium text-muted-foreground mb-0.5">Equity</div>
+          <div className="font-mono text-xl sm:text-2xl font-bold truncate text-foreground">${equity.toFixed(2)}</div>
+          <div className={cn("text-[11px] font-mono mt-0.5", equity >= start ? "text-emerald-400" : "text-red-400")}>
+            {equity >= start ? "+" : ""}{(((equity - start) / start) * 100).toFixed(2)}%
+          </div>
         </div>
         <div className="min-w-0">
-          <div className="text-xs text-muted-foreground">Cash</div>
-          <div className="font-mono text-lg sm:text-2xl font-semibold truncate">${cash.toFixed(2)}</div>
+          <div className="text-[11px] font-medium text-muted-foreground mb-0.5">Cash</div>
+          <div className="font-mono text-xl sm:text-2xl font-bold truncate text-foreground">${cash.toFixed(2)}</div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">{((cash / Math.max(equity, 1)) * 100).toFixed(0)}% of portfolio</div>
         </div>
         <div className="min-w-0">
-          <div className="text-xs text-muted-foreground">Starting</div>
-          <div className="font-mono text-lg sm:text-2xl font-semibold text-muted-foreground truncate">${start.toFixed(0)}</div>
+          <div className="text-[11px] font-medium text-muted-foreground mb-0.5">Started</div>
+          <div className="font-mono text-xl sm:text-2xl font-bold text-muted-foreground truncate">${start.toFixed(0)}</div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">paper balance</div>
         </div>
       </div>
     </Card>
