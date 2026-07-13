@@ -109,7 +109,7 @@ export default function TradingDashboard() {
     let cancelled = false;
     const run = async () => {
       try {
-        await markToMarket({ data: undefined as never });
+        await markToMarket();
         if (!cancelled) qc.invalidateQueries({ queryKey: ["paper-portfolio", userId] });
       } catch { /* silent */ }
     };
