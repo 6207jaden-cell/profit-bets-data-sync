@@ -1196,10 +1196,17 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       rationale: enrichedRationale,
     });
     if (error) { console.error("[autonomous] insert trade", error); debugSkips.push({ symbol: t.symbol, reason: "insert_error", detail: error.message }); continue; }
+    await supabaseAdmin.from("signals_executions").insert({
+      user_id: userId, execution_type: "paper", status: "filled",
+      asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
+      quantity: qty, price,
+      reason: `autonomous open (${session}) conviction=${t.conviction ?? "n/a"} ${t.instrument ?? "stock"}`,
+    });
     cashRemaining -= allocCash;
     sectorCount.set(sect, (sectorCount.get(sect) ?? 0) + 1);
     opened += 1;
   }
+
 
   if (opened > 0) {
     await supabaseAdmin.from("paper_portfolios").update({ balance: cashRemaining, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
