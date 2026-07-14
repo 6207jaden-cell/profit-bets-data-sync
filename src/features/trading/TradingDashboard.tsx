@@ -110,13 +110,20 @@ export default function TradingDashboard() {
     const run = async () => {
       try {
         await markToMarket();
-        if (!cancelled) qc.invalidateQueries({ queryKey: ["paper-portfolio", userId] });
+        if (!cancelled) {
+          qc.invalidateQueries({ queryKey: ["paper-portfolio", userId] });
+          qc.invalidateQueries({ queryKey: ["paper-trades", userId] });
+          qc.invalidateQueries({ queryKey: ["signals-executions", userId] });
+          qc.invalidateQueries({ queryKey: ["open-positions", userId] });
+          qc.invalidateQueries({ queryKey: ["equity-snapshots", userId] });
+        }
       } catch { /* silent */ }
     };
     run();
-    const id = setInterval(run, 60_000);
+    const id = setInterval(run, 20_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [userId, markToMarket, qc]);
+
 
   // Recent trades
   const trades = useQuery({

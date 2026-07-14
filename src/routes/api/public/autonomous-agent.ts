@@ -1080,6 +1080,12 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
               instrument: t.instrument,
               rationale: `[SCALE-IN conviction:${t.conviction}] Adding to winning ${t.symbol} position (+${existPnlPct.toFixed(1)}%). ${t.rationale}`,
             });
+            await supabaseAdmin.from("signals_executions").insert({
+              user_id: userId, execution_type: "paper", status: "filled",
+              asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
+              quantity: scaleQty, price: existingPrice,
+              reason: `autonomous scale-in (${session}) conviction=${t.conviction}`,
+            });
             cashRemaining -= scaleCash;
             opened++;
             console.log(`[autonomous] scale-in ${t.symbol} +${existPnlPct.toFixed(1)}% conviction=${t.conviction}`);
@@ -1088,6 +1094,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
         }
       }
     }
+
 
     // Cumulative allocation guard: ensure this trade doesn't exceed deployable cash
     const deployableCash = cash * ((100 - effectiveMinCashPct) / 100);
@@ -1189,10 +1196,17 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       rationale: enrichedRationale,
     });
     if (error) { console.error("[autonomous] insert trade", error); debugSkips.push({ symbol: t.symbol, reason: "insert_error", detail: error.message }); continue; }
+    await supabaseAdmin.from("signals_executions").insert({
+      user_id: userId, execution_type: "paper", status: "filled",
+      asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
+      quantity: qty, price,
+      reason: `autonomous open (${session}) conviction=${t.conviction ?? "n/a"} ${t.instrument ?? "stock"}`,
+    });
     cashRemaining -= allocCash;
     sectorCount.set(sect, (sectorCount.get(sect) ?? 0) + 1);
     opened += 1;
   }
+
 
   if (opened > 0) {
     await supabaseAdmin.from("paper_portfolios").update({ balance: cashRemaining, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
