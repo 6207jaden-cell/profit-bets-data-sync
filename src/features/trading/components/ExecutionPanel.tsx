@@ -294,7 +294,9 @@ function OpenPositionsCard({
     const unrealPct = current != null && cost > 0 ? (unreal! / cost) * 100 : null;
     totalCost += cost;
     if (current != null) totalValue += current;
-    return { t, qty, entry, cost, current, unreal, unrealPct, theta };
+    // livePrice = per-unit/per-share current price (current is total position value)
+    const livePrice = current != null && qty > 0 ? current / qty : null;
+    return { t, qty, entry, cost, current, livePrice, unreal, unrealPct, theta };
   });
 
   const totalUnreal = totalValue > 0 ? totalValue - totalCost : 0;
@@ -394,6 +396,22 @@ function OpenPositionsCard({
                   <span className="text-[11px] text-muted-foreground font-mono">
                     {r.qty.toFixed(4)} @ ${r.entry.toFixed(2)}
                   </span>
+                  {/* Live price badge */}
+                  {r.livePrice != null ? (
+                    <span className={cn(
+                      "text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded",
+                      (r.unreal ?? 0) >= 0
+                        ? "bg-bull/10 text-bull"
+                        : "bg-bear/10 text-bear"
+                    )}>
+                      ${r.livePrice.toFixed(r.livePrice >= 100 ? 2 : r.livePrice >= 1 ? 4 : 6)}
+                      {" "}{(r.unreal ?? 0) >= 0 ? "▲" : "▼"}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground font-mono animate-pulse">
+                      fetching…
+                    </span>
+                  )}
                   {r.theta != null && (
                     <Tooltip>
                       <TooltipTrigger asChild>
