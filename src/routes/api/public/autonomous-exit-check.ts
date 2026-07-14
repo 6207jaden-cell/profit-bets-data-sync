@@ -174,10 +174,17 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     await supabaseAdmin.from("paper_trades").update({
       is_open: false, exit_price: c.exit_price, pnl, closed_at: new Date().toISOString(),
     }).eq("id", c.trade.id);
+    await supabaseAdmin.from("signals_executions").insert({
+      user_id: userId, execution_type: "paper", status: "filled",
+      asset: c.trade.asset, side: c.trade.side === "buy" ? "sell" : "buy",
+      quantity: Number(c.trade.quantity), price: c.exit_price,
+      reason: `autonomous close pnl=${pnl.toFixed(2)} (${c.reason})`,
+    });
     cash += Number(c.trade.quantity) * c.exit_price;
     summaries.push(`${c.trade.asset} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} (${c.reason})`);
   }
   await supabaseAdmin.from("paper_portfolios").update({ balance: cash, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
+
   const cashPct = Number(portfolio.equity) > 0 ? (cash / Number(portfolio.equity)) * 100 : 0;
   await supabaseAdmin.from("agent_messages").insert({
     user_id: userId, role: "assistant", is_autonomous: true, session_type: "exit_check",
