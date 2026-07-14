@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Brain, ShieldCheck, TrendingUp, LogOut, Bell, Settings as SettingsIcon } from "lucide-react";
+import { Activity, Brain, ShieldCheck, TrendingUp, LogOut, Bell, BellRing, Settings as SettingsIcon } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useProfile } from "@/hooks/use-profile";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,6 +21,10 @@ export function TopNav() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [pushPerm, setPushPerm] = useState<NotificationPermission | "unsupported">(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported",
+  );
+  const seenIds = useRef<Set<string>>(new Set());
 
   const links = [
     ...items,
@@ -41,6 +46,60 @@ export function TopNav() {
   });
   const unread = (notifs.data ?? []).filter((n) => !n.read).length;
 
+  // Seed seenIds with existing notifications so we only alert on brand-new ones
+  useEffect(() => {
+    if (notifs.data) {
+      for (const n of notifs.data) seenIds.current.add(n.id);
+    }
+  }, [notifs.data]);
+
+  // Realtime subscription: toast + browser push on new notification
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`notifications:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const n = payload.new as { id: string; title: string; body: string; type?: string };
+          if (seenIds.current.has(n.id)) return;
+          seenIds.current.add(n.id);
+          // In-app toast
+          const isClose = n.type === "trade_close" || /closed/i.test(n.title);
+          const isAlert = n.type === "price_alert" || /alert/i.test(n.title);
+          if (isClose) toast.success(n.title, { description: n.body, duration: 8000 });
+          else if (isAlert) toast.warning(n.title, { description: n.body, duration: 8000 });
+          else toast(n.title, { description: n.body, duration: 8000 });
+          // Browser push
+          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+            try {
+              const notif = new Notification(n.title, { body: n.body, tag: n.id, icon: "/favicon.ico" });
+              notif.onclick = () => { window.focus(); notif.close(); };
+            } catch (e) { console.error("[push]", e); }
+          }
+          qc.invalidateQueries({ queryKey: ["notifications", userId] });
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, qc]);
+
+  async function enablePush() {
+    if (!("Notification" in window)) {
+      toast.error("Browser notifications not supported on this device");
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    setPushPerm(perm);
+    if (perm === "granted") {
+      new Notification("Notifications enabled", { body: "You'll be alerted when the agent opens, closes, or an alert fires." });
+      toast.success("Browser notifications enabled");
+    } else {
+      toast.error("Notifications blocked — enable in browser settings");
+    }
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     navigate({ to: "/auth" });
@@ -51,6 +110,7 @@ export function TopNav() {
     await supabase.from("notifications").update({ read: true }).eq("user_id", userId).eq("read", false);
     qc.invalidateQueries({ queryKey: ["notifications", userId] });
   }
+
 
   return (
     <div className="w-full border-b border-border bg-background/80 backdrop-blur sticky top-0 z-30">
@@ -102,6 +162,20 @@ export function TopNav() {
                     </button>
                   )}
                 </div>
+                {pushPerm === "default" && (
+                  <div className="p-3 border-b border-border bg-primary/5 flex items-center justify-between gap-2">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <BellRing className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                      <span className="text-[11px] text-muted-foreground">
+                        Get browser popups when the agent trades or an alert fires.
+                      </span>
+                    </div>
+                    <button onClick={enablePush} className="text-[11px] font-medium text-primary hover:underline shrink-0">
+                      Enable
+                    </button>
+                  </div>
+                )}
+
                 {(notifs.data?.length ?? 0) === 0 ? (
                   <div className="p-6 text-center text-xs text-muted-foreground">
                     No notifications yet. Daily digests arrive after your first trading day.

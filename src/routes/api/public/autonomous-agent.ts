@@ -1202,10 +1202,24 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       quantity: qty, price,
       reason: `autonomous open (${session}) conviction=${t.conviction ?? "n/a"} ${t.instrument ?? "stock"}`,
     });
+    // In-app notification for trade open
+    try {
+      const dirLabel = t.direction === "long" ? "LONG" : "SHORT";
+      const sizeUsd = (qty * price).toFixed(2);
+      const sessionTag = session.toUpperCase();
+      const tpLine = t.take_profit_pct ? ` | Target +${(t.take_profit_pct * 100).toFixed(1)}%` : "";
+      const slLine = t.stop_loss_pct ? ` | Stop -${(t.stop_loss_pct * 100).toFixed(1)}%` : "";
+      await supabaseAdmin.from("notifications").insert({
+        user_id: userId, type: "trade_open",
+        title: `📈 [${sessionTag}] ${t.symbol} opened ${dirLabel}`,
+        body: `Entry $${price.toFixed(2)}${tpLine}${slLine} | Size $${sizeUsd}`,
+      });
+    } catch (e) { console.error("[autonomous] notif open", e); }
     cashRemaining -= allocCash;
     sectorCount.set(sect, (sectorCount.get(sect) ?? 0) + 1);
     opened += 1;
   }
+
 
 
   if (opened > 0) {
