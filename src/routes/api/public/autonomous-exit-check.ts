@@ -180,9 +180,21 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
       quantity: Number(c.trade.quantity), price: c.exit_price,
       reason: `autonomous close pnl=${pnl.toFixed(2)} (${c.reason})`,
     });
+    // In-app notification for trade close
+    try {
+      const entry = Number(c.trade.entry_price);
+      const pnlPct = entry > 0 ? ((c.exit_price - entry) / entry) * 100 * dir : 0;
+      const sign = pnl >= 0 ? "+" : "";
+      await supabaseAdmin.from("notifications").insert({
+        user_id: userId, type: "trade_close",
+        title: `✅ ${c.trade.asset} closed`,
+        body: `Exit $${c.exit_price.toFixed(2)} | P&L ${sign}$${pnl.toFixed(2)} (${sign}${pnlPct.toFixed(2)}%) | Reason: ${c.reason}`,
+      });
+    } catch (e) { console.error("[exit] notif close", e); }
     cash += Number(c.trade.quantity) * c.exit_price;
     summaries.push(`${c.trade.asset} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} (${c.reason})`);
   }
+
   await supabaseAdmin.from("paper_portfolios").update({ balance: cash, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
 
   const cashPct = Number(portfolio.equity) > 0 ? (cash / Number(portfolio.equity)) * 100 : 0;
