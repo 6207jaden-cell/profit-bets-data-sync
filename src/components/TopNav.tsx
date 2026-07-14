@@ -162,6 +162,20 @@ export function TopNav() {
                     </button>
                   )}
                 </div>
+                {pushPerm === "default" && (
+                  <div className="p-3 border-b border-border bg-primary/5 flex items-center justify-between gap-2">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <BellRing className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                      <span className="text-[11px] text-muted-foreground">
+                        Get browser popups when the agent trades or an alert fires.
+                      </span>
+                    </div>
+                    <button onClick={enablePush} className="text-[11px] font-medium text-primary hover:underline shrink-0">
+                      Enable
+                    </button>
+                  </div>
+                )}
+
                 {(notifs.data?.length ?? 0) === 0 ? (
                   <div className="p-6 text-center text-xs text-muted-foreground">
                     No notifications yet. Daily digests arrive after your first trading day.
