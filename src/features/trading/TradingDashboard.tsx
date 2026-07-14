@@ -24,6 +24,8 @@ import { BacktestingPanel, ExitAnalysisPanel } from "./components/BacktestingPan
 import { RiskReportPanel } from "./components/RiskReportPanel";
 import { AgentAuditLog } from "./components/AgentAuditLog";
 import { GettingStartedBanner } from "./components/GettingStartedBanner";
+import { PnLDashboard } from "./components/PnLDashboard";
+import { ClosedTradesHistory } from "./components/ClosedTradesHistory";
 import { AbTestingPanel } from "./components/AbTestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
@@ -291,6 +293,10 @@ export default function TradingDashboard() {
               userId={userId}
               onNavigate={setTab}
             />
+
+            {/* P&L Dashboard - today / week / month / all time */}
+            <PnLDashboard />
+
             <section aria-labelledby="paper-portfolio" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <h2 id="paper-portfolio" className="sr-only">Paper Portfolio</h2>
               <div className="lg:col-span-2">
@@ -329,7 +335,10 @@ export default function TradingDashboard() {
               </Card>
             </section>
 
-            <section aria-labelledby="recent-trades">
+            {/* Full closed trades history with filters */}
+            <ClosedTradesHistory />
+
+            <section aria-labelledby="recent-trades" className="hidden">
               <header className="flex items-center justify-between mb-3">
                 <h2 id="recent-trades" className="font-display font-semibold">Recent Paper Trades</h2>
               </header>

@@ -394,7 +394,10 @@ function OpenPositionsCard({
                     </Badge>
                   )}
                   <span className="text-[11px] text-muted-foreground font-mono">
-                    {r.qty.toFixed(4)} @ ${r.entry.toFixed(2)}
+                    {r.qty.toFixed(r.qty >= 1 ? 4 : 6)} @ ${r.entry.toFixed(r.entry >= 10 ? 2 : 4)}
+                    <span className="ml-1 text-muted-foreground/60">
+                      (${r.cost.toFixed(2)})
+                    </span>
                   </span>
                   {/* Live price badge */}
                   {r.livePrice != null ? (
