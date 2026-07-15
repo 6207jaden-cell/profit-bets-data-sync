@@ -172,7 +172,7 @@ export function TopNav() {
                     </button>
                   )}
                 </div>
-                {pushPerm === "default" && (
+                {pushPerm === "default" && typeof window !== "undefined" && "Notification" in window && (
                   <div className="p-3 border-b border-border bg-primary/5 flex items-center justify-between gap-2">
                     <div className="flex items-start gap-2 min-w-0">
                       <BellRing className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
