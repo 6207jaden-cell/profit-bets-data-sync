@@ -521,6 +521,27 @@ function AutonomousSection({ userId }: { userId: string | null }) {
       >
         ▶ Run scan now
       </Button>
+      {/* Notification nudge */}
+      {autonomous && (
+        <div id="notif-nudge" className="flex items-center justify-between px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-[11px]">
+          <span className="text-muted-foreground">🔔 Get notified on every trade the agent makes</span>
+          <button
+            onClick={async () => {
+              if (!("Notification" in window)) { toast.error("Not supported on this device"); return; }
+              const perm = await Notification.requestPermission();
+              if (perm === "granted") {
+                new Notification("PROFIT_BETS.AI", { body: "You will be alerted on every trade open and close." });
+                toast.success("Notifications enabled");
+                document.getElementById("notif-nudge")?.remove();
+              } else { toast.error("Blocked — enable in browser settings"); }
+            }}
+            className="ml-2 font-medium text-primary hover:underline shrink-0"
+          >
+            {typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted" ? "✓ On" : "Enable"}
+          </button>
+        </div>
+      )}
+
       {autonomous && !status.data?.hasFirstRun && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-1.5">
           <div className="text-xs font-semibold text-primary">First scan checklist</div>

@@ -44,7 +44,8 @@ DECLARE
     ARRAY['daily-digest',               '0 8 * * *',           '/api/public/daily-digest',           '{}'],
     ARRAY['friday-position-review',     '45 19 * * 5',         '/api/public/friday-review',          '{}'],
     ARRAY['sync-robinhood-balance',     '15 13 * * 1-5',       '/api/public/sync-robinhood-balance', '{}'],
-    ARRAY['decay-agent-memory',         '0 4 * * *',           '/api/public/agent-memory-decay',     '{}']
+    ARRAY['decay-agent-memory',         '0 4 * * *',           '/api/public/agent-memory-decay',     '{}'],
+    ARRAY['evaluate-alerts',            '*/5 * * * *',         '/api/public/evaluate-alerts',        '{}']
   ];
   j    text[];
   cmd  text;
