@@ -86,17 +86,27 @@ export function TopNav() {
   }, [userId, qc]);
 
   async function enablePush() {
-    if (!("Notification" in window)) {
-      toast.error("Browser notifications not supported on this device");
+    if (typeof window === "undefined" || !("Notification" in window) || typeof Notification.requestPermission !== "function") {
+      toast.info("In-app alerts are on", {
+        description: "Browser popups aren't supported on this device — you'll still see toasts and the bell badge in real time.",
+      });
+      setPushPerm("unsupported");
       return;
     }
-    const perm = await Notification.requestPermission();
-    setPushPerm(perm);
-    if (perm === "granted") {
-      new Notification("Notifications enabled", { body: "You'll be alerted when the agent opens, closes, or an alert fires." });
-      toast.success("Browser notifications enabled");
-    } else {
-      toast.error("Notifications blocked — enable in browser settings");
+    try {
+      const perm = await Notification.requestPermission();
+      setPushPerm(perm);
+      if (perm === "granted") {
+        new Notification("Notifications enabled", { body: "You'll be alerted when the agent opens, closes, or an alert fires." });
+        toast.success("Browser notifications enabled");
+      } else {
+        toast.error("Notifications blocked — enable in browser settings");
+      }
+    } catch {
+      toast.info("In-app alerts are on", {
+        description: "Browser popups aren't available here — toasts and the bell badge still update live.",
+      });
+      setPushPerm("unsupported");
     }
   }
 
