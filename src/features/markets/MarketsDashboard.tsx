@@ -26,6 +26,7 @@ import { SmartAlertsPanel } from "./components/SmartAlertsPanel";
 import { WatchlistPanel } from "./components/WatchlistPanel";
 import { SignalHistoryPanel } from "./components/SignalHistoryPanel";
 import { OptionsFlowPanel } from "./components/OptionsFlowPanel";
+import { AgentWatchlistPanel } from "./components/AgentWatchlistPanel";
 import { PortfolioPanel } from "./components/PortfolioPanel";
 import { LivePriceTicker } from "./components/LivePriceTicker";
 import { AssetDetailDrawer } from "./components/AssetDetailDrawer";
@@ -208,6 +209,7 @@ export default function MarketsDashboard() {
         <Tabs defaultValue="overview" className="p-4 sm:p-6">
           <TabsList className="mb-6 flex w-full flex-wrap gap-1 h-auto justify-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="agent-activity">Agent</TabsTrigger>
             <TabsTrigger value="signals">AI Signals</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
             <TabsTrigger value="options-flow">Options Flow</TabsTrigger>
@@ -331,6 +333,9 @@ export default function MarketsDashboard() {
             <PriceAlertsPanel />
           </TabsContent>
 
+          <TabsContent value="agent-activity" className="space-y-4">
+            <AgentWatchlistPanel />
+          </TabsContent>
           <TabsContent value="signals" className="space-y-4">
             <div>
               <h2 className="font-display font-semibold flex items-center gap-2">

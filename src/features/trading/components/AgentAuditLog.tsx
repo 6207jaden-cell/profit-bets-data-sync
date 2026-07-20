@@ -76,39 +76,56 @@ function DecisionCard({ d }: { d: DecisionRow }) {
     : <Minus className="h-3 w-3 text-amber-400" />;
 
   return (
-    <Card className="border-border/50 bg-card/60 overflow-hidden">
+    <Card className={cn(
+      "border-border/50 overflow-hidden transition-all",
+      d.trades_opened > 0 ? "bg-card" : "bg-card/50"
+    )}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-accent/30 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-accent/20 transition-colors"
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           {open
             ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           }
-          <Badge className={cn("text-[10px] shrink-0", sessionColor)}>{sessionLabel}</Badge>
+          {/* Session type badge */}
+          <Badge className={cn("text-[10px] shrink-0 font-medium", sessionColor)}>{sessionLabel}</Badge>
+
+          {/* Regime pill */}
           {d.regime && (
-            <span className="flex items-center gap-0.5 text-xs text-muted-foreground shrink-0">
-              {regimeIcon}{d.regime}
+            <span className={cn(
+              "flex items-center gap-0.5 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0",
+              d.regime === "bull" ? "bg-emerald-500/10 text-emerald-400" :
+              d.regime === "bear" ? "bg-red-500/10 text-red-400" :
+              "bg-amber-500/10 text-amber-400"
+            )}>
+              {regimeIcon} {d.regime}
             </span>
           )}
+
+          {/* Short market assessment preview */}
           {d.market_assessment && (
-            <span className="text-xs text-muted-foreground truncate hidden sm:block">
-              {d.market_assessment.slice(0, 80)}{d.market_assessment.length > 80 ? "…" : ""}
+            <span className="text-[11px] text-muted-foreground truncate hidden sm:block">
+              {d.market_assessment.slice(0, 90)}{d.market_assessment.length > 90 ? "…" : ""}
             </span>
           )}
         </div>
+
         <div className="flex items-center gap-2 shrink-0 ml-2">
-          {d.trades_opened > 0 && (
-            <span className="text-xs text-emerald-400 font-mono">+{d.trades_opened} opened</span>
+          {/* Outcome badge */}
+          {payload.circuit_breaker_triggered ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">🛑 blocked</span>
+          ) : payload.ai_error ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">⚠ AI error</span>
+          ) : d.trades_opened > 0 ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
+              +{d.trades_opened} trade{d.trades_opened !== 1 ? "s" : ""}
+            </span>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">no trades</span>
           )}
-          {payload.circuit_breaker_triggered && (
-            <span className="text-xs text-red-400">🛑 breaker</span>
-          )}
-          {payload.ai_error && (
-            <span className="text-xs text-red-400">AI error</span>
-          )}
-          <span className="text-[10px] text-muted-foreground">{time}</span>
+          <span className="text-[10px] text-muted-foreground font-mono shrink-0">{time}</span>
         </div>
       </button>
 
@@ -135,34 +152,53 @@ function DecisionCard({ d }: { d: DecisionRow }) {
           {/* Trades */}
           {trades.length > 0 && (
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
-                Trades ({trades.length})
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2 font-semibold">
+                Trades Opened ({trades.length})
               </div>
               <div className="space-y-2">
                 {trades.map((t, i) => (
-                  <div key={i} className="rounded-md bg-background/60 border border-border/40 px-3 py-2">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-mono text-sm font-semibold">{t.symbol}</span>
-                      <Badge variant="outline" className="text-[9px]">
-                        {t.direction} {t.instrument}
-                      </Badge>
-                      <span className={cn(
-                        "text-[10px] font-mono ml-auto",
-                        (t.conviction ?? 0) >= 75 ? "text-emerald-400" :
-                        (t.conviction ?? 0) >= 50 ? "text-amber-400" : "text-muted-foreground"
+                  <div key={i} className={cn(
+                    "rounded-lg border px-3 py-2.5",
+                    t.direction === "long"
+                      ? "bg-emerald-950/20 border-emerald-800/30"
+                      : "bg-red-950/20 border-red-800/30"
+                  )}>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="font-mono font-bold text-sm">{t.symbol}</span>
+                      <Badge className={cn("text-[9px] border-none",
+                        t.direction === "long" ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"
                       )}>
-                        conviction {t.conviction ?? "?"}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {t.allocation_pct}% alloc
-                      </span>
+                        {(t.direction ?? "").toUpperCase()} {t.instrument}
+                      </Badge>
+                      <div className="ml-auto flex items-center gap-2 text-[10px]">
+                        <span className={cn("font-mono font-semibold",
+                          (t.conviction ?? 0) >= 80 ? "text-emerald-400" :
+                          (t.conviction ?? 0) >= 65 ? "text-amber-400" : "text-muted-foreground"
+                        )}>
+                          {t.conviction ?? "?"}% conviction
+                        </span>
+                        <span className="text-muted-foreground font-mono">
+                          {t.allocation_pct}% alloc
+                        </span>
+                      </div>
                     </div>
                     {t.rationale && (
-                      <p className="text-[11px] text-muted-foreground">{t.rationale}</p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {t.rationale.replace(/\[SCALP\]|\[SWING\]|\[CRYPTO\]/g, "").trim()}
+                      </p>
                     )}
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* No trades reason */}
+          {trades.length === 0 && !payload.circuit_breaker_triggered && !payload.ai_error && (
+            <div className="rounded-lg border border-border/40 border-dashed px-3 py-3 text-[11px] text-muted-foreground">
+              {payload.skipped
+                ? `⏭ Skipped this scan: ${payload.skipped}`
+                : "No high-conviction setups found — agent scanned candidates but none met entry criteria"}
             </div>
           )}
 
