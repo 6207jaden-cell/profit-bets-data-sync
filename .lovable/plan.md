@@ -30,9 +30,9 @@ Optional extras:
 
 ## Technical details
 
-- Update `public.register_all_crons()` so its `v_url` is driven by one constant, and change that constant to the `-dev` host; run `SELECT register_all_crons();` to unschedule/reschedule all jobs.
-- Delete the stale `autonomous-weekend-prep` job (jobid 13) and add `weekend_prep` to the job list inside `register_all_crons()` so every schedule lives in one place.
-- Keep `APPLY_CRONS.sql` in sync with the same URL so future manual runs don't reintroduce the mismatch.
+- Publish the project so `https://project--<id>.lovable.app` serves a real build; the 23 cron jobs need no changes.
+- Optional cleanup: delete the stale `autonomous-weekend-prep` job (jobid 13) and add `weekend_prep` to the job list inside `register_all_crons()` so every schedule lives in one place, then run `SELECT register_all_crons();`.
+- Keep `APPLY_CRONS.sql` in sync with the production URL so future manual runs don't reintroduce a mismatch.
 - Verification queries: `cron.job_run_details` for firing, and `net._http_response` `status_code` for whether the endpoint actually answered `200`.
 
 ## Note
