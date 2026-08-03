@@ -1,100 +1,41 @@
-# Port PROFIT_BETS.AI market features → this app
+# Fix: autonomous agent stopped scanning on weekdays
 
-## What's being ported (20 components)
+## What's actually wrong
 
-Grouped by fate:
+The schedules are fine — every job fired on time today. The problem is where they point.
 
-**Replace weaker current version (5)** — PROFIT_BETS versions are more feature-rich:
-- `MarketSignalCard` — adds Robinhood/options deep-links, quality badges, timeframe, broker chooser
-- `WatchlistPanel` → `WatchlistTab` — asset drawer integration, richer rows
-- `PortfolioPanel` → `MarketPortfolio` — position P&L, allocation, cost basis
-- `PriceAlertsPanel` → `PriceAlerts` — multi-condition rules, snooze
-- `SignalHistoryPanel` → `SignalHistory` + `CalibrationPlot` — resolved-signal audit + calibration chart
+Verified from the database:
 
-**Bring over new (15)**:
-- `MarketsOverview` (dashboard hero + top movers)
-- `MarketSignalsFeed` (filterable signal grid)
-- `MultiTimeframeConsensus` (1m/5m/1h/1d agreement matrix)
-- `AssetDetailDrawer` (per-ticker deep dive)
-- `LivePriceTicker` (marquee)
-- `MarketAnalytics` (win-rate, edge, prop-type charts)
-- `OptionsFlowScanner` (Polygon options snapshot: unusual volume, sweeps)
-- `CryptoOnChainMetrics` (CoinGecko: dominance, funding, active addresses)
-- `EarningsCalendar` (Finnhub earnings)
-- `NewsFeed` (Finnhub company/general news)
-- `SignalOutcomePanel` (per-signal target/stop resolution)
-- `SampleSignals` (unauthenticated demo cards)
-- `MarketsOnboarding` (first-run tour)
-- `MarketsSEO` (route head helper)
-- `CalibrationPlot` (companion to SignalHistory)
+- All 23 scan/exit/scalp jobs call `https://project--<id>.lovable.app/...`, which is the **published** site.
+- The project has **no published build**, so all 92 of today's calls came back **HTTP 404** with the "No working published build found yet" page. The agent code never ran.
+- The one job that still works, `autonomous-weekend-prep` (job 13, created earlier), points at the `-dev` preview URL instead — which is exactly why the only recent `agent_decisions` rows are the Saturday weekend-prep runs (Aug 1, Jul 25, Jul 18).
+- Weekday scans last produced a decision on Jul 14, right around when the jobs were re-registered against the production URL.
 
-## Where they live
-
-**Markets dashboard (`/markets`)** gains new tabs so it becomes the analytics home:
+```text
+cron fires  ->  https://project--<id>.lovable.app/api/public/autonomous-agent
+                        |
+                        v
+              404 "No published build"   ->  no scan, no decision row
 ```
-Overview | Signals | History | Watchlist | Portfolio | Analytics | Alerts | Consensus | Options | News | Earnings
-```
-Plus `LivePriceTicker` above the tab strip and `AssetDetailDrawer` mounted globally.
 
-**AI Trading dashboard (`/trading`)** gets one new tab: **Options** — houses `OptionsFlowScanner` filtered to Robinhood-eligible contracts, with buttons that either (a) deep-link to Robinhood app/web via `robinhood://options/chains/...`, or (b) route the order through your existing MCP Robinhood connection (reuses `mcp-client.functions.ts` + `AgentPanel` execution path).
+## The fix
 
-## Data wiring (real, no mocks)
+Two parts, both needed.
 
-Uses secrets already in the project (`POLYGON_API_KEY`, `FINNHUB_API_KEY`, `ALPHA_VANTAGE_API_KEY`, `LOVABLE_API_KEY`) plus one new free public endpoint (CoinGecko — no key). New server functions in `src/lib/`:
+1. **Publish the app.** This is the real fix: the production URL is the correct, stable target for cron, and it only works once a published build exists. After publishing, the existing jobs start hitting live code with no SQL changes.
+2. **Repoint the jobs to the preview URL as an interim, and align the weekend job.** Re-register all jobs against `project--<id>-dev.lovable.app` so scanning resumes immediately, even before/independent of publishing. This also removes the inconsistency where one job used a different host than the other 22.
 
-| Function | Source | Feeds |
-|---|---|---|
-| `getOptionsFlow.functions.ts` | Polygon `/v3/snapshot/options/{ticker}` | OptionsFlowScanner |
-| `getOnChainMetrics.functions.ts` | CoinGecko `/coins/{id}` + `/global` | CryptoOnChainMetrics |
-| `getEarnings.functions.ts` | Finnhub `/calendar/earnings` | EarningsCalendar |
-| `getNews.functions.ts` | Finnhub `/news`, `/company-news` | NewsFeed |
-| `getMultiTimeframe.functions.ts` | Polygon aggregates (1/5/60/D) + reuses `src/lib/indicators.ts` | MultiTimeframeConsensus |
-| `getLiveTicker.functions.ts` | Finnhub `/quote` (batched) | LivePriceTicker |
+Then trigger one manual `morning`/`scalp` scan and confirm a new `agent_decisions` row plus a `200` in the HTTP response log.
 
-All fetchers cache results in the client via TanStack Query (staleTime 30–60s).
+Recommended: do both — repoint now so today's sessions run, publish so the agent keeps running on the stable production URL.
 
-## Robinhood
+## Technical details
 
-- Deep-link buttons on every `MarketSignalCard`, `OptionsFlowScanner` row, and `AssetDetailDrawer` (buy/sell/options-chain URLs for web + app schemes).
-- "Execute via connected Robinhood" button that reuses your existing MCP path (`src/lib/mcp-client.functions.ts` → `AgentPanel`'s executor) when the Robinhood MCP connection is `ready`. Falls back to deep-link when not connected.
-- Referral banner: skipped (tied to other project's referral code).
+- Update `public.register_all_crons()` so its `v_url` is driven by one constant, and change that constant to the `-dev` host; run `SELECT register_all_crons();` to unschedule/reschedule all jobs.
+- Delete the stale `autonomous-weekend-prep` job (jobid 13) and add `weekend_prep` to the job list inside `register_all_crons()` so every schedule lives in one place.
+- Keep `APPLY_CRONS.sql` in sync with the same URL so future manual runs don't reintroduce the mismatch.
+- Verification queries: `cron.job_run_details` for firing, and `net._http_response` `status_code` for whether the endpoint actually answered `200`.
 
-## New tables (migration)
+## Note
 
-- `market_news_cache` (source, ticker, headline, url, ts) — Finnhub news is rate-limited, this dedupes
-- `options_flow_cache` (ticker, contract, volume, oi, type, strike, expiry, ts)
-- `earnings_calendar` (ticker, date, eps_est, eps_actual, revenue_est)
-- `signal_calibration` view over `market_signals` for `CalibrationPlot`
-
-Each table gets `GRANT`s, RLS enabled, `TO authenticated` SELECT policies (public reference data).
-
-## Cron
-
-One new pg_cron job every 15 min hits `/api/public/refresh-market-cache` which populates the three cache tables above (using anon `apikey` header per project convention).
-
-## Files touched / added
-
-Added (~24):
-- `src/features/markets/components/` — 15 new components + 5 replacements
-- `src/lib/{options,onchain,earnings,news,ticker,multitimeframe}.functions.ts`
-- `src/routes/api/public/refresh-market-cache.ts`
-- `supabase/migrations/<ts>_market_cache_tables.sql`
-- `supabase/migrations/<ts>_market_cache_cron.sql`
-
-Edited:
-- `src/features/markets/MarketsDashboard.tsx` — new tab structure + `LivePriceTicker` + `AssetDetailDrawer`
-- `src/features/trading/TradingDashboard.tsx` — add "Options" tab
-- 5 replaced components deleted after new versions land
-- `src/integrations/supabase/types.ts` — regenerated
-
-## Out of scope
-
-- Referral banner (skipped, uses other project's code)
-- `MarketsOnboarding` tour infrastructure (needs coach-tour context that doesn't exist here) — port as static empty-state instead
-- Any sports/Kalshi/parlay code
-
-## Verification
-
-- Build + typecheck
-- Playwright: load `/markets` on mobile viewport, cycle through every tab, screenshot each; verify OptionsFlowScanner and NewsFeed return real rows
-- Manual: click a Robinhood deep-link, confirm URL scheme resolves; trigger `refresh-market-cache` via `net.http_post` and confirm cache tables populate
+The endpoints themselves look healthy — `resolve-signals` returned `{"ok":true,...}` with a `200` today, so the app and API routes work. This is purely a URL/publish-target problem.
