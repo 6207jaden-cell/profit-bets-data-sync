@@ -1250,7 +1250,15 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   }
 
   const newCashPct = currentEquity > 0 ? (cashRemaining / currentEquity) * 100 : 0;
-  const agentMsgContent = `${ai.message_to_user}\n\n📊 **Positions opened:** ${opened} | **Cash remaining:** ${newCashPct.toFixed(0)}%${defensive ? " · defensive mode" : ""}${vixLevel != null ? ` · VIX ${vixLevel.toFixed(1)}` : ""}`;
+  // Build an honest message - if AI proposed trades but none executed, say so clearly
+  const proposedCount = (ai.trades ?? []).length;
+  const skipReasons = debugSkips.length > 0
+    ? [...new Set(debugSkips.map(s => s.reason))].join(", ")
+    : null;
+  const executionNote = opened === 0 && proposedCount > 0
+    ? `\n\n⚠️ **Note:** The AI proposed ${proposedCount} trade${proposedCount > 1 ? "s" : ""} but none were executed. Reason: ${skipReasons ?? "unknown — check agent log for details"}. ${skipReasons?.includes("no_price") ? "Most likely cause: FINNHUB_API_KEY and POLYGON_API_KEY need to be set in Lovable → Project Settings → Environment Variables." : ""}`
+    : "";
+  const agentMsgContent = `${ai.message_to_user}${executionNote}\n\n📊 **Positions opened:** ${opened} | **Cash remaining:** ${newCashPct.toFixed(0)}%${defensive ? " · defensive mode" : ""}${vixLevel != null ? ` · VIX ${vixLevel.toFixed(1)}` : ""}`;
   await supabaseAdmin.from("agent_messages").insert({
     user_id: userId, role: "assistant", is_autonomous: true, session_type: sessionType,
     content: agentMsgContent,

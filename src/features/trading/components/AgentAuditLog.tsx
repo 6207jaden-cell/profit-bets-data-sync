@@ -99,14 +99,21 @@ function DecisionCard({ d }: { d: DecisionRow }) {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-2">
-          {d.trades_opened > 0 && (
-            <span className="text-xs text-emerald-400 font-mono">+{d.trades_opened} opened</span>
-          )}
-          {payload.circuit_breaker_triggered && (
-            <span className="text-xs text-red-400">🛑 breaker</span>
-          )}
-          {payload.ai_error && (
-            <span className="text-xs text-red-400">AI error</span>
+          {/* Show ACTUAL outcome, not just proposed */}
+          {payload.circuit_breaker_triggered ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">🛑 blocked</span>
+          ) : payload.ai_error ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">⚠ AI error</span>
+          ) : d.trades_opened > 0 ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
+              ✓ {d.trades_opened} executed
+            </span>
+          ) : (payload.trades ?? []).length > 0 ? (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
+              ⚠ {(payload.trades ?? []).length} proposed, 0 executed
+            </span>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">no trades</span>
           )}
           <span className="text-[10px] text-muted-foreground">{time}</span>
         </div>
@@ -135,8 +142,18 @@ function DecisionCard({ d }: { d: DecisionRow }) {
           {/* Trades */}
           {trades.length > 0 && (
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
-                Trades ({trades.length})
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                  {d.trades_opened === trades.length && trades.length > 0
+                    ? `Executed (${trades.length})`
+                    : d.trades_opened > 0
+                    ? `${d.trades_opened} Executed / ${trades.length} Proposed`
+                    : `Proposed by AI — Not Executed (${trades.length})`
+                  }
+                </div>
+                {d.trades_opened < trades.length && (
+                  <span className="text-[9px] text-amber-400">⚠ skipped below</span>
+                )}
               </div>
               <div className="space-y-2">
                 {trades.map((t, i) => (
@@ -163,6 +180,45 @@ function DecisionCard({ d }: { d: DecisionRow }) {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* WHY trades were skipped */}
+          {trades.length > 0 && d.trades_opened < trades.length && !payload.circuit_breaker_triggered && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 px-3 py-2.5 space-y-2">
+              <p className="text-[11px] text-amber-300 font-semibold">
+                Why weren't all trades executed?
+              </p>
+              {payload.debug_skips && Array.isArray(payload.debug_skips) && payload.debug_skips.length > 0 ? (
+                <div className="space-y-1">
+                  {(payload.debug_skips as Array<{symbol: string; reason: string}>).map((s, i) => (
+                    <div key={i} className="text-[10px] font-mono">
+                      <span className="text-muted-foreground">{s.symbol}: </span>
+                      <span className={
+                        s.reason === "no_price" ? "text-red-400" :
+                        s.reason === "insert_error" ? "text-red-400" :
+                        s.reason.includes("cash") || s.reason.includes("alloc") ? "text-amber-400" :
+                        "text-muted-foreground"
+                      }>
+                        {s.reason === "no_price"
+                          ? "❌ No price — FINNHUB_API_KEY or POLYGON_API_KEY not set in Lovable secrets"
+                          : s.reason === "insert_error" ? "❌ Database error"
+                          : s.reason === "alloc_gt_cash" ? "💰 Not enough cash"
+                          : s.reason === "cum_alloc_exceeded" ? "💰 Max allocation reached"
+                          : s.reason === "duplicate" ? "🔄 Already holding"
+                          : s.reason === "sector_limit" ? "📊 Sector limit"
+                          : s.reason}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[10px] text-amber-200/70">
+                  Most likely: live price fetch failed because API keys are not set.<br/>
+                  Go to Lovable → Project Settings → Environment Variables and add:<br/>
+                  <span className="font-mono">FINNHUB_API_KEY</span> and <span className="font-mono">POLYGON_API_KEY</span>
+                </p>
+              )}
             </div>
           )}
 
