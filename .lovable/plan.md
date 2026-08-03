@@ -20,20 +20,19 @@ cron fires  ->  https://project--<id>.lovable.app/api/public/autonomous-agent
 
 ## The fix
 
-Two parts, both needed.
+**Publishing alone fixes it.** The jobs already point at the production URL, so the moment a published build exists they start hitting live code — no SQL changes, no re-registering, nothing to re-trigger. The next scheduled session runs on its own.
 
-1. **Publish the app.** This is the real fix: the production URL is the correct, stable target for cron, and it only works once a published build exists. After publishing, the existing jobs start hitting live code with no SQL changes.
-2. **Repoint the jobs to the preview URL as an interim, and align the weekend job.** Re-register all jobs against `project--<id>-dev.lovable.app` so scanning resumes immediately, even before/independent of publishing. This also removes the inconsistency where one job used a different host than the other 22.
+Optional extras:
 
-Then trigger one manual `morning`/`scalp` scan and confirm a new `agent_decisions` row plus a `200` in the HTTP response log.
+1. **Verify once after publishing** — trigger a manual scan and confirm a new `agent_decisions` row plus a `200` in the HTTP response log. Not required for the fix; it just means you find out in 2 minutes instead of waiting for the next cron slot. You can also verify passively by watching the Agent tab after the next scheduled session.
+2. **Align the stale weekend job** — `autonomous-weekend-prep` (jobid 13) still points at the `-dev` preview host while the other 22 use production. It works today, but it's the odd one out and will drift. Worth folding into `register_all_crons()` so all schedules share one URL.
 
-Recommended: do both — repoint now so today's sessions run, publish so the agent keeps running on the stable production URL.
 
 ## Technical details
 
-- Update `public.register_all_crons()` so its `v_url` is driven by one constant, and change that constant to the `-dev` host; run `SELECT register_all_crons();` to unschedule/reschedule all jobs.
-- Delete the stale `autonomous-weekend-prep` job (jobid 13) and add `weekend_prep` to the job list inside `register_all_crons()` so every schedule lives in one place.
-- Keep `APPLY_CRONS.sql` in sync with the same URL so future manual runs don't reintroduce the mismatch.
+- Publish the project so `https://project--<id>.lovable.app` serves a real build; the 23 cron jobs need no changes.
+- Optional cleanup: delete the stale `autonomous-weekend-prep` job (jobid 13) and add `weekend_prep` to the job list inside `register_all_crons()` so every schedule lives in one place, then run `SELECT register_all_crons();`.
+- Keep `APPLY_CRONS.sql` in sync with the production URL so future manual runs don't reintroduce a mismatch.
 - Verification queries: `cron.job_run_details` for firing, and `net._http_response` `status_code` for whether the endpoint actually answered `200`.
 
 ## Note
