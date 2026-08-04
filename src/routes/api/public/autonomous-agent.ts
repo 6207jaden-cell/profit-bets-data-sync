@@ -1023,6 +1023,41 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
 
   let opened = 0;
   let cashRemaining = cash;
+  // Sector ETF momentum filter setup — defined OUTSIDE the for loop so cache works across iterations
+  const SECTOR_ETF: Record<string, string> = {
+    tech: "XLK", finance: "XLF", energy: "XLE", health: "XLV", consumer: "XLP",
+  };
+  const SECTOR_FOR: Record<string, string> = {
+    AAPL:"tech",MSFT:"tech",NVDA:"tech",GOOGL:"tech",AMZN:"tech",META:"tech",AMD:"tech",
+    TSLA:"tech",CRM:"tech",INTC:"tech",QCOM:"tech",ADBE:"tech",ORCL:"tech",SNOW:"tech",
+    AVGO:"tech",TSM:"tech",ASML:"tech",ARM:"tech",AMAT:"tech",KLAC:"tech",TXN:"tech",MRVL:"tech",
+    PANW:"tech",CRWD:"tech",NET:"tech",DDOG:"tech",APP:"tech",
+    JPM:"finance",BAC:"finance",V:"finance",GS:"finance",MS:"finance",WFC:"finance",AXP:"finance",BLK:"finance",COF:"finance",PYPL:"finance",
+    XOM:"energy",CVX:"energy",COP:"energy",
+    JNJ:"health",UNH:"health",LLY:"health",ABBV:"health",PFE:"health",MRK:"health",TMO:"health",ISRG:"health",
+    MCD:"consumer",SBUX:"consumer",NKE:"consumer",COST:"consumer",WMT:"consumer",HD:"consumer",LOW:"consumer",PG:"consumer",
+    CAT:"industrial",BA:"industrial",GE:"industrial",HON:"industrial",LMT:"industrial",RTX:"industrial",
+  };
+  const sectorEtfCache = new Map<string, boolean>(); // persists across all iterations
+  async function isSectorBullish(symbol: string): Promise<boolean> {
+    const sector = SECTOR_FOR[symbol.toUpperCase()];
+    if (!sector) return true; // unknown sector — don't block
+    const etf = SECTOR_ETF[sector];
+    if (!etf) return true;
+    if (sectorEtfCache.has(etf)) return sectorEtfCache.get(etf)!; // use cache
+    try {
+      const etfBars = await fetchBars(etf, 60);
+      if (!etfBars || etfBars.closes.length < 50) { sectorEtfCache.set(etf, true); return true; }
+      const etfCtx = buildContext(etfBars.closes);
+      const bullish = etfCtx != null && etfCtx.sma50 != null && etfCtx.price > etfCtx.sma50 * 0.98; // 2% buffer so near-SMA50 doesn't block everything
+      sectorEtfCache.set(etf, bullish);
+      return bullish;
+    } catch {
+      sectorEtfCache.set(etf, true); // on error, don't block
+      return true;
+    }
+  }
+
   const debugSkips: Array<{ symbol: string; reason: string; detail?: unknown }> = [];
   for (const raw of ai.trades ?? []) {
     let t = raw;
@@ -1049,6 +1084,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       const sectorBullish = await isSectorBullish(t.symbol);
       if (!sectorBullish) {
         console.log(`[autonomous] skip ${t.symbol}: sector ETF below SMA50`);
+        debugSkips.push({ symbol: t.symbol, reason: "sector_bearish", detail: "Sector ETF below SMA50 — not entering longs in a bearish sector" });
         continue;
       }
     }
@@ -1110,31 +1146,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     // unclassified assets do not cross-block each other.
     if (sect !== "other" && (sectorCount.get(sect) ?? 0) >= Math.max(3, Math.floor(openList.length * 0.5))) { debugSkips.push({ symbol: t.symbol, reason: "sector_cap", detail: sect }); continue; }
 
-    // Sector ETF momentum filter: don't buy individual stocks when their sector ETF is below SMA50
-    const SECTOR_ETF: Record<string, string> = {
-      tech: "XLK", finance: "XLF", energy: "XLE", health: "XLV", consumer: "XLP",
-    };
-    const SECTOR_FOR: Record<string, string> = {
-      AAPL:"tech",MSFT:"tech",NVDA:"tech",GOOGL:"tech",AMZN:"tech",META:"tech",AMD:"tech",
-      CRM:"tech",INTC:"tech",QCOM:"tech",ADBE:"tech",ORCL:"tech",SNOW:"tech",
-      JPM:"finance",BAC:"finance",V:"finance",GS:"finance",
-      XOM:"energy",CVX:"energy",
-      JNJ:"health",
-    };
-    const sectorEtfCache = new Map<string, boolean>(); // etf → is above SMA50
-    async function isSectorBullish(symbol: string): Promise<boolean> {
-      const sector = SECTOR_FOR[symbol.toUpperCase()];
-      if (!sector) return true; // unknown sector: don't filter
-      const etf = SECTOR_ETF[sector];
-      if (!etf) return true;
-      if (sectorEtfCache.has(etf)) return sectorEtfCache.get(etf)!;
-      const etfBars = await fetchBars(etf, 60);
-      if (!etfBars) { sectorEtfCache.set(etf, true); return true; }
-      const etfCtx = buildContext(etfBars.closes);
-      const bullish = etfCtx != null && etfCtx.sma50 != null && etfCtx.price > etfCtx.sma50;
-      sectorEtfCache.set(etf, bullish);
-      return bullish;
-    }
+    // isSectorBullish defined below for loop (hoisted) with cached ETF lookups
 
     // Trade similarity detector: skip if already open in same asset + same instrument + same direction
     const alreadyHasSimilar = openList.some((o) => {
@@ -1149,6 +1161,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     });
     if (alreadyHasSimilar) {
       console.log(`[autonomous] skip duplicate position: ${t.symbol} ${t.direction} ${t.instrument}`);
+      debugSkips.push({ symbol: t.symbol, reason: "already_holding", detail: "Already have an open position in this asset and direction" });
       continue;
     }
 
