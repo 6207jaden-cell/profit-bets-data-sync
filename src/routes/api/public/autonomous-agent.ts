@@ -8,7 +8,7 @@ import {
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
-import { loadSignalWeights, applySignalWeights } from "@/lib/signal-learning";
+import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, type SignalWeightMap } from "@/lib/signal-learning";
 import { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc, isCryptoWeekend } from "@/lib/crypto-signals";
 import { computeBreadthScore, getBreadthMomentum } from "@/lib/market-breadth";
 import {
@@ -1045,7 +1045,13 @@ async function runForUser(args: {
   // a weak one gets damped. We also split each candidate's score into
   // bullScore/bearScore so a candidate with strong opposing signals (choppy,
   // low-quality setup) can be flagged instead of blindly traded.
-  const signalWeights = await loadSignalWeights(supabaseAdmin, userId);
+  // Load full per-signal stats once — used both for Stage 2's weight-adjusted
+  // scoring (just the weight_multiplier) and Kelly Criterion sizing below
+  // (needs the fuller win rate / avg win / avg loss data). One query instead
+  // of two separate loads hitting the same table.
+  const signalStatsMap = await loadFullSignalStats(supabaseAdmin, userId);
+  const signalWeights: SignalWeightMap = new Map();
+  for (const [name, stats] of signalStatsMap) signalWeights.set(name, stats.weightMultiplier);
   const narrowedRegime: "bull" | "bear" | "sideways" =
     regime === "bull" || regime === "bear" ? regime : "sideways";
   const rescored = candidates.map((c) => {
@@ -1274,6 +1280,7 @@ HARD RULES — never violate these:
 - Use Bollinger Bands: bb_pct_b < 0.05 = near lower band (oversold, buy/call), bb_pct_b > 0.95 = near upper band (overbought, sell/put).
 - Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
 - Correlation-based sizing is already applied by code: any trade you propose that's highly correlated (>0.75, real return correlation not just sector labels) with something already open gets automatically sized down 40%; above 0.90 correlation it's skipped entirely unless your conviction is 90+. You don't need to check this yourself, but be aware a proposed allocation_pct may end up smaller than requested for this reason.
+- Kelly Criterion sizing is also applied by code once enough real trade history exists (15+ closed trades for the specific signal driving this candidate): your proposed allocation_pct gets scaled up when this account's own track record shows a genuine statistical edge for that signal, and scaled down when it doesn't — evidence-based, not a guess. Early on, before enough history accumulates, this has no effect and your own sizing judgment is used as-is.
 - market_breadth.score (0-100) and market_breadth.trend ("improving"/"deteriorating"/"stable") measure how many of the scanned symbols are actually participating in the current move, not just whether the index/regime looks good. Code already cuts new long sizing automatically when score < 40 (more aggressively below 25) — you should independently favor caution on new longs and be more open to shorts when breadth is weak or deteriorating, even if an individual candidate's own technicals look fine, since broad-based selling tends to drag even strong names down with it.
 - robinhood_live_context (when present in input): REAL DATA pulled directly from your Robinhood brokerage account seconds before this scan. It contains: (1) actual positions in Robinhood — NOTE: positions labeled "agent_live_order" in current_positions are the same as what you see here (agent placed them in live mode, they appear in both places — do NOT double count them). Positions in robinhood_live_context that do NOT appear in current_positions are pre-existing holdings the user held before using this app — treat these carefully, do not open positions that conflict with them. (2) live market news headlines (factor negative news into conviction), (3) earnings calendar for the next 7 days — do NOT blanket-avoid these; if earnings_opportunities (below) has a specific analysis for that symbol, follow its recommendation instead, since a well-sized options play around earnings can be a genuine edge, not just a risk to dodge. Only fall back to avoiding a stock's earnings window entirely if it's not covered in earnings_opportunities and you have no clear options-based plan for it. (4) live options chain IV and put/call ratio for top candidates (high IV = options are expensive, prefer stock; put/call > 1.2 = bearish institutional bet, reduce long conviction; unusual options activity = strong signal), (5) Level 2 bid/ask spread (spread > 0.5% = low liquidity, reduce size by 50% or skip).
 - earnings_opportunities (when present, swing sessions only): for each scanned symbol with earnings in the next 7 days, this compares what the options market is pricing in for the move (from the ATM straddle) against what the stock has actually averaged on recent earnings reports — the single sharpest signal in this whole system when both numbers are available. Each entry also includes IV Rank (once enough history has accumulated for that symbol) or IV/HV ratio (works immediately) as a fallback, and a specific recommended instrument: "buy_call"/"buy_put" (options underpriced or IV cheap — go directional with defined risk), "sell_call_spread"/"sell_put_spread" (options overpriced or IV rich — sell a credit spread, NOT "iron_condor" which isn't a real fully-executable instrument in this system, use call_spread/put_spread instead), or "post_earnings_continuation" (earnings already reported, stock gapped meaningfully — trade the underlying stock in the continuation direction, not options). Follow these recommendations when proposing trades on these specific symbols rather than defaulting to avoidance.
@@ -1445,7 +1452,19 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     // does more damage — cut position sizes by 25% Sat/Sun regardless of
     // how strong the setup otherwise looks.
     const weekendMult = cryptoWeekend ? 0.75 : 1.0;
-    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor * weekendMult * correlationMult * breadthMult, effectiveMaxPositionPct);
+
+    // Kelly Criterion sizing: computed from THIS account's own real trade
+    // history for the signal(s) firing on this specific trade. Resolves the
+    // trade's active signals now (also reused at insert time below — no
+    // duplicate lookup) since Kelly needs to know which signals are involved
+    // before allocPct is finalized, not after.
+    const entrySignalsForSymbol = candidateSignalsMap.get(t.symbol.toUpperCase());
+    const entrySignals = entrySignalsForSymbol
+      ? (t.direction === "long" ? entrySignalsForSymbol.long : entrySignalsForSymbol.short)
+      : null;
+    const kelly = computeKellySizeMultiplier(entrySignals, signalStatsMap);
+
+    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor * weekendMult * correlationMult * breadthMult * kelly.multiplier, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
     // Sector ETF momentum filter: skip long stock entries when sector is below SMA50
     if (t.direction === "long" && ["stock"].includes(t.instrument ?? "stock")) {
@@ -1601,12 +1620,8 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       ? { stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct, take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct }
       : atrBasedStopTarget(atrPctForSymbol, session, t.stop_loss_pct ?? settings.stop_loss_pct, t.take_profit_pct ?? settings.take_profit_pct);
 
-    // Record which signals were active for the direction actually traded —
-    // this is what the Bayesian weight updater reads when the trade closes.
-    const signalsForSymbol = candidateSignalsMap.get(t.symbol.toUpperCase());
-    const entrySignals = signalsForSymbol
-      ? (t.direction === "long" ? signalsForSymbol.long : signalsForSymbol.short)
-      : null;
+    // entrySignals already resolved earlier (used for Kelly sizing above) —
+    // reused here, this is what the Bayesian weight updater reads at close.
 
     const { error } = await supabaseAdmin.from("paper_trades").insert({
       user_id: userId,

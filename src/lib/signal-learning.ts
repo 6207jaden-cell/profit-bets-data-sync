@@ -123,23 +123,57 @@ export function computeDirectionalScores(c: CandidateInput, regime: "bull" | "be
 
 export type SignalWeightMap = Map<string, number>; // signal_name -> weight_multiplier
 
+export type SignalStats = {
+  weightMultiplier: number;
+  winRate: number;
+  avgWinPct: number;
+  avgLossPct: number;
+  sampleSize: number;
+};
+export type SignalStatsMap = Map<string, SignalStats>;
+
+/**
+ * Loads a user's full learned signal statistics (win rate, avg win/loss
+ * magnitude, sample size) in one query. Stage 2's direction-split scoring
+ * only needs weightMultiplier (see loadSignalWeights below, a thin wrapper
+ * over this); Kelly Criterion sizing needs the richer win/loss data. Sharing
+ * one query avoids fetching the same table twice per scan.
+ */
+export async function loadFullSignalStats(
+  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  userId: string,
+): Promise<SignalStatsMap> {
+  const map: SignalStatsMap = new Map();
+  try {
+    const { data } = await supabaseAdmin
+      .from("agent_signal_weights")
+      .select("signal_name, weight_multiplier, alpha, beta, avg_win_pct, avg_loss_pct, sample_size")
+      .eq("user_id", userId);
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      const alpha = Number(row.alpha ?? 1);
+      const beta = Number(row.beta ?? 1);
+      map.set(String(row.signal_name), {
+        weightMultiplier: Number(row.weight_multiplier ?? 1),
+        winRate: alpha / (alpha + beta),
+        avgWinPct: Number(row.avg_win_pct ?? 0),
+        avgLossPct: Number(row.avg_loss_pct ?? 0),
+        sampleSize: Number(row.sample_size ?? 0),
+      });
+    }
+  } catch {
+    // fall through — empty map means everything defaults to neutral/unavailable
+  }
+  return map;
+}
+
 /** Loads a user's learned signal weights. Missing signals default to neutral 1.0x. */
 export async function loadSignalWeights(
   supabaseAdmin: ReturnType<typeof createClient<Database>>,
   userId: string,
 ): Promise<SignalWeightMap> {
+  const full = await loadFullSignalStats(supabaseAdmin, userId);
   const map: SignalWeightMap = new Map();
-  try {
-    const { data } = await supabaseAdmin
-      .from("agent_signal_weights")
-      .select("signal_name, weight_multiplier")
-      .eq("user_id", userId);
-    for (const row of data ?? []) {
-      map.set(row.signal_name as string, Number(row.weight_multiplier));
-    }
-  } catch {
-    // fall through — empty map means everything defaults to neutral 1.0x
-  }
+  for (const [name, stats] of full) map.set(name, stats.weightMultiplier);
   return map;
 }
 
@@ -250,6 +284,22 @@ export async function updateSignalWeights(
       const priorAvgPnl = Number(existing?.avg_pnl_pct ?? 0);
       const avgPnlPct = priorAvgPnl + (pnlPct - priorAvgPnl) / sampleSize;
 
+      // Win/loss magnitudes tracked SEPARATELY (not just the blended average
+      // above) — Kelly Criterion sizing needs these as independent inputs.
+      // Same incremental-average update pattern, but only the winning trades
+      // update avg_win_pct and only losing trades update avg_loss_pct.
+      let winCount = Number(existing?.win_count ?? 0);
+      let lossCount = Number(existing?.loss_count ?? 0);
+      let avgWinPct = Number(existing?.avg_win_pct ?? 0);
+      let avgLossPct = Number(existing?.avg_loss_pct ?? 0);
+      if (won) {
+        winCount += 1;
+        avgWinPct = avgWinPct + (pnlPct - avgWinPct) / winCount;
+      } else {
+        lossCount += 1;
+        avgLossPct = avgLossPct + (Math.abs(pnlPct) - avgLossPct) / lossCount;
+      }
+
       const winRate = alpha / (alpha + beta);
       // 50% win rate -> 1.0x neutral. 70% -> 1.2x boost. 30% -> 0.8x reduction.
       // Clamped so early small-sample noise can't send a weight to an extreme.
@@ -260,6 +310,10 @@ export async function updateSignalWeights(
         signal_name: signalName,
         alpha, beta, sample_size: sampleSize,
         avg_pnl_pct: Number(avgPnlPct.toFixed(3)),
+        avg_win_pct: Number(avgWinPct.toFixed(3)),
+        avg_loss_pct: Number(avgLossPct.toFixed(3)),
+        win_count: winCount,
+        loss_count: lossCount,
         weight_multiplier: Number(weightMultiplier.toFixed(3)),
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id,signal_name" });
@@ -267,4 +321,72 @@ export async function updateSignalWeights(
       console.warn("[signal-learning] failed to update weight for", signalName, String(e));
     }
   }
+}
+
+export type KellySizeResult = {
+  multiplier: number;
+  kellyFractionPct: number | null;
+  reason: string;
+};
+
+/**
+ * Fractional-Kelly position-size multiplier derived from this account's own
+ * real trade history — the biggest untapped lever once enough data exists.
+ * Rather than replace the AI's allocation_pct outright (a much bigger,
+ * riskier change to an already-live sizing system), this produces a
+ * multiplier in the same 0.4x-1.8x family as the other adjustments already
+ * folded into the allocPct chain (VIX/regime, correlation, weekend,
+ * breadth) — consistent, predictable, and easy to reason about alongside
+ * them rather than a competing sizing paradigm.
+ *
+ * Deliberately uses the SINGLE most information-rich active signal (highest
+ * sample_size) rather than trying to blend multiple signals' stats together
+ * — combining win rates and win/loss magnitudes across signals with
+ * different sample sizes in a statistically sound way is a real modeling
+ * problem on its own; using the most-observed single signal is simpler,
+ * more conservative, and easier to explain than a shaky blended estimate.
+ */
+export function computeKellySizeMultiplier(
+  entrySignals: string[] | null | undefined,
+  statsMap: SignalStatsMap,
+  minSampleSize = 15,
+): KellySizeResult {
+  if (!entrySignals || entrySignals.length === 0) {
+    return { multiplier: 1.0, kellyFractionPct: null, reason: "no tracked signals for this trade — using AI's own sizing" };
+  }
+
+  // Pick the active signal with the most accumulated history.
+  let best: SignalStats | null = null;
+  let bestName = "";
+  for (const name of entrySignals) {
+    const stats = statsMap.get(name);
+    if (stats && (!best || stats.sampleSize > best.sampleSize)) {
+      best = stats;
+      bestName = name;
+    }
+  }
+
+  if (!best || best.sampleSize < minSampleSize || best.avgLossPct <= 0 || best.avgWinPct <= 0) {
+    const sample = best?.sampleSize ?? 0;
+    return { multiplier: 1.0, kellyFractionPct: null, reason: `insufficient sample size (${sample}/${minSampleSize}) — using AI's own sizing` };
+  }
+
+  const p = best.winRate;
+  const q = 1 - p;
+  const b = best.avgWinPct / best.avgLossPct; // win/loss ratio
+  const fullKelly = (b * p - q) / b;
+  const fractionalKelly = fullKelly * 0.4; // 40% of full Kelly — standard practice to reduce variance vs full Kelly's aggressive swings
+  const kellyFractionPct = Math.max(0, Math.min(fractionalKelly, 0.25)) * 100; // hard cap at 25% regardless of what the formula suggests
+
+  // Normalize against a baseline "typical good trade" Kelly fraction (~8%)
+  // to produce a multiplier consistent with the other 0.4x-1.8x adjustments
+  // already in the allocation chain, rather than a wildly different scale.
+  const baseline = 8;
+  const multiplier = Math.max(0.4, Math.min(kellyFractionPct / baseline, 1.8));
+
+  const reason = kellyFractionPct <= 0
+    ? `signal "${bestName}" shows negative edge over ${best.sampleSize} trades — sizing down`
+    : `signal "${bestName}": ${best.sampleSize} trades, ${(p * 100).toFixed(0)}% win rate, ${best.avgWinPct.toFixed(1)}% avg win vs ${best.avgLossPct.toFixed(1)}% avg loss`;
+
+  return { multiplier: Number(multiplier.toFixed(3)), kellyFractionPct: Number(kellyFractionPct.toFixed(1)), reason };
 }
