@@ -348,7 +348,7 @@ export default function TradingDashboard() {
                   </div>
                 ) : (
                   <ul className="divide-y divide-border">
-                    {trades.data!.map((t, i) => {
+                    {(trades.data ?? []).map((t, i) => {
                       const tradePnl = Number(t.pnl ?? 0);
                       return (
                         <motion.li

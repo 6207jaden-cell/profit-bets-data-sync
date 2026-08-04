@@ -192,7 +192,7 @@ export function TopNav() {
                   </div>
                 ) : (
                   <ul className="max-h-96 overflow-auto divide-y divide-border">
-                    {notifs.data!.slice(0, 5).map((n) => {
+                    {notifs.data?.slice(0, 5).map((n) => {
                       const open = openId === n.id;
                       return (
                         <li key={n.id} className={cn("p-3 text-xs cursor-pointer hover:bg-muted/40", !n.read && "bg-primary/5")}>
