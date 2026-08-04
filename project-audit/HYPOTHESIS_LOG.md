@@ -83,6 +83,11 @@ on the deterministic-only picks. Compare realized outcomes of Claude's
 actual picks against the deterministic-only shadow picks once enough
 volume exists. See `EXPERIMENTS.md`, Experiment E-01.
 
+**Infrastructure status (updated 2026-08-05):** Live. `shadow_candidate_log`
+table + logging/resolution code shipped in commit `784852f`. See
+`EXPERIMENT_RESULTS.md` for how to read results once they accumulate —
+no results exist yet, infrastructure only just started collecting data.
+
 **Confidence:** Untested
 **Conclusion:** Unresolved — this is arguably the single most important
 open question in the entire system, since Claude sits at the center of
@@ -119,6 +124,14 @@ comparisons correction.
 (all weights held at neutral 1.0x) for a matched period against a period
 with it ON, and compare aggregate performance. See `EXPERIMENTS.md`,
 Experiment E-02.
+
+**Infrastructure status (updated 2026-08-05):** Live, implemented as a
+shadow comparison rather than a live toggle (see `DECISION_LOG.md` for
+that reasoning) — `shadow_weighting_comparison` table + dual scoring
+shipped in commit `c892f06`. Note: results will be uninformative until
+enough signals have crossed the 15-trade threshold for their adaptive
+weight to meaningfully differ from neutral — see
+`EXPERIMENT_RESULTS.md`'s interpretive note for this experiment.
 
 **Confidence:** Low — mechanism is reasonable, specific and named
 statistical risk attached, unproven either direction.
@@ -159,6 +172,16 @@ account growth and max drawdown between Kelly-sized trades and a shadow
 flat-sizing control (same signals, same entries, hypothetical fixed
 allocation instead of Kelly-adjusted). See `EXPERIMENTS.md`,
 Experiment E-03.
+
+**Infrastructure status (updated 2026-08-05):** NOT yet built — distinct
+from the 4 experiments built this session (Claude value, adaptive
+weighting, cost reality, signal contribution). E-03's Kelly-specific
+shadow-sizing comparison remains open work. Note: Experiment 4's signal
+contribution data (`EXPERIMENT_RESULTS.md`) indirectly bears on this
+hypothesis — it validates whether Kelly's underlying win-rate/avg-win/
+avg-loss INPUTS are trustworthy — but does not itself test whether Kelly
+SIZING BEHAVIOR adds value; those are separate questions and should not
+be conflated when either produces results.
 
 **Confidence:** Low — sound theory, unproven and risky inputs at the
 current sample-size floor.
@@ -285,16 +308,70 @@ paper-mode slippage estimate for a matched hypothetical trade, and
 recalibrate the model's constants if there's a persistent gap. See
 `EXPERIMENTS.md`, Experiment E-07.
 
+**Infrastructure status (updated 2026-08-05):** Partially built. The
+broader "Trading Cost Reality Test" (`EXPERIMENT_RESULTS.md` Experiment
+3, commit `64885fc`) tracks gross-vs-net expectancy by session type using
+the SAME slippage model this hypothesis questions — that's a related but
+distinct measurement (does the modeled cost, whatever its true accuracy,
+still leave positive expectancy) from E-07's specific concern (is the
+model's accuracy itself correct, which requires live fills to check).
+E-07 itself — comparing modeled estimates against real Robinhood fills —
+remains unbuilt and cannot be built until live-mode trading is active.
+
 **Confidence:** Low (sound model shape, uncalibrated constants)
 **Conclusion:** Unresolved — cannot be resolved until live trading
 volume exists.
 
 ---
 
+## H9 — Individual signals show genuine present-vs-absent contribution to profitability, distinguishable from noise
+
+**Hypothesis:** Added 2026-08-05. For at least some of the 18 tracked
+signals, trades where that signal was present will show a meaningfully
+different average return than trades where it was absent — a real,
+persistent contribution rather than the two groups performing about the
+same (which would mean the signal carries no real information despite
+whatever its present-side-only win rate might suggest).
+
+**Why we believe it:** This is the more rigorous, controlled version of
+H1 (technical indicators improve prediction accuracy) — H1 only checked
+whether present-side performance looked good in isolation; H9 checks
+whether it looks good *relative to the same signal being absent*, which
+controls for "maybe everything was winning that period" in a way H1
+alone cannot.
+
+**Evidence supporting it:** None yet.
+
+**Evidence against it:** The same multiple-comparisons risk documented
+throughout this log (H3, `TECHNICAL_DEBT.md` TD-10) applies here with
+equal force — testing 18 signals' present-vs-absent contribution
+simultaneously means at least one showing a spurious positive
+contribution by chance is statistically expected even if none have real
+edge.
+
+**Experiment needed:** Already built — see `EXPERIMENTS.md` Experiment
+E-08 and `EXPERIMENT_RESULTS.md`'s Experiment 4 section for full
+methodology. `computeSignalContribution()` in `signal-learning.ts`
+computes this directly once enough trades exist.
+
+**Infrastructure status:** Live since commit `cb7dda4`. Absent-side
+Bayesian tracking added to `agent_signal_weights`, pure observation, does
+not feed real scoring or sizing.
+
+**Confidence:** Untested
+**Conclusion:** Unresolved. Given H9 shares its core statistical risk
+with H3, a result here that shows widespread "no real contribution"
+findings across most signals would be independently corroborating
+evidence for the multiple-comparisons concern affecting BOTH the scoring
+weights (H3) and whatever this analysis finds — worth checking both
+together rather than in isolation once both have enough data.
+
+---
+
 ## Cross-reference discipline
 
 Per `ENGINEERING_CONSTITUTION.md` Section 17, any `DECISION_LOG.md` entry
-that rests on one of these hypotheses should cite it by ID (H1–H8). Any
+that rests on one of these hypotheses should cite it by ID (H1–H9). Any
 new hypothesis identified in future work should be added here before the
 corresponding feature ships, not after — see Section 13's feature
 development rules ("what evidence suggests this will help?").

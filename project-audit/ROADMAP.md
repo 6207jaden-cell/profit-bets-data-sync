@@ -1,10 +1,36 @@
 # ROADMAP.md
-Last updated: 2026-08-04 (Pass 1)
+Last updated: 2026-08-05 (Pass 2)
 
 Sequenced per the requested order: correctness/bugs → statistical
 soundness → risk management → performance → UI/UX → new features →
 growth. Nothing below has been auto-implemented — this is the plan,
 awaiting direction on what to execute next.
+
+---
+
+## COMPLETED SINCE PASS 1 (2026-08-05) — measurement infrastructure, not fixes
+
+The four items below are genuinely done — built, compiled, built, and
+pushed — but they do NOT change any of the CRITICAL items' urgency below.
+Measurement infrastructure and security/reliability fixes are independent
+tracks; completing these did not touch authorization, rate limiting, or
+test coverage.
+
+- **Experiment 1 (Claude Value Test)** — shadow-logs deterministic
+  ranking vs. Claude's actual decisions. Live since commit `784852f`.
+- **Experiment 2 (Adaptive Learning Test)** — shadow-compares real
+  adaptive-weighted scoring against neutral-weighted scoring for the
+  same candidates. Live since commit `c892f06`.
+- **Experiment 3 (Trading Cost Reality Test)** — fee modeling + gross-
+  vs-net expectancy tracking by session type. Live since commit
+  `64885fc`.
+- **Experiment 4 (Signal Contribution Analysis)** — present-vs-absent
+  Bayesian tracking per signal, pure observation, does not feed real
+  scoring. Live since commit `cb7dda4`.
+
+See `HYPOTHESIS_LOG.md` (now 9 entries, H1–H9) and `EXPERIMENT_RESULTS.md`
+for full status — every experiment above has genuinely zero results yet,
+infrastructure only just started collecting data.
 
 ---
 
@@ -35,6 +61,18 @@ awaiting direction on what to execute next.
 7. **Get an honest read on actual closed-trade count** and, if low, be
    explicit with the user that no statistical claims about edge are valid
    yet — set a real re-evaluation date once enough data exists.
+7a. **Review the 4 experiments' results** (added 2026-08-05, infrastructure
+   complete — see the "Completed Since Pass 1" section above and
+   `EXPERIMENT_RESULTS.md`). Not actionable yet — each experiment has a
+   minimum sample-size floor before any conclusion should be drawn (30
+   resolved rows for Experiment 1, similar for Experiment 2, 20 trades
+   per session type for Experiment 3, 10 samples both sides per signal
+   for Experiment 4). Suggested check-in: 2–3 weeks from infrastructure
+   going live, enough time for scalp/crypto's shorter resolution horizons
+   to produce meaningful volume even if swing trades are still sparse.
+   When reviewed, update `HYPOTHESIS_LOG.md` H1–H9 per the cross-reference
+   discipline in `ENGINEERING_CONSTITUTION.md` — do not leave a hypothesis
+   marked "Unresolved" once its experiment has actually produced a result.
 
 ## MEDIUM
 

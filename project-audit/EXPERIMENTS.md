@@ -264,6 +264,47 @@ cannot run in pure paper mode by definition.
 
 ---
 
+## E-08 — Signal contribution: present vs. absent comparison
+
+**Objective:** For every individually-tracked scoring signal, determine
+whether trades where it was present show a genuinely different average
+return than trades where it was absent — the controlled version of
+"does this signal actually help," as opposed to only ever looking at
+present-side performance in isolation (which can't distinguish real
+signal from "everything was winning that period").
+
+**Hypothesis:** H9 — "Individual signals show genuine present-vs-absent
+contribution to profitability, distinguishable from noise."
+
+**Variables changed:** None traded — purely additive tracking. For every
+closed trade, in addition to updating the existing present-side Bayesian
+stats for signals that were active, a parallel absent-side Bayesian
+track is updated for every tracked signal that was NOT active on that
+trade.
+
+**Baseline comparison:** Per signal, present-side average return vs.
+absent-side average return (`contributionPct` =
+`presentAvgPnlPct - absentAvgPnlPct`).
+
+**Success metrics:** A signal shows `hasMinimumEvidence: true` (≥10
+samples both sides) and a `contributionPct` meaningfully different from
+zero, consistently, not just in a single evaluation snapshot.
+
+**Failure criteria:** `contributionPct` near zero across most/all
+signals once enough evidence exists — would suggest the present-side
+win rates the scoring system already relies on are not actually
+distinguishing informative setups from noise, directly relevant to the
+H3/TD-10 multiple-comparisons concern.
+
+**Prerequisite:** None beyond real closed-trade volume — infrastructure
+is live (`agent_signal_weights` absent-side columns, commit `cb7dda4`).
+
+**Results:** Not yet run — `computeSignalContribution()` exists and is
+callable, but no trades have closed with absent-side data accumulated
+yet as of this writing.
+
+---
+
 ## Discipline for adding new experiments
 
 Per `ENGINEERING_CONSTITUTION.md` Section 17 (the Skeptic Rule) and

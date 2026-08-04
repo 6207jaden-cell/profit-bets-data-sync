@@ -661,7 +661,7 @@ numbers meaningful.
 - `/project-audit/ROADMAP.md` — prioritized, sequenced work, updated as
   items complete or new findings emerge
 - `/project-audit/HYPOTHESIS_LOG.md` — every major unproven assumption
-  the trading system operates on (8 entries as of this writing: H1–H8),
+  the trading system operates on (9 entries as of this writing: H1–H9),
   each with why-we-believe-it, evidence for, evidence against, the
   experiment needed to resolve it, a confidence level, and a conclusion.
   This is where the founder constitution's "Evidence-Based Development"
@@ -678,7 +678,7 @@ numbers meaningful.
   current workaround (if any), recommended solution, and priority,
   cross-referenced to `ROADMAP.md`'s numbered sequencing.
 - `/project-audit/EXPERIMENTS.md` — the scientific testing framework: 7
-  designed experiments (E-01–E-07) as of this writing, each tied to a
+  designed experiments (E-01–E-08) as of this writing, each tied to a
   specific `HYPOTHESIS_LOG.md` entry, each with a pre-committed
   methodology written BEFORE the experiment runs — design before data,
   never the reverse. Every entry currently reads "Results: Not yet run,"
