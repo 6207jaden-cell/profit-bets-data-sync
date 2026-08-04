@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice, fetchBars, atr } from "@/lib/indicators";
 import { callGateway } from "@/routes/api/public/autonomous-agent";
 import { updateSignalWeights } from "@/lib/signal-learning";
+import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 
 type ExitAction = { position_id: string; action: "hold" | "trim" | "exit"; reason: string };
 
@@ -57,6 +58,17 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     const stop = t.stop_loss_pct ?? 7;
     const target = t.take_profit_pct ?? 15;
 
+    // Realistic fill price for whatever exit actually happens below. Stop/
+    // target/trailing comparisons above and below use the true quoted
+    // `price`; only the recorded exit_price reflects the adverse slippage a
+    // real exit order would experience. No per-symbol volume data is readily
+    // available here (unlike at entry, which reuses data from the scan), so
+    // this degrades gracefully to a conservative default via estimateSlippageBps.
+    const exitSide = t.side === "buy" ? "sell" : "buy"; // closing a long = selling, closing a short = buying
+    const isCryptoPosition = /-?USD$/i.test(String(t.asset));
+    const exitSlip = estimateSlippageBps({ orderNotional: Number(t.quantity) * price, avgDailyVolume: null, price, isCrypto: isCryptoPosition });
+    const fillPrice = applySlippage(price, exitSide, exitSlip.slippageBps);
+
     // Chandelier Exit trailing stop: once position is profitable >5%, trail the
     // stop from the HIGHEST price seen since entry (not current price) at a
     // distance of 3×ATR — the professional version of a trailing stop. A plain
@@ -107,20 +119,20 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     // Check trailing stop (if set, use it instead of fixed stop for longs)
     const trailingStop = (t.options_details as Record<string,unknown> | null)?.trailing_stop_price as number | undefined;
     if (trailingStop && t.side === "buy" && price <= trailingStop) {
-      closures.push({ trade: t, exit_price: price, reason: "trailing_stop_hit" });
+      closures.push({ trade: t, exit_price: fillPrice, reason: "trailing_stop_hit" });
       continue;
     }
 
     if (pnlPct <= -stop) {
-      closures.push({ trade: t, exit_price: price, reason: "stop_loss_hit" });
+      closures.push({ trade: t, exit_price: fillPrice, reason: "stop_loss_hit" });
       continue;
     }
     if (pnlPct >= target) {
-      closures.push({ trade: t, exit_price: price, reason: "take_profit_hit" });
+      closures.push({ trade: t, exit_price: fillPrice, reason: "take_profit_hit" });
       continue;
     }
     if (t.hold_duration === "intraday" && afterEod) {
-      closures.push({ trade: t, exit_price: price, reason: "intraday_eod_close" });
+      closures.push({ trade: t, exit_price: fillPrice, reason: "intraday_eod_close" });
       continue;
     }
     if (t.hold_duration && t.hold_duration !== "intraday") {
@@ -218,10 +230,16 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
             if (a.action === "hold") continue;
             const cand = aiCandidates.find((c) => c.id === a.position_id);
             if (!cand) continue;
+            // Same slippage treatment as the main loop above — AI-decided
+            // exits and trims get a realistic fill too, not the exact quote.
+            const candExitSide = cand.side === "buy" ? "sell" : "buy";
+            const candIsCrypto = /-?USD$/i.test(String(cand.asset));
+            const candSlip = estimateSlippageBps({ orderNotional: Number(cand.quantity) * cand.current_price, avgDailyVolume: null, price: cand.current_price, isCrypto: candIsCrypto });
+            const candFillPrice = applySlippage(cand.current_price, candExitSide, candSlip.slippageBps);
             if (a.action === "exit") {
-              closures.push({ trade: cand, exit_price: cand.current_price, reason: `ai_exit: ${a.reason}` });
+              closures.push({ trade: cand, exit_price: candFillPrice, reason: `ai_exit: ${a.reason}` });
             } else if (a.action === "trim") {
-              trims.push({ trade: cand, exit_price: cand.current_price, reason: a.reason });
+              trims.push({ trade: cand, exit_price: candFillPrice, reason: a.reason });
             }
           }
         }

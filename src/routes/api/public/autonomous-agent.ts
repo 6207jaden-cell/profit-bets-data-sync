@@ -15,6 +15,7 @@ import {
   fetchHistoricalEarningsDates, computeAvgHistoricalEarningsMove, computeExpectedMoveFromStraddle,
   computeHistoricalVolatility, computeIvHvRatio, getIvRank, classifyEarningsStrategy,
 } from "@/lib/earnings-strategy";
+import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
@@ -723,15 +724,22 @@ async function runForUser(args: {
       if (!q) continue;
       const qty = Number(t.quantity), entry = Number(t.entry_price);
       const dir = t.side === "buy" ? 1 : -1;
-      const pnl = (q - entry) * qty * dir;
+      // Circuit-breaker closures are urgent, forced exits — if anything they
+      // deserve a MORE realistic slippage model than a normal close, not
+      // less, since dumping a position under pressure typically costs more.
+      const cbExitSide = t.side === "buy" ? "sell" : "buy";
+      const cbIsCrypto = /-?USD$/i.test(String(t.asset));
+      const cbSlip = estimateSlippageBps({ orderNotional: qty * q, avgDailyVolume: null, price: q, isCrypto: cbIsCrypto });
+      const fillPrice = applySlippage(q, cbExitSide, cbSlip.slippageBps);
+      const pnl = (fillPrice - entry) * qty * dir;
       await supabaseAdmin.from("paper_trades").update({
-        is_open: false, exit_price: q, pnl, closed_at: new Date().toISOString(),
+        is_open: false, exit_price: fillPrice, pnl, closed_at: new Date().toISOString(),
       }).eq("id", t.id);
       // Circuit-breaker closures are real (usually negative) outcomes and should
       // still feed the learning loop — otherwise the signal weights never learn
       // from the trades that were going badly enough to trip the breaker.
       try {
-        const pnlPctForLearning = entry > 0 ? ((q - entry) / entry) * 100 * dir : 0;
+        const pnlPctForLearning = entry > 0 ? ((fillPrice - entry) / entry) * 100 * dir : 0;
         const entrySignals = (t as unknown as { entry_signals?: string[] | null }).entry_signals;
         await updateSignalWeights(supabaseAdmin, userId, entrySignals, pnlPctForLearning);
       } catch { /* best-effort */ }
@@ -1346,6 +1354,11 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   const candidateAtrMap = new Map<string, number | null>(
     candidates.map((c) => [String(c.symbol).toUpperCase(), (c.atr_pct as number | null | undefined) ?? null]),
   );
+  // Average daily volume lookup for slippage estimation — same "reuse data
+  // already fetched during the scan" pattern as the ATR map above.
+  const candidateVolumeMap = new Map<string, number | null>(
+    candidates.map((c) => [String(c.symbol).toUpperCase(), (c.avg_volume_20d as number | null | undefined) ?? null]),
+  );
 
   // ── Correlation-based position sizing prep ──────────────────────────────
   // Fetch daily closes for every currently open position ONCE (cached), used
@@ -1460,7 +1473,16 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
           const scaleAllocPct = Math.min(allocPct * 0.5, effectiveMaxPositionPct * 0.3);
           const scaleCash = (cash * scaleAllocPct) / 100;
           if (scaleCash > 10 && scaleCash < cashRemaining * 0.5) {
-            const scaleQty = scaleCash / existingPrice;
+            // Slippage applies to the NEW scale-in fill, not the reference price
+            // used above to measure the existing position's paper gain.
+            const scaleSlip = estimateSlippageBps({
+              orderNotional: scaleCash,
+              avgDailyVolume: candidateVolumeMap.get(t.symbol.toUpperCase()),
+              price: existingPrice,
+              isCrypto: t.instrument === "crypto",
+            });
+            const scaleFillPrice = applySlippage(existingPrice, t.direction === "long" ? "buy" : "sell", scaleSlip.slippageBps);
+            const scaleQty = scaleCash / scaleFillPrice;
             const scaleAtrPct = candidateAtrMap.get(t.symbol.toUpperCase());
             const scaleCalibrated = atrBasedStopTarget(scaleAtrPct, session, t.stop_loss_pct ?? settings.stop_loss_pct, t.take_profit_pct ?? settings.take_profit_pct);
             const scaleSignalsForSymbol = candidateSignalsMap.get(t.symbol.toUpperCase());
@@ -1470,7 +1492,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
             await (supabaseAdmin as any).from("paper_trades").insert({
               user_id: userId, portfolio_id: portfolio.id,
               asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
-              quantity: scaleQty, entry_price: existingPrice, is_open: true,
+              quantity: scaleQty, entry_price: scaleFillPrice, is_open: true,
               hold_duration: t.hold_duration,
               stop_loss_pct: scaleCalibrated.stop_loss_pct,
               take_profit_pct: scaleCalibrated.take_profit_pct,
@@ -1481,7 +1503,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
             await supabaseAdmin.from("signals_executions").insert({
               user_id: userId, execution_type: "paper", status: "filled",
               asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
-              quantity: scaleQty, price: existingPrice,
+              quantity: scaleQty, price: scaleFillPrice,
               reason: `autonomous scale-in (${session}) conviction=${t.conviction}`,
             });
             cashRemaining -= scaleCash;
@@ -1527,8 +1549,23 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       continue;
     }
 
-    const price = await fetchQuotePrice(t.symbol);
-    if (!price || price <= 0) { debugSkips.push({ symbol: t.symbol, reason: "no_price" }); continue; }
+    const quotedPrice = await fetchQuotePrice(t.symbol);
+    if (!quotedPrice || quotedPrice <= 0) { debugSkips.push({ symbol: t.symbol, reason: "no_price" }); continue; }
+
+    // Realistic slippage: paper fills at the exact quoted price make every
+    // P&L number in the app systematically optimistic vs what real money
+    // would experience, especially on thinner names. Estimated from order
+    // size vs this symbol's average daily volume (already have it from the
+    // scan) and applied as an adverse fill — buys cost slightly more, sells
+    // receive slightly less than the quote.
+    const isCryptoTrade = t.instrument === "crypto";
+    const slip = estimateSlippageBps({
+      orderNotional: allocCash,
+      avgDailyVolume: candidateVolumeMap.get(t.symbol.toUpperCase()),
+      price: quotedPrice,
+      isCrypto: isCryptoTrade,
+    });
+    const price = applySlippage(quotedPrice, t.direction === "long" ? "buy" : "sell", slip.slippageBps);
     const qty = allocCash / price;
 
     // For options trades, resolve the real contract from Polygon before inserting
