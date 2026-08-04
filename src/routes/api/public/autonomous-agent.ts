@@ -9,6 +9,7 @@ import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, form
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, type SignalWeightMap } from "@/lib/signal-learning";
+import { logShadowCandidates, linkShadowCandidateToTrade } from "@/lib/shadow-experiments";
 import { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc, isCryptoWeekend } from "@/lib/crypto-signals";
 import { computeBreadthScore, getBreadthMomentum } from "@/lib/market-breadth";
 import {
@@ -1313,6 +1314,24 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     return { opened: 0, skipped: "ai_error" };
   }
 
+  // Experiment 1 (Claude Value Test) — pure observation, never affects
+  // trading. Logs every candidate shown to Claude alongside its
+  // deterministic rank/score and whether Claude's decision agreed or
+  // disagreed with that ranking. See HYPOTHESIS_LOG.md H2, EXPERIMENTS.md E-01.
+  await logShadowCandidates(
+    supabaseAdmin as never,
+    userId,
+    sessionType,
+    rescored.map((c) => ({
+      symbol: String(c.symbol),
+      bull_score: Number(c.bull_score),
+      bear_score: Number(c.bear_score),
+      direction_hint: String(c.direction_hint),
+      price: (c.price as number | undefined) ?? null,
+    })),
+    (ai.trades ?? []).map((t) => ({ symbol: t.symbol, direction: t.direction, conviction: t.conviction })),
+  );
+
   const sectorCount = new Map<string, number>();
   for (const t of openList) {
     const s = sectorFor(String(t.asset));
@@ -1623,7 +1642,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     // entrySignals already resolved earlier (used for Kelly sizing above) —
     // reused here, this is what the Bayesian weight updater reads at close.
 
-    const { error } = await supabaseAdmin.from("paper_trades").insert({
+    const { data: insertedTrade, error } = await supabaseAdmin.from("paper_trades").insert({
       user_id: userId,
       portfolio_id: portfolio.id,
       asset: t.symbol,
@@ -1638,8 +1657,13 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       options_details: (resolvedOptions ?? null) as never,
       entry_signals: entrySignals as never,
       rationale: enrichedRationale,
-    });
+    }).select("id").single();
     if (error) { console.error("[autonomous] insert trade", error); debugSkips.push({ symbol: t.symbol, reason: "insert_error", detail: error.message }); continue; }
+    // Experiment 1: link this real trade to its shadow-log candidate row so
+    // resolution can use the actual outcome instead of a hypothetical one.
+    if (insertedTrade?.id) {
+      await linkShadowCandidateToTrade(supabaseAdmin as never, userId, t.symbol, insertedTrade.id as string);
+    }
     await supabaseAdmin.from("signals_executions").insert({
       user_id: userId, execution_type: "paper", status: "filled",
       asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",

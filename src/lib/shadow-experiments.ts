@@ -1,0 +1,120 @@
+// Experiment 1 (Claude Value Test) — pure observation infrastructure.
+// Logs every candidate shown to Claude alongside its deterministic
+// rank/score, and whether Claude's actual decision agreed or disagreed
+// with what the deterministic system alone would have prioritized.
+// NEVER changes what's actually traded — this module only writes shadow
+// log rows, it never reads them back into a trading decision. See
+// /project-audit/EXPERIMENTS.md E-01 and HYPOTHESIS_LOG.md H2.
+
+import type { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
+
+type ShadowCandidateInput = {
+  symbol: string;
+  bull_score: number;
+  bear_score: number;
+  direction_hint: string; // "long" | "short" | "unclear"
+  price?: number | null;
+};
+
+type ShadowTradeInput = {
+  symbol: string;
+  direction: "long" | "short";
+  conviction: number;
+};
+
+/**
+ * How many of the top deterministic-ranked candidates count as "what the
+ * deterministic system would have traded" for agreement classification.
+ * Chosen to roughly match how many positions a single scan typically opens
+ * per the system prompts' own guidance (3-8 trades per scan) — not an
+ * arbitrary number.
+ */
+const DETERMINISTIC_TOP_N = 6;
+
+/**
+ * Logs every candidate in the ranked pool (already sorted by combined
+ * bull/bear strength before this is called — see autonomous-agent.ts's
+ * `rescored`/`candidatesForAi` construction) against Claude's actual
+ * trades for this scan. Best-effort: failures here must never interrupt
+ * the real trading flow, since this is purely observational.
+ */
+export async function logShadowCandidates(
+  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  userId: string,
+  sessionType: string,
+  rankedCandidates: ShadowCandidateInput[],
+  claudeTrades: ShadowTradeInput[],
+): Promise<void> {
+  try {
+    const claudeBySymbol = new Map<string, ShadowTradeInput>();
+    for (const t of claudeTrades) claudeBySymbol.set(t.symbol.toUpperCase(), t);
+
+    const rows = rankedCandidates.map((c, idx) => {
+      const rank = idx + 1; // 1-indexed, matches "top-ranked" language elsewhere
+      const claudeTrade = claudeBySymbol.get(c.symbol.toUpperCase());
+      const claudeTraded = claudeTrade != null;
+      const isTopRanked = rank <= DETERMINISTIC_TOP_N;
+      const detDirection = c.direction_hint === "short" ? "short" : "long"; // "unclear" defaults to long for comparison purposes, flagged via score being near-zero anyway
+
+      let agreement: string;
+      if (claudeTraded && isTopRanked) agreement = "agree_traded";
+      else if (!claudeTraded && isTopRanked) agreement = "disagree_claude_skipped";
+      else if (claudeTraded && !isTopRanked) agreement = "disagree_claude_added";
+      else agreement = "agree_skipped";
+
+      return {
+        user_id: userId,
+        session_type: sessionType,
+        symbol: c.symbol,
+        deterministic_rank: rank,
+        deterministic_score: Number(Math.max(c.bull_score, c.bear_score).toFixed(2)),
+        deterministic_direction: detDirection,
+        claude_traded: claudeTraded,
+        claude_direction: claudeTrade?.direction ?? null,
+        claude_conviction: claudeTrade?.conviction ?? null,
+        agreement,
+        price_at_scan: c.price ?? null,
+        resolved: false,
+      };
+    });
+
+    if (rows.length === 0) return;
+    for (let i = 0; i < rows.length; i += 50) {
+      await supabaseAdmin.from("shadow_candidate_log").insert(rows.slice(i, i + 50) as never);
+    }
+  } catch (e) {
+    console.warn("[shadow-experiments] logShadowCandidates failed (non-fatal)", String(e));
+  }
+}
+
+/**
+ * Links a shadow log row to the real paper_trades row when Claude actually
+ * traded that candidate, so resolution can use the REAL outcome instead of
+ * a hypothetical one for the "claude_traded" side of the comparison.
+ * Best-effort, called right after a trade insert succeeds.
+ */
+export async function linkShadowCandidateToTrade(
+  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  userId: string,
+  symbol: string,
+  tradeId: string,
+): Promise<void> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("shadow_candidate_log")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("symbol", symbol)
+      .eq("claude_traded", true)
+      .is("actual_trade_id", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      await supabaseAdmin.from("shadow_candidate_log").update({ actual_trade_id: tradeId }).eq("id", data.id);
+    }
+  } catch (e) {
+    console.warn("[shadow-experiments] linkShadowCandidateToTrade failed (non-fatal)", String(e));
+  }
+}
