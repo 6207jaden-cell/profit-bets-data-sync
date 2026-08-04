@@ -9,7 +9,7 @@ import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, form
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, type SignalWeightMap } from "@/lib/signal-learning";
-import { logShadowCandidates, linkShadowCandidateToTrade } from "@/lib/shadow-experiments";
+import { logShadowCandidates, linkShadowCandidateToTrade, logWeightingComparison, linkWeightingComparisonToTrade } from "@/lib/shadow-experiments";
 import { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc, isCryptoWeekend } from "@/lib/crypto-signals";
 import { computeBreadthScore, getBreadthMomentum } from "@/lib/market-breadth";
 import {
@@ -1094,6 +1094,38 @@ async function runForUser(args: {
       long: c._bullSignals, short: c._bearSignals,
     });
   }
+
+  // Experiment 2 (Adaptive Learning Test) — pure observation, computed here
+  // but NOT used for the real ranking above. Re-scores the exact same
+  // candidate pool with all signal weights held neutral (empty map ->
+  // applySignalWeights defaults every signal to 1.0x), to see how much the
+  // real adaptive weights actually changed the ranking. See
+  // HYPOTHESIS_LOG.md H3, EXPERIMENTS.md E-02.
+  const neutralWeights: SignalWeightMap = new Map();
+  const neutralRescored = candidates.map((c) => {
+    const input = {
+      rsi: (c.rsi as number | null) ?? null,
+      momentum_pct: Number(c.momentum_pct ?? 0),
+      vol_surge_pct: Number(c.vol_surge_pct ?? 0),
+      five_day_return: Number(c.five_day_return ?? 0),
+      twenty_day_return: Number(c.twenty_day_return ?? 0),
+      rs_vs_spy_5d: Number(c.rs_vs_spy_5d ?? 0),
+      regime_aligned: Boolean(c.regime_aligned),
+      macd_histogram: (c.macd_histogram as number | null) ?? null,
+      bb_pct_b: (c.bb_pct_b as number | null) ?? null,
+      avg_volume_20d: Number(c.avg_volume_20d ?? 0),
+      stoch_rsi_k: (c.stoch_rsi_k as number | null) ?? null,
+    };
+    const scored = applySignalWeights(input, narrowedRegime, neutralWeights);
+    return { symbol: String(c.symbol), bullScore: scored.bullScore, bearScore: scored.bearScore, confidence: scored.confidence };
+  }).sort((a, b) => {
+    const aStrength = Math.max(a.bullScore, a.bearScore) * (0.5 + a.confidence);
+    const bStrength = Math.max(b.bullScore, b.bearScore) * (0.5 + b.confidence);
+    return bStrength - aStrength;
+  });
+  const neutralRankMap = new Map<string, { rank: number; bullScore: number; bearScore: number }>();
+  neutralRescored.forEach((c, idx) => neutralRankMap.set(c.symbol.toUpperCase(), { rank: idx + 1, bullScore: c.bullScore, bearScore: c.bearScore }));
+
   // Strip internal-only fields before sending to the AI — it only needs the
   // human-readable direction_hint/confidence/conflict_warning fields.
   const candidatesForAi = rescored.map(({ _bullSignals, _bearSignals, ...rest }) => rest);
@@ -1330,6 +1362,32 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       price: (c.price as number | undefined) ?? null,
     })),
     (ai.trades ?? []).map((t) => ({ symbol: t.symbol, direction: t.direction, conviction: t.conviction })),
+  );
+
+  // Experiment 2 (Adaptive Learning Test) — pure observation, never affects
+  // trading (the real ranking above already used adaptive weights; this
+  // just records how it compared to the neutral-weight alternative computed
+  // earlier). See HYPOTHESIS_LOG.md H3, EXPERIMENTS.md E-02.
+  const tradedSymbolSet = new Set((ai.trades ?? []).map((t) => t.symbol.toUpperCase()));
+  await logWeightingComparison(
+    supabaseAdmin as never,
+    userId,
+    sessionType,
+    rescored.map((c, idx) => {
+      const neutral = neutralRankMap.get(String(c.symbol).toUpperCase());
+      return {
+        symbol: String(c.symbol),
+        adaptiveBullScore: Number(c.bull_score),
+        adaptiveBearScore: Number(c.bear_score),
+        neutralBullScore: neutral?.bullScore ?? Number(c.bull_score),
+        neutralBearScore: neutral?.bearScore ?? Number(c.bear_score),
+        adaptiveRank: idx + 1,
+        neutralRank: neutral?.rank ?? idx + 1,
+        directionHint: String(c.direction_hint ?? "long"),
+        price: (c.price as number | undefined) ?? null,
+      };
+    }),
+    tradedSymbolSet,
   );
 
   const sectorCount = new Map<string, number>();
@@ -1663,6 +1721,8 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     // resolution can use the actual outcome instead of a hypothetical one.
     if (insertedTrade?.id) {
       await linkShadowCandidateToTrade(supabaseAdmin as never, userId, t.symbol, insertedTrade.id as string);
+      // Experiment 2: same linking pattern for the weighting-comparison table.
+      await linkWeightingComparisonToTrade(supabaseAdmin as never, userId, t.symbol, insertedTrade.id as string);
     }
     await supabaseAdmin.from("signals_executions").insert({
       user_id: userId, execution_type: "paper", status: "filled",

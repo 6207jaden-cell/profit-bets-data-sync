@@ -113,7 +113,77 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
           }
         }
 
-        return Response.json({ ok: true, resolved: resolvedCount, checked: pending.length });
+        // ── Experiment 2 (Adaptive Learning Test) resolution ──────────────
+        // Same pattern as Experiment 1 above, applied to the weighting-
+        // comparison table. Resolves each row's hypothetical (or, if traded,
+        // real) return so rank_delta can later be correlated against outcome.
+        const { data: pendingWeighting } = await supabaseAdmin
+          .from("shadow_weighting_comparison")
+          .select("*")
+          .eq("resolved", false)
+          .order("created_at", { ascending: true })
+          .limit(200);
+
+        let resolvedWeightingCount = 0;
+        for (const row of (pendingWeighting ?? []) as Array<Record<string, unknown>>) {
+          try {
+            const sessionType = String(row.session_type);
+            const horizonDays = HORIZON_DAYS[sessionType] ?? 4;
+            const createdAt = new Date(String(row.created_at)).getTime();
+            const dueAt = createdAt + horizonDays * 86_400_000;
+            if (now < dueAt) continue;
+
+            const symbol = String(row.symbol);
+            const priceAtScan = row.price_at_scan != null ? Number(row.price_at_scan) : null;
+            const dirMult = String(row.direction_hint) === "short" ? -1 : 1;
+
+            if (row.actual_trade_id) {
+              const { data: trade } = await supabaseAdmin
+                .from("paper_trades")
+                .select("is_open, entry_price, exit_price, side")
+                .eq("id", String(row.actual_trade_id))
+                .maybeSingle();
+              if (!trade) continue;
+              if (trade.is_open) continue;
+              const entry = Number(trade.entry_price);
+              const exit = Number(trade.exit_price ?? entry);
+              const realDir = trade.side === "buy" ? 1 : -1;
+              const realizedPct = entry > 0 ? ((exit - entry) / entry) * 100 * realDir : 0;
+              await supabaseAdmin.from("shadow_weighting_comparison").update({
+                resolved: true, resolved_at: new Date().toISOString(),
+                resolution_price: exit, hypothetical_return_pct: Number(realizedPct.toFixed(3)),
+              }).eq("id", String(row.id));
+              resolvedWeightingCount++;
+              continue;
+            }
+
+            if (priceAtScan == null || priceAtScan <= 0) {
+              await supabaseAdmin.from("shadow_weighting_comparison").update({
+                resolved: true, resolved_at: new Date().toISOString(),
+              }).eq("id", String(row.id));
+              resolvedWeightingCount++;
+              continue;
+            }
+
+            const currentPrice = await fetchQuotePrice(symbol);
+            if (!currentPrice) continue;
+
+            const hypotheticalPct = ((currentPrice - priceAtScan) / priceAtScan) * 100 * dirMult;
+            await supabaseAdmin.from("shadow_weighting_comparison").update({
+              resolved: true, resolved_at: new Date().toISOString(),
+              resolution_price: currentPrice, hypothetical_return_pct: Number(hypotheticalPct.toFixed(3)),
+            }).eq("id", String(row.id));
+            resolvedWeightingCount++;
+          } catch (e) {
+            console.warn("[resolve-shadow-experiments] failed to resolve weighting row", row.id, String(e));
+          }
+        }
+
+        return Response.json({
+          ok: true,
+          experiment1: { resolved: resolvedCount, checked: pending.length },
+          experiment2: { resolved: resolvedWeightingCount, checked: (pendingWeighting ?? []).length },
+        });
       },
     },
   },

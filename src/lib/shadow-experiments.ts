@@ -118,3 +118,85 @@ export async function linkShadowCandidateToTrade(
     console.warn("[shadow-experiments] linkShadowCandidateToTrade failed (non-fatal)", String(e));
   }
 }
+
+// ── Experiment 2 (Adaptive Learning Test) ───────────────────────────────
+
+type WeightingComparisonInput = {
+  symbol: string;
+  adaptiveBullScore: number;
+  adaptiveBearScore: number;
+  neutralBullScore: number;
+  neutralBearScore: number;
+  adaptiveRank: number;  // 1-indexed rank under real weighting
+  neutralRank: number;   // 1-indexed rank under hypothetical neutral weighting
+  directionHint: string; // "long" | "short" | "unclear" — needed for resolution's hypothetical return
+  price?: number | null;
+};
+
+/**
+ * Shadow-logs the same candidate pool scored two ways: with the real,
+ * adaptive per-signal weights actually in effect, and with all weights
+ * held neutral (1.0x) as if the Bayesian learning system didn't exist.
+ * The REAL system always trades based on adaptive scoring — this only
+ * observes what would have ranked differently under neutral weighting,
+ * for later comparison against outcomes. See HYPOTHESIS_LOG.md H3,
+ * EXPERIMENTS.md E-02.
+ */
+export async function logWeightingComparison(
+  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  userId: string,
+  sessionType: string,
+  comparisons: WeightingComparisonInput[],
+  tradedSymbols: Set<string>,
+): Promise<void> {
+  try {
+    const rows = comparisons.map((c) => ({
+      user_id: userId,
+      session_type: sessionType,
+      symbol: c.symbol,
+      adaptive_bull_score: Number(c.adaptiveBullScore.toFixed(2)),
+      adaptive_bear_score: Number(c.adaptiveBearScore.toFixed(2)),
+      neutral_bull_score: Number(c.neutralBullScore.toFixed(2)),
+      neutral_bear_score: Number(c.neutralBearScore.toFixed(2)),
+      adaptive_rank: c.adaptiveRank,
+      neutral_rank: c.neutralRank,
+      rank_delta: c.neutralRank - c.adaptiveRank, // positive = adaptive weighting promoted this candidate
+      direction_hint: c.directionHint === "short" ? "short" : "long",
+      was_traded: tradedSymbols.has(c.symbol.toUpperCase()),
+      price_at_scan: c.price ?? null,
+      resolved: false,
+    }));
+    if (rows.length === 0) return;
+    for (let i = 0; i < rows.length; i += 50) {
+      await supabaseAdmin.from("shadow_weighting_comparison").insert(rows.slice(i, i + 50) as never);
+    }
+  } catch (e) {
+    console.warn("[shadow-experiments] logWeightingComparison failed (non-fatal)", String(e));
+  }
+}
+
+/** Same linking pattern as Experiment 1, applied to the weighting-comparison table. */
+export async function linkWeightingComparisonToTrade(
+  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  userId: string,
+  symbol: string,
+  tradeId: string,
+): Promise<void> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("shadow_weighting_comparison")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("symbol", symbol)
+      .eq("was_traded", true)
+      .is("actual_trade_id", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      await supabaseAdmin.from("shadow_weighting_comparison").update({ actual_trade_id: tradeId }).eq("id", data.id);
+    }
+  } catch (e) {
+    console.warn("[shadow-experiments] linkWeightingComparisonToTrade failed (non-fatal)", String(e));
+  }
+}
