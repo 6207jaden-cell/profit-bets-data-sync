@@ -452,8 +452,9 @@ function OpenPositionsCard({
                     size="sm" variant="outline"
                     onClick={() => onClose(r.t.id)}
                     disabled={closing === r.t.id}
+                    className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
                   >
-                    {closing === r.t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <><X className="h-3 w-3 mr-1" />Close</>}
+                    {closing === r.t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <><X className="h-3 w-3 mr-1" />Close Now</>}
                   </Button>
                 </div>
               </motion.li>

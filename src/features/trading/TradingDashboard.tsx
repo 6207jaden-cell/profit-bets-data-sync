@@ -26,6 +26,7 @@ import { AgentAuditLog } from "./components/AgentAuditLog";
 import { GettingStartedBanner } from "./components/GettingStartedBanner";
 import { PnLDashboard } from "./components/PnLDashboard";
 import { ClosedTradesHistory } from "./components/ClosedTradesHistory";
+import { SessionPerformancePanel } from "./components/SessionPerformancePanel";
 import { AbTestingPanel } from "./components/AbTestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
@@ -43,6 +44,7 @@ const TAB_GROUPS = [
     label: "Main",
     items: [
       { value: "overview", label: "Overview", Icon: Activity },
+      { value: "history", label: "History", Icon: History },
       { value: "agent", label: "Agent", Icon: Bot },
       { value: "execution", label: "Positions", Icon: Zap },
       { value: "leaderboard", label: "Leaderboard", Icon: Trophy },
@@ -335,9 +337,6 @@ export default function TradingDashboard() {
               </Card>
             </section>
 
-            {/* Full closed trades history with filters */}
-            <ClosedTradesHistory />
-
             <section aria-labelledby="recent-trades" className="hidden">
               <header className="flex items-center justify-between mb-3">
                 <h2 id="recent-trades" className="font-display font-semibold">Recent Paper Trades</h2>
@@ -425,6 +424,10 @@ export default function TradingDashboard() {
           </TabsContent>
           <TabsContent value="backtest">
             <BacktestingPanel />
+          </TabsContent>
+          <TabsContent value="history" className="space-y-6">
+            <SessionPerformancePanel />
+            <ClosedTradesHistory />
           </TabsContent>
           <TabsContent value="execution">
             <ExecutionPanel />
