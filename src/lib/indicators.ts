@@ -190,6 +190,138 @@ export function detectMarketRegime(spyCloses: number[]): "bull" | "bear" | "side
   return "sideways";
 }
 
+function clampNum(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+/**
+ * Continuous trend strength score from -100 (strong bear) to +100 (strong bull).
+ * Replaces the discrete bull/bear/sideways bucket for position-sizing purposes —
+ * a bucket system creates cliff effects (SMA50 crossing SMA200 by $0.01 flips the
+ * whole regime) where a continuous score changes smoothly with market conditions.
+ * Blends three components: short-term price position vs SMA50 (40%), medium-term
+ * trend via SMA50/SMA200 spread (40%), and 20-day momentum (20%).
+ */
+export function computeTrendStrength(spyCloses: number[]): number {
+  if (!spyCloses || spyCloses.length < 200) return 0;
+  const sma50Arr = sma(spyCloses, 50);
+  const sma200Arr = sma(spyCloses, 200);
+  const i = spyCloses.length - 1;
+  const price = spyCloses[i];
+  const s50 = sma50Arr[i], s200 = sma200Arr[i];
+  if (s50 == null || s200 == null || s50 <= 0 || s200 <= 0) return 0;
+
+  // Component 1: price vs SMA50 — short-term trend (±40 pts)
+  const priceVsSma50Pct = ((price - s50) / s50) * 100;
+  const c1 = clampNum(priceVsSma50Pct * 4, -40, 40);
+
+  // Component 2: SMA50 vs SMA200 spread — medium-term trend (±40 pts)
+  const sma50VsSma200Pct = ((s50 - s200) / s200) * 100;
+  const c2 = clampNum(sma50VsSma200Pct * 8, -40, 40);
+
+  // Component 3: 20-day momentum (±20 pts)
+  const return20d = spyCloses.length >= 21
+    ? ((price - spyCloses[i - 20]) / spyCloses[i - 20]) * 100
+    : 0;
+  const c3 = clampNum(return20d * 2, -20, 20);
+
+  return Math.round(clampNum(c1 + c2 + c3, -100, 100));
+}
+
+/**
+ * Where current realized volatility (14-day ATR% of SPY) ranks against its own
+ * trailing ~1-year history, 0-100. Used as a volatility measure that doesn't
+ * require a separate VIX history feed — SPY's own ATR% percentile is a solid
+ * proxy and uses data we already fetch every scan.
+ */
+export function computeVolatilityPercentile(spyBars: Bars): number {
+  const { highs, lows, closes } = spyBars;
+  if (closes.length < 60) return 50; // insufficient history, assume normal
+
+  const atrPctSeries: number[] = [];
+  for (let end = 14; end < closes.length; end++) {
+    const h = highs.slice(end - 14, end + 1);
+    const l = lows.slice(end - 14, end + 1);
+    const c = closes.slice(end - 14, end + 1);
+    const a = atr(h, l, c, 14);
+    if (a != null && c[c.length - 1] > 0) {
+      atrPctSeries.push((a / c[c.length - 1]) * 100);
+    }
+  }
+  if (atrPctSeries.length < 20) return 50;
+
+  const current = atrPctSeries[atrPctSeries.length - 1];
+  const sorted = [...atrPctSeries].sort((a, b) => a - b);
+  const rank = sorted.findIndex((v) => v >= current);
+  const safeRank = rank === -1 ? sorted.length - 1 : rank;
+  return Math.round((safeRank / sorted.length) * 100);
+}
+
+/** Rough VIX-level-to-percentile mapping, used to blend real VIX with SPY realized vol. */
+export function vixLevelToPercentile(vix: number): number {
+  if (vix < 12) return 5;
+  if (vix < 16) return 25;
+  if (vix < 20) return 50;
+  if (vix < 25) return 70;
+  if (vix < 30) return 85;
+  if (vix < 40) return 95;
+  return 99;
+}
+
+/**
+ * Smooth position-size multiplier from continuous trend strength + volatility
+ * percentile. Replaces the old discrete VIX-threshold bucket (>35→0.25x,
+ * >25→0.5x, <15→1.1x) which had cliff effects at arbitrary boundaries.
+ * Trend component: bull trends get a modest boost (up to 1.3x), bear trends
+ * get cut hard (down to 0.25x) — losing money in a downtrend is the single
+ * biggest threat to capital. Volatility component: calm markets trade at full
+ * size, elevated/extreme volatility tapers size down smoothly to 0.3x.
+ */
+export function regimePositionMultiplier(trendStrength: number, volatilityPercentile: number): number {
+  let trendMult: number;
+  if (trendStrength >= 0) {
+    trendMult = 1.0 + (trendStrength / 100) * 0.3; // 0 -> 1.0x, 100 -> 1.3x
+  } else {
+    trendMult = Math.max(0.25, 1.0 + (trendStrength / 100) * 0.75); // 0 -> 1.0x, -100 -> 0.25x
+  }
+
+  let volMult: number;
+  if (volatilityPercentile <= 40) volMult = 1.0;
+  else if (volatilityPercentile <= 70) volMult = 1.0 - ((volatilityPercentile - 40) / 30) * 0.4; // 1.0 -> 0.6
+  else volMult = 0.6 - ((Math.min(volatilityPercentile, 100) - 70) / 30) * 0.3; // 0.6 -> 0.3
+
+  return Number((trendMult * volMult).toFixed(3));
+}
+
+/**
+ * ATR-calibrated stop-loss and take-profit percentages, replacing fixed
+ * percentage stops that treat a volatile meme stock the same as a stable
+ * utility. Session-aware multipliers and bounds keep scalps tight and
+ * swings/crypto appropriately wider. Falls back to the AI's suggested
+ * values (or session defaults) when ATR data isn't available for a symbol.
+ */
+export function atrBasedStopTarget(
+  atrPct: number | null | undefined,
+  session: "morning" | "midday" | "weekend_prep" | "scalp" | "crypto",
+  fallbackStopPct: number,
+  fallbackTargetPct: number,
+): { stop_loss_pct: number; take_profit_pct: number } {
+  if (atrPct == null || !Number.isFinite(atrPct) || atrPct <= 0) {
+    return { stop_loss_pct: fallbackStopPct, take_profit_pct: fallbackTargetPct };
+  }
+
+  const cfg = session === "scalp"
+    ? { stopMult: 0.7, targetMult: 2.0, stopMin: 0.4, stopMax: 1.2, targetMin: 0.8, targetMax: 3.0 }
+    : session === "crypto"
+    ? { stopMult: 1.2, targetMult: 3.0, stopMin: 3.0, stopMax: 10.0, targetMin: 5.0, targetMax: 20.0 }
+    : { stopMult: 1.5, targetMult: 4.0, stopMin: 3.0, stopMax: 8.0, targetMin: 4.0, targetMax: 10.0 }; // morning/midday/weekend_prep
+
+  const stop = clampNum(atrPct * cfg.stopMult, cfg.stopMin, cfg.stopMax);
+  const target = clampNum(atrPct * cfg.targetMult, cfg.targetMin, cfg.targetMax);
+
+  return { stop_loss_pct: Number(stop.toFixed(2)), take_profit_pct: Number(target.toFixed(2)) };
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Extract base coin from "BTC-USD" / "BTC/USDT" -> "BTC". */

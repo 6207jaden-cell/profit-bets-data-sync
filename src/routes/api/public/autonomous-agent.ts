@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketOpen } from "@/lib/indicators";
+import {
+  buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketOpen,
+  computeTrendStrength, computeVolatilityPercentile, vixLevelToPercentile,
+  regimePositionMultiplier, atrBasedStopTarget,
+} from "@/lib/indicators";
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
@@ -217,15 +221,21 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           }
         } catch { /* ignore */ }
 
-        // VIX-based position size scaling (code-level, not just AI guidance)
-        // VIX > 35: reduce allocations by 75% — high fear
-        // VIX > 25: reduce by 50% — elevated volatility
-        // VIX < 15: allow 10% boost — low volatility trending market
-        const vixScaleFactor = vixLevel == null ? 1.0
-          : vixLevel > 35 ? 0.25
-          : vixLevel > 25 ? 0.5
-          : vixLevel < 15 ? 1.1
-          : 1.0;
+        // Continuous regime-based position scaling (code-level, not just AI guidance).
+        // Replaces the old discrete VIX-threshold buckets (>35→0.25x etc) which had
+        // cliff effects at arbitrary boundaries — VIX 24.9 and 25.1 were treated as
+        // completely different regimes despite nothing meaningful changing.
+        // Blends: (1) trend strength from SPY (bull trends get a modest size boost,
+        // bear trends get cut hard — losing money in a downtrend is the biggest
+        // threat), and (2) volatility percentile (SPY's own realized ATR% ranked
+        // against its trailing ~1yr history, blended 50/50 with real VIX level when
+        // available). Both scale smoothly with no cliffs.
+        const trendStrength = spyBars ? computeTrendStrength(spyBars.closes) : 0;
+        const spyVolPercentile = spyBars ? computeVolatilityPercentile(spyBars) : 50;
+        const volatilityPercentile = vixLevel != null
+          ? Math.round((spyVolPercentile + vixLevelToPercentile(vixLevel)) / 2)
+          : spyVolPercentile;
+        const vixScaleFactor = regimePositionMultiplier(trendStrength, volatilityPercentile);
 
         // Fear & Greed Index (keyless, from alternative.me)
         try {
@@ -996,7 +1006,7 @@ HARD RULES — never violate these:
 - When five_day_return shows strong momentum (>3% or <-3%), that is a high-quality signal.
 - When recent_ai_signals contains signals for a candidate, use them as additional evidence. Aligned signals increase conviction; contradicting signals decrease it.
 - macro_overlay provides 10Y yield, short-end (3M) yield, yield curve shape, and DXY: Rising 10Y yield = headwind for tech/growth stocks, tailwind for financials. Inverted curve (10Y < 3M) = recession warning, favor defensive positions. Rising DXY = headwind for crypto and international stocks. Normal-steep curve = risk-on environment. Factor these into your conviction and sector preferences.
-- vix_level: the current VIX reading. Position sizes are already scaled by code (VIX>35→25%, VIX>25→50%, VIX<15→110%), but you should further adjust allocation_pct based on VIX: high VIX means smaller positions and tighter stops.
+- vix_level: the current VIX reading. Position sizes are already scaled smoothly by code based on a blend of trend strength and volatility percentile (no fixed VIX cutoffs — the scaling changes continuously as conditions change, from as low as 0.25x in a strong volatile downtrend up to 1.3x in a calm strong uptrend). You should still further adjust allocation_pct based on VIX: high VIX means smaller positions and tighter stops, since the code-level scaling is a baseline, not a ceiling.
 - fear_greed_index: <20 = Extreme Fear (buy quality names aggressively, high expected value), 20-40 = Fear (be opportunistic), 40-60 = Neutral, 60-80 = Greed (be selective, smaller positions), >80 = Extreme Greed (be very cautious, reduce sizes, take profits on existing positions).
 - mtf_label on each candidate shows multi-timeframe alignment (1h↑ = hourly bullish, W↑ = weekly bullish). Prefer candidates where 1h and W align with your intended direction. Heavily penalize trades where MTF is against you (e.g. going long on 1h↓ W↓).
 - When earnings_surprises shows a recent positive earnings beat (>5%), that stock has post-earnings drift momentum
@@ -1079,6 +1089,12 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     }
   }
 
+  // ATR% lookup for ATR-calibrated stops/targets — built from the scored candidates
+  // list so we don't need an extra fetch per traded symbol.
+  const candidateAtrMap = new Map<string, number | null>(
+    candidates.map((c) => [String(c.symbol).toUpperCase(), (c.atr_pct as number | null | undefined) ?? null]),
+  );
+
   const debugSkips: Array<{ symbol: string; reason: string; detail?: unknown }> = [];
   for (const raw of ai.trades ?? []) {
     let t = raw;
@@ -1127,13 +1143,15 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
           const scaleCash = (cash * scaleAllocPct) / 100;
           if (scaleCash > 10 && scaleCash < cashRemaining * 0.5) {
             const scaleQty = scaleCash / existingPrice;
+            const scaleAtrPct = candidateAtrMap.get(t.symbol.toUpperCase());
+            const scaleCalibrated = atrBasedStopTarget(scaleAtrPct, session, t.stop_loss_pct ?? settings.stop_loss_pct, t.take_profit_pct ?? settings.take_profit_pct);
             await (supabaseAdmin as any).from("paper_trades").insert({
               user_id: userId, portfolio_id: portfolio.id,
               asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
               quantity: scaleQty, entry_price: existingPrice, is_open: true,
               hold_duration: t.hold_duration,
-              stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
-              take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
+              stop_loss_pct: scaleCalibrated.stop_loss_pct,
+              take_profit_pct: scaleCalibrated.take_profit_pct,
               instrument: t.instrument,
               rationale: `[SCALE-IN conviction:${t.conviction}] Adding to winning ${t.symbol} position (+${existPnlPct.toFixed(1)}%). ${t.rationale}`,
             });
@@ -1214,6 +1232,15 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       }
     }
 
+    // ATR-calibrated stop/target — overrides Claude's raw percentage pick with a
+    // volatility-adjusted value so a quiet stock and a wild one aren't held to the
+    // same fixed percentage. Options trades keep the AI's own risk parameters since
+    // ATR-on-underlying doesn't map cleanly to option premium risk.
+    const atrPctForSymbol = candidateAtrMap.get(t.symbol.toUpperCase());
+    const calibrated = isOptionsInstrument
+      ? { stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct, take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct }
+      : atrBasedStopTarget(atrPctForSymbol, session, t.stop_loss_pct ?? settings.stop_loss_pct, t.take_profit_pct ?? settings.take_profit_pct);
+
     const { error } = await supabaseAdmin.from("paper_trades").insert({
       user_id: userId,
       portfolio_id: portfolio.id,
@@ -1223,8 +1250,8 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       entry_price: price,
       is_open: true,
       hold_duration: t.hold_duration,
-      stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct,
-      take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct,
+      stop_loss_pct: calibrated.stop_loss_pct,
+      take_profit_pct: calibrated.take_profit_pct,
       instrument: t.instrument,
       options_details: (resolvedOptions ?? null) as never,
       rationale: enrichedRationale,
@@ -1241,8 +1268,11 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       const dirLabel = t.direction === "long" ? "LONG" : "SHORT";
       const sizeUsd = (qty * price).toFixed(2);
       const sessionTag = session.toUpperCase();
-      const tpLine = t.take_profit_pct ? ` | Target +${(t.take_profit_pct * 100).toFixed(1)}%` : "";
-      const slLine = t.stop_loss_pct ? ` | Stop -${(t.stop_loss_pct * 100).toFixed(1)}%` : "";
+      // stop_loss_pct/take_profit_pct are stored as whole percentages (2.0 = 2%),
+      // and now reflect the ATR-calibrated values actually saved to the trade,
+      // not the AI's raw pre-calibration suggestion.
+      const tpLine = ` | Target +${calibrated.take_profit_pct.toFixed(1)}%`;
+      const slLine = ` | Stop -${calibrated.stop_loss_pct.toFixed(1)}%`;
       await supabaseAdmin.from("notifications").insert({
         user_id: userId, type: "trade_open",
         title: `📈 [${sessionTag}] ${t.symbol} opened ${dirLabel}`,

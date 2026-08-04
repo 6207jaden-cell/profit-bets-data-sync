@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchQuotePrice } from "@/lib/indicators";
+import { fetchQuotePrice, fetchBars, atr } from "@/lib/indicators";
 import { callGateway } from "@/routes/api/public/autonomous-agent";
 
 type ExitAction = { position_id: string; action: "hold" | "trim" | "exit"; reason: string };
@@ -55,19 +55,50 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     const stop = t.stop_loss_pct ?? 7;
     const target = t.take_profit_pct ?? 15;
 
-    // Trailing stop: once position is profitable >5%, move stop up to lock in gains.
-    // Trailing stop = current_price × (1 - stop_pct/100) for longs.
-    // We store the "effective stop price" in metadata (options_details.trailing_stop_price).
+    // Chandelier Exit trailing stop: once position is profitable >5%, trail the
+    // stop from the HIGHEST price seen since entry (not current price) at a
+    // distance of 3×ATR — the professional version of a trailing stop. A plain
+    // percent-of-current-price trail (the old behavior) can whipsaw out of a
+    // position on a normal pullback from a spike; anchoring to the peak and
+    // sizing the distance to the stock's own volatility avoids that.
+    // ATR% is fetched once when trailing activates and cached in options_details
+    // so we don't re-fetch bars on every single exit-check run for this position.
     if (pnlPct > 5 && t.side === "buy") {
-      const trailingStopPrice = price * (1 - stop / 100);
-      const existingTrailing = (t.options_details as Record<string,unknown> | null)?.trailing_stop_price as number | undefined;
-      // Only ratchet upward — never lower the stop
+      const existingMeta = (t.options_details as Record<string, unknown> | null) ?? {};
+      const priorHighest = existingMeta.highest_price_since_entry as number | undefined;
+      const highestPrice = priorHighest ? Math.max(priorHighest, price) : price;
+
+      let atrPctCached = existingMeta.trailing_atr_pct as number | null | undefined;
+      if (atrPctCached == null) {
+        try {
+          const bars = await fetchBars(t.asset, 30);
+          if (bars) {
+            const a = atr(bars.highs, bars.lows, bars.closes, 14);
+            if (a != null && price > 0) atrPctCached = (a / price) * 100;
+          }
+        } catch { /* fall through to fixed-stop fallback below */ }
+      }
+      // Trail distance: 3×ATR%, floored at 40% of the fixed stop so an unusually
+      // small ATR reading can't create an absurdly tight trail that gets stopped
+      // by normal noise. Falls back to the fixed stop_pct if ATR is unavailable.
+      const trailDistancePct = atrPctCached != null ? Math.max(atrPctCached * 3, stop * 0.4) : stop;
+      const trailingStopPrice = highestPrice * (1 - trailDistancePct / 100);
+      const existingTrailing = existingMeta.trailing_stop_price as number | undefined;
+
       if (!existingTrailing || trailingStopPrice > existingTrailing) {
-        await supabaseAdmin.from("paper_trades").update({
-          options_details: { ...(t.options_details as Record<string,unknown> ?? {}), trailing_stop_price: trailingStopPrice },
-        }).eq("id", t.id);
-        // Use the updated trailing stop for this run
-        (t as Record<string,unknown>).options_details = { ...(t.options_details as Record<string,unknown> ?? {}), trailing_stop_price: trailingStopPrice };
+        const newMeta = {
+          ...existingMeta,
+          trailing_stop_price: trailingStopPrice,
+          highest_price_since_entry: highestPrice,
+          trailing_atr_pct: atrPctCached ?? null,
+        };
+        await supabaseAdmin.from("paper_trades").update({ options_details: newMeta }).eq("id", t.id);
+        (t as Record<string, unknown>).options_details = newMeta;
+      } else if (!priorHighest || highestPrice > priorHighest) {
+        // Stop doesn't move but still track the new peak for future ratcheting
+        const newMeta = { ...existingMeta, highest_price_since_entry: highestPrice };
+        await supabaseAdmin.from("paper_trades").update({ options_details: newMeta }).eq("id", t.id);
+        (t as Record<string, unknown>).options_details = newMeta;
       }
     }
 
@@ -97,7 +128,18 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
   }
 
   // AI batch decision for swing/position holds
-  if (aiCandidates.length > 0) {
+  // Tiered check: the cheap stop/target/trailing-stop check above runs on EVERY
+  // invocation (every 10 min, see cron schedule) so protective exits are never more
+  // than 10 minutes stale — versus up to 2 hours before this change. The AI
+  // thesis-review batch below is more expensive (one LLM call per user) and
+  // doesn't need the same frequency — a swing position's underlying thesis
+  // doesn't meaningfully change minute to minute. Gate it to roughly every 30
+  // minutes by only firing in the first 10-minute slice of each 30-minute window,
+  // cutting LLM calls 3x with no loss of protective (stop/target) coverage.
+  const nowMinute = new Date().getUTCMinutes();
+  const aiReviewWindow = nowMinute % 30 < 10;
+
+  if (aiCandidates.length > 0 && aiReviewWindow) {
     // Fetch regime and current indicators for each position before AI review
     const { fetchBars, buildContext, detectMarketRegime } = await import("@/lib/indicators");
     const spyBarsForExit = await fetchBars("SPY", 60);
