@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice, fetchBars, atr } from "@/lib/indicators";
 import { callGateway } from "@/routes/api/public/autonomous-agent";
+import { updateSignalWeights } from "@/lib/signal-learning";
 
 type ExitAction = { position_id: string; action: "hold" | "trim" | "exit"; reason: string };
 
@@ -216,6 +217,19 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     await supabaseAdmin.from("paper_trades").update({
       is_open: false, exit_price: c.exit_price, pnl, closed_at: new Date().toISOString(),
     }).eq("id", c.trade.id);
+
+    // Bayesian signal-weight update — nudges this user's learned weight for
+    // every signal that was active when this trade opened, using the actual
+    // outcome. No-ops silently for manually-opened trades (no entry_signals).
+    try {
+      const entry = Number(c.trade.entry_price);
+      const pnlPctForLearning = entry > 0 ? ((c.exit_price - entry) / entry) * 100 * dir : 0;
+      const entrySignals = (c.trade as unknown as { entry_signals?: string[] | null }).entry_signals;
+      await updateSignalWeights(supabaseAdmin, userId, entrySignals, pnlPctForLearning);
+    } catch (e) {
+      console.warn("[exit-check] signal weight update failed", String(e));
+    }
+
     await supabaseAdmin.from("signals_executions").insert({
       user_id: userId, execution_type: "paper", status: "filled",
       asset: c.trade.asset, side: c.trade.side === "buy" ? "sell" : "buy",

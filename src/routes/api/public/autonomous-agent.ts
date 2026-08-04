@@ -7,6 +7,7 @@ import {
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
+import { loadSignalWeights, applySignalWeights } from "@/lib/signal-learning";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
@@ -650,10 +651,19 @@ async function runForUser(args: {
       const q = quotes.get(String(t.asset));
       if (!q) continue;
       const qty = Number(t.quantity), entry = Number(t.entry_price);
-      const pnl = (q - entry) * qty * (t.side === "buy" ? 1 : -1);
+      const dir = t.side === "buy" ? 1 : -1;
+      const pnl = (q - entry) * qty * dir;
       await supabaseAdmin.from("paper_trades").update({
         is_open: false, exit_price: q, pnl, closed_at: new Date().toISOString(),
       }).eq("id", t.id);
+      // Circuit-breaker closures are real (usually negative) outcomes and should
+      // still feed the learning loop — otherwise the signal weights never learn
+      // from the trades that were going badly enough to trip the breaker.
+      try {
+        const pnlPctForLearning = entry > 0 ? ((q - entry) / entry) * 100 * dir : 0;
+        const entrySignals = (t as unknown as { entry_signals?: string[] | null }).entry_signals;
+        await updateSignalWeights(supabaseAdmin, userId, entrySignals, pnlPctForLearning);
+      } catch { /* best-effort */ }
       closedIntra += 1;
     }
     // Post one circuit-breaker message per day max.
@@ -846,6 +856,60 @@ async function runForUser(args: {
     ? `Manual strategies currently firing: ${firingStrategies.join(", ")}`
     : "No manual strategies currently firing.";
 
+  // ---- Direction-aware, weight-adjusted candidate re-scoring (per-user) ----
+  // The initial candidate pool + broad ranking happens once, shared across all
+  // users (expensive part: fetching bars for 100+ symbols). Here, per-user, we
+  // re-score that same pool using THIS user's learned signal weights — a
+  // signal with a strong historical win rate for this user gets amplified,
+  // a weak one gets damped. We also split each candidate's score into
+  // bullScore/bearScore so a candidate with strong opposing signals (choppy,
+  // low-quality setup) can be flagged instead of blindly traded.
+  const signalWeights = await loadSignalWeights(supabaseAdmin, userId);
+  const narrowedRegime: "bull" | "bear" | "sideways" =
+    regime === "bull" || regime === "bear" ? regime : "sideways";
+  const rescored = candidates.map((c) => {
+    const input = {
+      rsi: (c.rsi as number | null) ?? null,
+      momentum_pct: Number(c.momentum_pct ?? 0),
+      vol_surge_pct: Number(c.vol_surge_pct ?? 0),
+      five_day_return: Number(c.five_day_return ?? 0),
+      twenty_day_return: Number(c.twenty_day_return ?? 0),
+      rs_vs_spy_5d: Number(c.rs_vs_spy_5d ?? 0),
+      regime_aligned: Boolean(c.regime_aligned),
+      macd_histogram: (c.macd_histogram as number | null) ?? null,
+      bb_pct_b: (c.bb_pct_b as number | null) ?? null,
+      avg_volume_20d: Number(c.avg_volume_20d ?? 0),
+      stoch_rsi_k: (c.stoch_rsi_k as number | null) ?? null,
+    };
+    const scored = applySignalWeights(input, narrowedRegime, signalWeights);
+    return {
+      ...c,
+      bull_score: Number(scored.bullScore.toFixed(1)),
+      bear_score: Number(scored.bearScore.toFixed(1)),
+      direction_hint: scored.netScore > 5 ? "long" : scored.netScore < -5 ? "short" : "unclear",
+      signal_confidence: Number(scored.confidence.toFixed(2)),
+      conflict_warning: scored.conflictScore > 15 ? "CONFLICTING SIGNALS — both directions firing, likely choppy" : null,
+      _bullSignals: scored.bullSignals,
+      _bearSignals: scored.bearSignals,
+    };
+  }).sort((a, b) => {
+    const aStrength = Math.max(a.bull_score, a.bear_score) * (0.5 + a.signal_confidence);
+    const bStrength = Math.max(b.bull_score, b.bear_score) * (0.5 + b.signal_confidence);
+    return bStrength - aStrength;
+  });
+  // Signal lookup for entry_signals recording at trade-insert time — keyed by
+  // symbol + direction so we can pull the right signal list regardless of
+  // which way Claude ultimately trades it.
+  const candidateSignalsMap = new Map<string, { long: string[]; short: string[] }>();
+  for (const c of rescored) {
+    candidateSignalsMap.set(String(c.symbol).toUpperCase(), {
+      long: c._bullSignals, short: c._bearSignals,
+    });
+  }
+  // Strip internal-only fields before sending to the AI — it only needs the
+  // human-readable direction_hint/confidence/conflict_warning fields.
+  const candidatesForAi = rescored.map(({ _bullSignals, _bearSignals, ...rest }) => rest);
+
   const userMessage = {
     session, regime, vix_level: vixLevel,
     portfolio: { cash, equity: currentEquity, cash_pct: cashPct, open_positions_count: openList.length, day_pnl_pct: dayPnlPct, drawdown_pct: drawdownPct, portfolio_ev_pct: Number(portfolioEVPct.toFixed(2)) },
@@ -856,7 +920,7 @@ async function runForUser(args: {
       default_stop_loss_pct: settings.stop_loss_pct,
       default_take_profit_pct: settings.take_profit_pct,
     },
-    candidates,
+    candidates: candidatesForAi,
     current_positions: await Promise.all(openList.map(async (t) => {
       const livePrice = quotes.get(String(t.asset)) ?? null;
       const entry = Number(t.entry_price);
@@ -948,6 +1012,7 @@ CRYPTO SIGNALS TO PRIORITIZE:
 5. bb_pct_b < 0.1 = near lower Bollinger Band = potential bounce — look for RSI confirming.
 6. Altcoins with BTC correlation: if BTC dumps, alts dump harder. If BTC pumps, alts pump more.
 7. Crypto is correlated overnight — don't open 6 altcoin positions if BTC is in downtrend.
+8. Each candidate includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning from a per-user adaptive scoring system that learns which signals have actually won for this account. Treat conflict_warning candidates with skepticism — both directions firing usually means choppy price action.
 
 RISK RULES:
 - Never allocate more than 10% to any single crypto position overnight.
@@ -980,6 +1045,7 @@ SCALP RULES — follow exactly:
 - If you already have a scalp open in a symbol, skip it unless momentum is dramatically different.
 - Always maintain at least ${effectiveMinCashPct}% cash reserve.
 - Never allocate more than 12% to any single scalp.
+- Each candidate includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning from a per-user adaptive scoring system learning from this account's real trade outcomes. Skip candidates with a conflict_warning — for scalping, ambiguous direction is a fast way to get stopped out both ways.
 
 Respond with ONLY valid JSON:
 {
@@ -1009,6 +1075,7 @@ HARD RULES — never violate these:
 - vix_level: the current VIX reading. Position sizes are already scaled smoothly by code based on a blend of trend strength and volatility percentile (no fixed VIX cutoffs — the scaling changes continuously as conditions change, from as low as 0.25x in a strong volatile downtrend up to 1.3x in a calm strong uptrend). You should still further adjust allocation_pct based on VIX: high VIX means smaller positions and tighter stops, since the code-level scaling is a baseline, not a ceiling.
 - fear_greed_index: <20 = Extreme Fear (buy quality names aggressively, high expected value), 20-40 = Fear (be opportunistic), 40-60 = Neutral, 60-80 = Greed (be selective, smaller positions), >80 = Extreme Greed (be very cautious, reduce sizes, take profits on existing positions).
 - mtf_label on each candidate shows multi-timeframe alignment (1h↑ = hourly bullish, W↑ = weekly bullish). Prefer candidates where 1h and W align with your intended direction. Heavily penalize trades where MTF is against you (e.g. going long on 1h↓ W↓).
+- Each candidate now includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning — these come from a per-user adaptive scoring system that learns which technical signals have actually been winning for THIS account's trade history (not generic heuristics). direction_hint is "long"/"short"/"unclear" based on which score dominates. signal_confidence (0-1) measures how one-sided the signals are — low confidence means the signals disagree with each other. conflict_warning fires when bull and bear signals are both firing strongly on the same candidate, which usually means a choppy, low-quality setup — treat these with extra skepticism regardless of the raw score, and generally avoid trading candidates with a conflict_warning unless conviction from other context (news, MTF, options flow) is very strong. This system has no effect until enough of your trades close and it starts learning — early on all weights are neutral.
 - When earnings_surprises shows a recent positive earnings beat (>5%), that stock has post-earnings drift momentum
 - unusual_options_flow shows institutional positioning via options. Large call premium (bullish) = smart money buying upside. Large put premium (bearish) = smart money hedging or betting on downside. This is one of the most reliable leading indicators — weight it as +20 conviction when aligned with your technical view. — weight it as +20 conviction for long positions. Negative surprises (<-5%) = +20 for short/put.
 - Use MACD histogram: positive = bullish momentum building (buy signal), negative and falling = bearish (short/put signal).
@@ -1145,6 +1212,10 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
             const scaleQty = scaleCash / existingPrice;
             const scaleAtrPct = candidateAtrMap.get(t.symbol.toUpperCase());
             const scaleCalibrated = atrBasedStopTarget(scaleAtrPct, session, t.stop_loss_pct ?? settings.stop_loss_pct, t.take_profit_pct ?? settings.take_profit_pct);
+            const scaleSignalsForSymbol = candidateSignalsMap.get(t.symbol.toUpperCase());
+            const scaleEntrySignals = scaleSignalsForSymbol
+              ? (t.direction === "long" ? scaleSignalsForSymbol.long : scaleSignalsForSymbol.short)
+              : null;
             await (supabaseAdmin as any).from("paper_trades").insert({
               user_id: userId, portfolio_id: portfolio.id,
               asset: t.symbol, side: t.direction === "long" ? "buy" : "sell",
@@ -1153,6 +1224,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
               stop_loss_pct: scaleCalibrated.stop_loss_pct,
               take_profit_pct: scaleCalibrated.take_profit_pct,
               instrument: t.instrument,
+              entry_signals: scaleEntrySignals,
               rationale: `[SCALE-IN conviction:${t.conviction}] Adding to winning ${t.symbol} position (+${existPnlPct.toFixed(1)}%). ${t.rationale}`,
             });
             await supabaseAdmin.from("signals_executions").insert({
@@ -1241,6 +1313,13 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       ? { stop_loss_pct: t.stop_loss_pct ?? settings.stop_loss_pct, take_profit_pct: t.take_profit_pct ?? settings.take_profit_pct }
       : atrBasedStopTarget(atrPctForSymbol, session, t.stop_loss_pct ?? settings.stop_loss_pct, t.take_profit_pct ?? settings.take_profit_pct);
 
+    // Record which signals were active for the direction actually traded —
+    // this is what the Bayesian weight updater reads when the trade closes.
+    const signalsForSymbol = candidateSignalsMap.get(t.symbol.toUpperCase());
+    const entrySignals = signalsForSymbol
+      ? (t.direction === "long" ? signalsForSymbol.long : signalsForSymbol.short)
+      : null;
+
     const { error } = await supabaseAdmin.from("paper_trades").insert({
       user_id: userId,
       portfolio_id: portfolio.id,
@@ -1254,6 +1333,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       take_profit_pct: calibrated.take_profit_pct,
       instrument: t.instrument,
       options_details: (resolvedOptions ?? null) as never,
+      entry_signals: entrySignals as never,
       rationale: enrichedRationale,
     });
     if (error) { console.error("[autonomous] insert trade", error); debugSkips.push({ symbol: t.symbol, reason: "insert_error", detail: error.message }); continue; }
