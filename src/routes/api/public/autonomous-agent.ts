@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketOpen } from "@/lib/indicators";
-import { getValidToken, placeLiveBuy, placeLiveSell } from "@/lib/robinhood-live";
+import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { fireWebhook } from "@/lib/webhook.functions";
@@ -886,7 +886,11 @@ async function runForUser(args: {
   };
 
   // Inject memory into user message
-  const userMessageWithMemory = { ...userMessage, agent_memory: buildMemorySection(memories) };
+  const userMessageWithMemory = {
+    ...userMessage,
+    agent_memory: buildMemorySection(memories),
+    ...(robinhoodSection ? { robinhood_live_context: robinhoodSection } : {}),
+  };
 
   // Build dynamic hard rules from recent weekly learning adjustments
   const learningAdjustments = (learnings ?? [])
@@ -994,6 +998,7 @@ HARD RULES — never violate these:
 - Trailing stops are automatically set at entry_price × (1 - stop_pct%) once a position gains >5%. When reviewing current_positions, if pnl_pct > 5% the position already has a trailing stop protecting profits — factor this into hold/exit decisions.
 - Use Bollinger Bands: bb_pct_b < 0.05 = near lower band (oversold, buy/call), bb_pct_b > 0.95 = near upper band (overbought, sell/put).
 - Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
+- robinhood_live_context (when present in input): REAL DATA pulled directly from your Robinhood brokerage account seconds before this scan. Treat it as ground truth — it overrides any assumptions. It contains: (1) actual positions you hold (do NOT open duplicate longs/shorts in symbols already held), (2) live market news headlines (factor negative news into conviction), (3) earnings calendar for the next 7 days (NEVER open new positions in stocks reporting earnings — they move 5-20% unpredictably), (4) live options chain IV and put/call ratio for top candidates (high IV = options are expensive, prefer stock; put/call > 1.2 = bearish institutional bet, reduce long conviction; unusual options activity = strong signal), (5) Level 2 bid/ask spread (spread > 0.5% = low liquidity, reduce size by 50% or skip).
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
 ${learningAdjustments ? "\nLEARNED RULES FROM PAST PERFORMANCE (treat as hard rules):\n" + learningAdjustments : ""}
 
@@ -1005,6 +1010,13 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   "trades": [ { "symbol": "NVDA", "direction": "long|short", "instrument": "stock|etf|crypto|call|put|call_spread|put_spread|iron_condor", "conviction": <0-100>, "allocation_pct": <1-${effectiveMaxPositionPct}>, "stop_loss_pct": <number>, "take_profit_pct": <number>, "hold_duration": "intraday|swing|position", "rationale": "2-3 sentence explanation", "options_details": { "expiry_days_out": 21, "strike_type": "atm|otm_1|otm_2|itm_1", "contracts": 1, "spread_width": null } } ],
   "message_to_user": "Friendly 2-4 sentence summary."
 }`;
+
+  // ── Robinhood context: real positions, news, earnings, options, order book ──
+  // Fetched just before AI call so Claude gets the freshest possible picture.
+  // Best-effort — returns null if user has no Robinhood connection.
+  const topSymbols = sortedWithMtf.slice(0, 10).map((c) => String(c.symbol));
+  const robinhoodCtx = await fetchRobinhoodContext(supabaseAdmin, userId, topSymbols).catch(() => null);
+  const robinhoodSection = robinhoodCtx ? formatRobinhoodContext(robinhoodCtx) : null;
 
   const ai = await callGateway(systemPrompt, JSON.stringify(userMessageWithMemory));
   if (!ai) {

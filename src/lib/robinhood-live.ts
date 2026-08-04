@@ -319,3 +319,270 @@ export async function placeLiveSell(
     return { ok: false, error: String(err) };
   }
 }
+
+// ─── Robinhood context fetcher ───────────────────────────────────────────────
+// Pulls 5 data sources from Robinhood MCP and feeds them to the agent.
+// Tool names are discovered dynamically so this works across MCP versions.
+
+export type RobinhoodContext = {
+  positions: Array<{
+    symbol: string;
+    quantity: number;
+    avg_cost: number;
+    current_value: number;
+    unrealized_pnl: number;
+  }>;
+  news: Array<{
+    headline: string;
+    source: string;
+    symbol?: string;
+    summary?: string;
+  }>;
+  earnings: Array<{
+    symbol: string;
+    date: string;
+    eps_estimate?: string;
+  }>;
+  options_chains: Record<string, {
+    iv?: number;
+    put_call_ratio?: number;
+    unusual_activity?: boolean;
+    raw?: string;
+  }>;
+  order_book: Record<string, {
+    bid?: number;
+    ask?: number;
+    spread_pct?: number;
+    raw?: string;
+  }>;
+  tool_names: Record<string, string>; // which MCP tools were found
+};
+
+/**
+ * Fetches market context from Robinhood MCP for the given user.
+ * Returns null if user has no valid Robinhood token.
+ * All tool calls are best-effort — partial results are returned on error.
+ */
+export async function fetchRobinhoodContext(
+  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  userId: string,
+  topSymbols: string[], // top 5-10 candidates from scan for targeted queries
+): Promise<RobinhoodContext | null> {
+  const accessToken = await getValidToken(supabaseAdmin, userId);
+  if (!accessToken) return null;
+
+  try {
+    // Initialize one MCP session for all calls
+    const sessionId = await initSession(accessToken);
+
+    // Discover available tools
+    const toolsRes = await mcpRpc(accessToken, sessionId, "tools/list", undefined, 10);
+    const tools = ((toolsRes.result as { tools?: Array<{ name: string; description?: string }> })?.tools ?? []);
+    const toolNames: Record<string, string> = {};
+
+    // Match tools by name patterns
+    const find = (patterns: RegExp[]): string | null => {
+      const t = tools.find((t) => patterns.some((p) => p.test(t.name) || p.test(t.description ?? "")));
+      return t?.name ?? null;
+    };
+
+    toolNames.positions = find([/position|portfolio|holding|account/i]) ?? "";
+    toolNames.news      = find([/news|article|headline/i]) ?? "";
+    toolNames.earnings  = find([/earning|calendar|report/i]) ?? "";
+    toolNames.options   = find([/option|chain/i]) ?? "";
+    toolNames.book      = find([/book|level.?2|depth|quote/i]) ?? "";
+
+    const ctx: RobinhoodContext = {
+      positions: [], news: [], earnings: [],
+      options_chains: {}, order_book: {}, tool_names: toolNames,
+    };
+
+    // Helper: call a tool and return raw text response
+    const callTool = async (toolName: string, args: Record<string, unknown>, id: number): Promise<string> => {
+      if (!toolName) return "";
+      try {
+        const res = await mcpRpc(accessToken, sessionId, "tools/call", { name: toolName, arguments: args }, id);
+        const content = (res.result as { content?: Array<{ text?: string }> })?.content ?? [];
+        return content.map((c) => c.text ?? "").join(" ").trim();
+      } catch (e) {
+        console.warn("[robinhood-ctx] tool call failed:", toolName, String(e));
+        return "";
+      }
+    };
+
+    // ── 1. Real positions ────────────────────────────────────────────────────
+    if (toolNames.positions) {
+      const raw = await callTool(toolNames.positions, {}, 20);
+      if (raw) {
+        // Parse positions from text heuristically
+        const lines = raw.split(/\n/).filter((l) => l.trim().length > 0);
+        for (const line of lines) {
+          const symMatch = line.match(/\b([A-Z]{1,5})\b/);
+          const qtyMatch = line.match(/(\d+\.?\d*)\s*share/i);
+          const valMatch = line.match(/\$([\d,]+\.?\d*)/);
+          const costMatch = line.match(/avg[^\$]*\$([\d,]+\.?\d*)/i);
+          const pnlMatch = line.match(/([+-][\d,]+\.?\d*)/);
+          if (symMatch && (qtyMatch || valMatch)) {
+            ctx.positions.push({
+              symbol: symMatch[1],
+              quantity: qtyMatch ? Number(qtyMatch[1]) : 0,
+              avg_cost: costMatch ? Number(costMatch[1].replace(/,/g, "")) : 0,
+              current_value: valMatch ? Number(valMatch[1].replace(/,/g, "")) : 0,
+              unrealized_pnl: pnlMatch ? Number(pnlMatch[1].replace(/,/g, "")) : 0,
+            });
+          }
+        }
+      }
+    }
+
+    // ── 2. News ──────────────────────────────────────────────────────────────
+    if (toolNames.news) {
+      const raw = await callTool(toolNames.news, { limit: 10 }, 21);
+      if (raw) {
+        const lines = raw.split(/\n/).filter((l) => l.length > 20);
+        for (const line of lines.slice(0, 8)) {
+          const symMatch = line.match(/\b([A-Z]{1,5})\b/);
+          const srcMatch = line.match(/via\s+([\w\s]+)/i) ?? line.match(/[-—]\s*([\w\s]+)$/);
+          ctx.news.push({
+            headline: line.replace(/^[-•*\d.]+\s*/, "").trim().slice(0, 150),
+            source: srcMatch?.[1]?.trim() ?? "Robinhood",
+            symbol: symMatch?.[1],
+          });
+        }
+      }
+    }
+
+    // ── 3. Earnings calendar ─────────────────────────────────────────────────
+    if (toolNames.earnings) {
+      const raw = await callTool(toolNames.earnings, { days: 7 }, 22);
+      if (raw) {
+        const lines = raw.split(/\n/).filter((l) => l.trim().length > 0);
+        for (const line of lines) {
+          const symMatch = line.match(/\b([A-Z]{1,5})\b/);
+          const dateMatch = line.match(/(Mon|Tue|Wed|Thu|Fri|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}/i);
+          const epsMatch = line.match(/eps[^\d]*([\d.]+)/i);
+          if (symMatch && dateMatch) {
+            ctx.earnings.push({
+              symbol: symMatch[1],
+              date: dateMatch[0],
+              eps_estimate: epsMatch ? `$${epsMatch[1]}` : undefined,
+            });
+          }
+        }
+      }
+    }
+
+    // ── 4 & 5. Options chain + order book for top symbols ────────────────────
+    // Limit to top 5 stock symbols (skip crypto — no options/book data)
+    const stockSymbols = topSymbols
+      .filter((s) => !/-USD$/i.test(s))
+      .slice(0, 5);
+
+    await Promise.allSettled(stockSymbols.map(async (sym, idx) => {
+      // Options chain
+      if (toolNames.options) {
+        const raw = await callTool(toolNames.options, { symbol: sym }, 30 + idx);
+        if (raw) {
+          const ivMatch = raw.match(/iv[^\d]*([\d.]+)%?/i);
+          const pcMatch = raw.match(/put.call[^\d]*([\d.]+)/i);
+          ctx.options_chains[sym] = {
+            iv: ivMatch ? Number(ivMatch[1]) : undefined,
+            put_call_ratio: pcMatch ? Number(pcMatch[1]) : undefined,
+            unusual_activity: /unusual|abnormal|spike|heavy/i.test(raw),
+            raw: raw.slice(0, 300),
+          };
+        }
+      }
+
+      // Order book / level 2
+      if (toolNames.book) {
+        const raw = await callTool(toolNames.book, { symbol: sym }, 40 + idx);
+        if (raw) {
+          const bidMatch = raw.match(/bid[^\d]*\$?([\d.]+)/i);
+          const askMatch = raw.match(/ask[^\d]*\$?([\d.]+)/i);
+          const bid = bidMatch ? Number(bidMatch[1]) : undefined;
+          const ask = askMatch ? Number(askMatch[1]) : undefined;
+          ctx.order_book[sym] = {
+            bid,
+            ask,
+            spread_pct: (bid && ask && bid > 0) ? ((ask - bid) / bid) * 100 : undefined,
+            raw: raw.slice(0, 200),
+          };
+        }
+      }
+    }));
+
+    return ctx;
+  } catch (e) {
+    console.warn("[robinhood-ctx] context fetch failed:", String(e));
+    return null;
+  }
+}
+
+/**
+ * Formats Robinhood context into a readable string for the AI system prompt.
+ */
+export function formatRobinhoodContext(ctx: RobinhoodContext): string {
+  const parts: string[] = [];
+
+  // Real positions
+  if (ctx.positions.length > 0) {
+    parts.push("ROBINHOOD ACCOUNT — REAL POSITIONS:");
+    for (const p of ctx.positions) {
+      const pnlStr = p.unrealized_pnl !== 0 ? ` (P&L: ${p.unrealized_pnl > 0 ? "+" : ""}$${p.unrealized_pnl.toFixed(2)})` : "";
+      parts.push(`  ${p.symbol}: ${p.quantity} shares @ $${p.avg_cost.toFixed(2)} avg · Current: $${p.current_value.toFixed(2)}${pnlStr}`);
+    }
+    parts.push("IMPORTANT: Do NOT open duplicate positions in symbols you already hold in Robinhood unless adding strategically.");
+  } else if (ctx.tool_names.positions) {
+    parts.push("ROBINHOOD ACCOUNT: No open positions.");
+  }
+
+  // News
+  if (ctx.news.length > 0) {
+    parts.push("\nRECENT NEWS FROM ROBINHOOD:");
+    for (const n of ctx.news.slice(0, 6)) {
+      const sym = n.symbol ? `[${n.symbol}] ` : "";
+      parts.push(`  ${sym}${n.headline}`);
+    }
+    parts.push("Factor news sentiment into your decisions — avoid entering longs on stocks with clearly negative news.");
+  }
+
+  // Earnings
+  if (ctx.earnings.length > 0) {
+    parts.push("\nEARNINGS THIS WEEK (AVOID TRADING THESE):");
+    for (const e of ctx.earnings) {
+      const eps = e.eps_estimate ? ` est. ${e.eps_estimate}` : "";
+      parts.push(`  ${e.symbol}: ${e.date}${eps}`);
+    }
+    parts.push("Do NOT open new positions in these symbols — earnings cause violent moves you cannot predict.");
+  }
+
+  // Options chains
+  const optSyms = Object.keys(ctx.options_chains);
+  if (optSyms.length > 0) {
+    parts.push("\nOPTIONS CHAIN DATA (from Robinhood):");
+    for (const sym of optSyms) {
+      const o = ctx.options_chains[sym];
+      const iv = o.iv != null ? `IV ${o.iv.toFixed(1)}%` : "";
+      const pc = o.put_call_ratio != null ? `P/C ratio ${o.put_call_ratio.toFixed(2)}` : "";
+      const ua = o.unusual_activity ? " ⚡ UNUSUAL ACTIVITY" : "";
+      parts.push(`  ${sym}: ${[iv, pc].filter(Boolean).join(" · ")}${ua}`);
+    }
+  }
+
+  // Order book
+  const bookSyms = Object.keys(ctx.order_book);
+  if (bookSyms.length > 0) {
+    parts.push("\nLEVEL 2 ORDER BOOK (from Robinhood):");
+    for (const sym of bookSyms) {
+      const b = ctx.order_book[sym];
+      const spread = b.spread_pct != null ? ` spread ${b.spread_pct.toFixed(3)}%` : "";
+      const bidask = (b.bid && b.ask) ? `bid $${b.bid} / ask $${b.ask}` : "";
+      if (bidask) parts.push(`  ${sym}: ${bidask}${spread}`);
+    }
+    parts.push("Wide spreads (>0.5%) indicate low liquidity — reduce position size or avoid.");
+  }
+
+  return parts.join("\n");
+}
+
