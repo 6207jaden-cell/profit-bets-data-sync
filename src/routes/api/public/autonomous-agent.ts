@@ -858,6 +858,13 @@ async function runForUser(args: {
         const b = await fetchBars(String(t.asset), 30);
         if (b) { const ctx = buildContext(b.closes); currentRsi = ctx?.rsi ?? null; }
       } catch { /* skip */ }
+      const rationale = String(t.rationale ?? "");
+      const isAgentTrade = /\[SCALP\]|\[SWING\]|\[CRYPTO\]|\[SCALE-IN\]/.test(rationale);
+      const isLiveTrade = rationale.includes("[LIVE:");
+      const source = isLiveTrade ? "agent_live_order"
+        : isAgentTrade ? "agent_paper_trade"
+        : "manual_paper_trade";
+
       return {
         id: t.id,
         asset: t.asset,
@@ -871,7 +878,8 @@ async function runForUser(args: {
         current_rsi: currentRsi != null ? Number(currentRsi.toFixed(1)) : null,
         stop_loss_pct: t.stop_loss_pct,
         take_profit_pct: t.take_profit_pct,
-        rationale: String(t.rationale ?? "").slice(0, 150),
+        rationale: rationale.slice(0, 150),
+        source, // "agent_paper_trade" | "agent_live_order" | "manual_paper_trade"
       };
     })),
     learnings_summary: learningsSummary,
@@ -998,7 +1006,8 @@ HARD RULES — never violate these:
 - Trailing stops are automatically set at entry_price × (1 - stop_pct%) once a position gains >5%. When reviewing current_positions, if pnl_pct > 5% the position already has a trailing stop protecting profits — factor this into hold/exit decisions.
 - Use Bollinger Bands: bb_pct_b < 0.05 = near lower band (oversold, buy/call), bb_pct_b > 0.95 = near upper band (overbought, sell/put).
 - Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
-- robinhood_live_context (when present in input): REAL DATA pulled directly from your Robinhood brokerage account seconds before this scan. Treat it as ground truth — it overrides any assumptions. It contains: (1) actual positions you hold (do NOT open duplicate longs/shorts in symbols already held), (2) live market news headlines (factor negative news into conviction), (3) earnings calendar for the next 7 days (NEVER open new positions in stocks reporting earnings — they move 5-20% unpredictably), (4) live options chain IV and put/call ratio for top candidates (high IV = options are expensive, prefer stock; put/call > 1.2 = bearish institutional bet, reduce long conviction; unusual options activity = strong signal), (5) Level 2 bid/ask spread (spread > 0.5% = low liquidity, reduce size by 50% or skip).
+- robinhood_live_context (when present in input): REAL DATA pulled directly from your Robinhood brokerage account seconds before this scan. It contains: (1) actual positions in Robinhood — NOTE: positions labeled "agent_live_order" in current_positions are the same as what you see here (agent placed them in live mode, they appear in both places — do NOT double count them). Positions in robinhood_live_context that do NOT appear in current_positions are pre-existing holdings the user held before using this app — treat these carefully, do not open positions that conflict with them. (2) live market news headlines (factor negative news into conviction), (3) earnings calendar for the next 7 days (NEVER open new positions in stocks reporting earnings — they move 5-20% unpredictably), (4) live options chain IV and put/call ratio for top candidates (high IV = options are expensive, prefer stock; put/call > 1.2 = bearish institutional bet, reduce long conviction; unusual options activity = strong signal), (5) Level 2 bid/ask spread (spread > 0.5% = low liquidity, reduce size by 50% or skip).
+- current_positions source field: every open position now has a "source" label — "agent_paper_trade" (this agent opened it in paper mode), "agent_live_order" (this agent opened it in live mode — real money in Robinhood), "manual_paper_trade" (the user opened this themselves on the website). Treat manual_paper_trade positions with extra care — the user may have specific reasons for holding them, so do not close them without strong justification.
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
 ${learningAdjustments ? "\nLEARNED RULES FROM PAST PERFORMANCE (treat as hard rules):\n" + learningAdjustments : ""}
 
