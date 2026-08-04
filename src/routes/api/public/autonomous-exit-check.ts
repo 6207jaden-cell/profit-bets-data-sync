@@ -46,6 +46,7 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
 
   type Row = typeof openTrades[number];
   const closures: Array<{ trade: Row; exit_price: number; reason: string }> = [];
+  const trims: Array<{ trade: Row; exit_price: number; reason: string }> = [];
   const aiCandidates: Array<Row & { current_price: number; current_pnl_pct: number; days_held: number }> = [];
 
   for (const t of openTrades) {
@@ -219,8 +220,9 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
             if (!cand) continue;
             if (a.action === "exit") {
               closures.push({ trade: cand, exit_price: cand.current_price, reason: `ai_exit: ${a.reason}` });
+            } else if (a.action === "trim") {
+              trims.push({ trade: cand, exit_price: cand.current_price, reason: a.reason });
             }
-            // trim: skip for now (would require partial close support)
           }
         }
       }
@@ -229,10 +231,76 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     void callGateway;
   }
 
-  if (closures.length === 0) return 0;
+  if (closures.length === 0 && trims.length === 0) return 0;
 
   let cash = Number(portfolio.balance) || 0;
   const summaries: string[] = [];
+
+  // Partial closes ("trim"): close 50% of the position to lock in gains while
+  // letting the rest run, instead of an all-or-nothing hold/exit. Represented
+  // as inserting a new CLOSED row for the trimmed half (preserving accurate
+  // P&L history) and reducing the original open row's quantity by the same
+  // amount — no schema change needed since paper_trades is already one row
+  // per quantity lot.
+  for (const t of trims) {
+    const dir = t.trade.side === "buy" ? 1 : -1;
+    const totalQty = Number(t.trade.quantity);
+    const trimQty = totalQty / 2;
+    const remainingQty = totalQty - trimQty;
+    if (trimQty <= 0 || remainingQty <= 0) continue; // guard against degenerate quantities
+
+    const trimPnl = (t.exit_price - Number(t.trade.entry_price)) * trimQty * dir;
+
+    // Preserve the original session tag ([SCALP]/[SWING]/[CRYPTO]) so this
+    // trimmed row still shows up correctly under History tab session filters
+    // instead of silently disappearing because [TRIM 50%] alone doesn't match.
+    const originalRationale = String(t.trade.rationale ?? "");
+    const sessionTagMatch = originalRationale.match(/\[(SCALP|SWING|CRYPTO)\]/);
+    const sessionTag = sessionTagMatch ? sessionTagMatch[0] : "";
+
+    await supabaseAdmin.from("paper_trades").insert({
+      user_id: userId, portfolio_id: portfolio.id,
+      asset: t.trade.asset, side: t.trade.side, quantity: trimQty,
+      entry_price: t.trade.entry_price, exit_price: t.exit_price,
+      is_open: false, pnl: trimPnl, closed_at: new Date().toISOString(),
+      hold_duration: t.trade.hold_duration, instrument: t.trade.instrument,
+      stop_loss_pct: t.trade.stop_loss_pct, take_profit_pct: t.trade.take_profit_pct,
+      rationale: `${sessionTag} [TRIM 50%] ${t.reason}`.trim(),
+    } as never);
+
+    await supabaseAdmin.from("paper_trades").update({ quantity: remainingQty }).eq("id", t.trade.id);
+
+    // Signal-weight learning: a trim is a real (partial) realized outcome and
+    // should count the same as a full close for the Bayesian weight update.
+    try {
+      const entry = Number(t.trade.entry_price);
+      const trimPnlPct = entry > 0 ? ((t.exit_price - entry) / entry) * 100 * dir : 0;
+      const entrySignals = (t.trade as unknown as { entry_signals?: string[] | null }).entry_signals;
+      await updateSignalWeights(supabaseAdmin, userId, entrySignals, trimPnlPct);
+    } catch (e) {
+      console.warn("[exit-check] signal weight update failed (trim)", String(e));
+    }
+
+    await supabaseAdmin.from("signals_executions").insert({
+      user_id: userId, execution_type: "paper", status: "filled",
+      asset: t.trade.asset, side: t.trade.side === "buy" ? "sell" : "buy",
+      quantity: trimQty, price: t.exit_price,
+      reason: `autonomous trim pnl=${trimPnl.toFixed(2)} (${t.reason})`,
+    });
+
+    try {
+      const sign = trimPnl >= 0 ? "+" : "";
+      await supabaseAdmin.from("notifications").insert({
+        user_id: userId, type: "trade_close",
+        title: `✂️ ${t.trade.asset} trimmed 50%`,
+        body: `Exit $${t.exit_price.toFixed(2)} on half the position | P&L ${sign}$${trimPnl.toFixed(2)} | ${remainingQty.toFixed(6)} remaining | Reason: ${t.reason}`,
+      });
+    } catch (e) { console.error("[exit] notif trim", e); }
+
+    cash += trimQty * t.exit_price;
+    summaries.push(`${t.trade.asset} TRIM 50% ${trimPnl >= 0 ? "+" : ""}${trimPnl.toFixed(2)} (${t.reason})`);
+  }
+
   for (const c of closures) {
     const dir = c.trade.side === "buy" ? 1 : -1;
     const pnl = (c.exit_price - Number(c.trade.entry_price)) * Number(c.trade.quantity) * dir;
@@ -276,15 +344,20 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
   await supabaseAdmin.from("paper_portfolios").update({ balance: cash, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
 
   const cashPct = Number(portfolio.equity) > 0 ? (cash / Number(portfolio.equity)) * 100 : 0;
+  const summaryText = closures.length > 0 && trims.length > 0
+    ? `Closed ${closures.length} position(s), trimmed ${trims.length}`
+    : trims.length > 0
+    ? `Trimmed ${trims.length} position(s)`
+    : `Closed ${closures.length} position(s)`;
   await supabaseAdmin.from("agent_messages").insert({
     user_id: userId, role: "assistant", is_autonomous: true, session_type: "exit_check",
-    content: `🔄 Exit check complete. Closed ${closures.length} position(s): ${summaries.join(", ")}. Portfolio is now ${cashPct.toFixed(0)}% cash.`,
+    content: `🔄 Exit check complete. ${summaryText}: ${summaries.join(", ")}. Portfolio is now ${cashPct.toFixed(0)}% cash.`,
   });
   await supabaseAdmin.from("agent_decisions").insert({
     user_id: userId, session_type: "exit_check", trades_closed: closures.length,
-    payload: { closures: summaries } as never,
+    payload: { closures: summaries, trims_count: trims.length } as never,
   });
-  return closures.length;
+  return closures.length + trims.length;
 }
 
 async function getAdmin() {
