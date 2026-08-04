@@ -10,6 +10,7 @@ import { resolveOptionsContract, formatContractSummary } from "@/lib/options-cha
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { loadSignalWeights, applySignalWeights } from "@/lib/signal-learning";
 import { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc, isCryptoWeekend } from "@/lib/crypto-signals";
+import { computeBreadthScore, getBreadthMomentum } from "@/lib/market-breadth";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
@@ -350,6 +351,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           vol_surge_pct: number; five_day_return: number; twenty_day_return: number; pct_above_sma20: number;
           rs_vs_spy_5d: number; rs_vs_spy_20d: number;
           macd_histogram: number | null; bb_pct_b: number | null; avg_volume_20d: number; stoch_rsi_k: number | null;
+          one_day_return: number; is_220d_high: boolean; is_220d_low: boolean;
         }>();
         const batchSize = 10;
         for (let i = 0; i < symbolsThisRun.length; i += batchSize) {
@@ -406,6 +408,18 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               ? Math.round(bars.volumes.slice(-20).reduce((s, v) => s + v, 0) / 20)
               : 0;
 
+            // Breadth inputs — cheap to compute here since we already have the
+            // full bars.closes array in hand; used to build a market-wide
+            // breadth score across the scanned universe (see computeMarketBreadth
+            // below) rather than needing a separate market-wide data feed.
+            const oneDayReturn = bars.closes.length >= 2
+              ? ((bars.closes[bars.closes.length - 1] - bars.closes[bars.closes.length - 2]) / bars.closes[bars.closes.length - 2]) * 100
+              : 0;
+            const rollingHigh = Math.max(...bars.highs);
+            const rollingLow = Math.min(...bars.lows);
+            const is220dHigh = rollingHigh > 0 && ctx.price >= rollingHigh * 0.98; // within 2% of 220-day high
+            const is220dLow = rollingLow > 0 && ctx.price <= rollingLow * 1.02; // within 2% of 220-day low
+
             candidateMap.set(sym, {
               symbol: sym, price: ctx.price, rsi: ctx.rsi,
               sma20: ctx.sma20, sma50: ctx.sma50, ema12: ctx.ema12, ema26: ctx.ema26,
@@ -420,11 +434,24 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               bb_pct_b: bbPctB != null ? Number(bbPctB.toFixed(3)) : null,
               avg_volume_20d: avgVolume,
               stoch_rsi_k: ctx.stoch_rsi_k != null ? Number(ctx.stoch_rsi_k.toFixed(1)) : null,
+              one_day_return: Number(oneDayReturn.toFixed(2)),
+              is_220d_high: is220dHigh,
+              is_220d_low: is220dLow,
             });
           }));
         }
 
         const allCandidates = Array.from(candidateMap.values());
+
+        // ── Market breadth: composite score from the scanned universe + momentum ──
+        // Computed once per scan (shared across users, same as regime/vixScaleFactor)
+        // since it's derived from the shared candidate pool. Applied as a gate on
+        // new LONG entries inside runForUser — weak or deteriorating breadth cuts
+        // long conviction regardless of how good any individual candidate's own
+        // technicals look, since a rising tide of broad selling tends to drag even
+        // technically-strong names down with it.
+        const breadthResult = computeBreadthScore(allCandidates);
+        const breadthMomentum = await getBreadthMomentum(supabaseAdmin as never, breadthResult.breadthScore);
 
         // Composite opportunity score: momentum + volume surge + 5-day return + regime alignment
         function opportunityScore(c: typeof allCandidates[0]): number {
@@ -579,6 +606,8 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
             macroOverlay: macroContext,
             vixScaleFactor,
             volatilityPercentile,
+            breadthScore: breadthResult.breadthScore,
+            breadthTrend: breadthMomentum.trend,
             candidates: sortedWithMtf, supabaseAdmin, settings,
             });
             if (result.skipped) skipped.push({ user: u.user_id, reason: result.skipped });
@@ -607,13 +636,15 @@ async function runForUser(args: {
   vixLevel: number | null;
   vixScaleFactor: number;
   volatilityPercentile: number;
+  breadthScore: number;
+  breadthTrend: "improving" | "deteriorating" | "stable";
   fearGreedIndex: string;
   macroOverlay: string;
   candidates: Array<Record<string, unknown>>;
   supabaseAdmin: Awaited<ReturnType<typeof getAdmin>>;
   settings: AgentSettings;
 }): Promise<{ opened: number; skipped?: string }> {
-  const { userId, session, sessionType, regime, vixLevel, vixScaleFactor, volatilityPercentile, fearGreedIndex, macroOverlay, candidates, supabaseAdmin, executionMode, settings } = args;
+  const { userId, session, sessionType, regime, vixLevel, vixScaleFactor, volatilityPercentile, breadthScore, breadthTrend, fearGreedIndex, macroOverlay, candidates, supabaseAdmin, executionMode, settings } = args;
 
   const { data: portfolio } = await supabaseAdmin
     .from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
@@ -1028,6 +1059,7 @@ async function runForUser(args: {
     fear_greed_index: fearGreedIndex,
     macro_overlay: macroOverlay,
     margin_available: false,
+    market_breadth: { score: breadthScore, trend: breadthTrend },
     ...(cryptoMarketContext ? { crypto_market_context: cryptoMarketContext } : {}),
   };
 
@@ -1077,6 +1109,7 @@ CRYPTO SIGNALS TO PRIORITIZE:
 6. Altcoins with BTC correlation: if BTC dumps, alts dump harder. If BTC pumps, alts pump more.
 7. Crypto is correlated overnight — don't open 6 altcoin positions if BTC is in downtrend.
 8. Each candidate includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning from a per-user adaptive scoring system that learns which signals have actually won for this account. Treat conflict_warning candidates with skepticism — both directions firing usually means choppy price action.
+9. market_breadth.score/trend measures how much of the scanned crypto universe is moving together, not just BTC/ETH individually. Weak or deteriorating breadth among alts (even if BTC itself looks fine) is a reason for extra caution on new altcoin longs.
 9. vwap, vwap_position, vwap_upper1, vwap_lower1: session VWAP (since UTC midnight) with ±1σ bands — the volume-weighted reference price for the current session. Price below_lower1/below_lower2 is a mean-reversion buy zone; above_upper1/above_upper2 favors caution on longs or a short. This resets daily so it's most useful for intraday and short swing crypto holds.
 10. crypto_market_context (when present): live funding rate for BTC/ETH and BTC dominance rate-of-change, pulled from Binance and CoinGecko seconds before this scan. EXTREME or HIGH funding rate (either direction) means that side of the market is dangerously overleveraged — a squeeze in the opposite direction is elevated risk; reduce conviction on new entries in the overleveraged direction. Rising BTC dominance ("rotation to BTC") means alts are likely underperforming or selling off harder than BTC — reduce new altcoin long conviction and consider it supportive of BTC/ETH relative strength. Falling dominance ("rotation to alts") is the opposite — alt season conditions, more favorable for altcoin longs. A WEEKEND flag in this context means position sizes are already being cut 25% by code — factor the added illiquidity into your own conviction too, not just rely on the code-level cut.
 
@@ -1112,6 +1145,7 @@ SCALP RULES — follow exactly:
 - Always maintain at least ${effectiveMinCashPct}% cash reserve.
 - Never allocate more than 12% to any single scalp.
 - Each candidate includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning from a per-user adaptive scoring system learning from this account's real trade outcomes. Skip candidates with a conflict_warning — for scalping, ambiguous direction is a fast way to get stopped out both ways.
+- market_breadth.score/trend: how many of the scanned symbols are actually moving with you, not just whether this one setup looks good. Code already cuts new long sizing when breadth is weak — you should lean the same way independently, especially for scalps where a broad reversal can blow through a tight stop fast.
 - vwap, vwap_position, vwap_upper1, vwap_lower1: session VWAP (today only) with ±1σ bands. This is the single most important intraday reference — price below_lower1/below_lower2 with other bullish signals is a high-probability long entry; above_upper1/above_upper2 favors a short or avoiding a long. Prefer scalps where vwap_position agrees with direction_hint.
 
 Respond with ONLY valid JSON:
@@ -1152,6 +1186,7 @@ HARD RULES — never violate these:
 - Use Bollinger Bands: bb_pct_b < 0.05 = near lower band (oversold, buy/call), bb_pct_b > 0.95 = near upper band (overbought, sell/put).
 - Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
 - Correlation-based sizing is already applied by code: any trade you propose that's highly correlated (>0.75, real return correlation not just sector labels) with something already open gets automatically sized down 40%; above 0.90 correlation it's skipped entirely unless your conviction is 90+. You don't need to check this yourself, but be aware a proposed allocation_pct may end up smaller than requested for this reason.
+- market_breadth.score (0-100) and market_breadth.trend ("improving"/"deteriorating"/"stable") measure how many of the scanned symbols are actually participating in the current move, not just whether the index/regime looks good. Code already cuts new long sizing automatically when score < 40 (more aggressively below 25) — you should independently favor caution on new longs and be more open to shorts when breadth is weak or deteriorating, even if an individual candidate's own technicals look fine, since broad-based selling tends to drag even strong names down with it.
 - robinhood_live_context (when present in input): REAL DATA pulled directly from your Robinhood brokerage account seconds before this scan. It contains: (1) actual positions in Robinhood — NOTE: positions labeled "agent_live_order" in current_positions are the same as what you see here (agent placed them in live mode, they appear in both places — do NOT double count them). Positions in robinhood_live_context that do NOT appear in current_positions are pre-existing holdings the user held before using this app — treat these carefully, do not open positions that conflict with them. (2) live market news headlines (factor negative news into conviction), (3) earnings calendar for the next 7 days (NEVER open new positions in stocks reporting earnings — they move 5-20% unpredictably), (4) live options chain IV and put/call ratio for top candidates (high IV = options are expensive, prefer stock; put/call > 1.2 = bearish institutional bet, reduce long conviction; unusual options activity = strong signal), (5) Level 2 bid/ask spread (spread > 0.5% = low liquidity, reduce size by 50% or skip).
 - current_positions source field: every open position now has a "source" label — "agent_paper_trade" (this agent opened it in paper mode), "agent_live_order" (this agent opened it in live mode — real money in Robinhood), "manual_paper_trade" (the user opened this themselves on the website). Treat manual_paper_trade positions with extra care — the user may have specific reasons for holding them, so do not close them without strong justification.
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
@@ -1304,11 +1339,19 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     }
     if (maxCorrelation > 0.75) correlationMult = 0.6; // 40% size reduction
 
+    // Market breadth gate: weak or deteriorating breadth cuts new LONG
+    // conviction regardless of how good this specific candidate looks —
+    // broad-based selling tends to drag even technically-strong names down.
+    // Shorts are unaffected (weak breadth is actually supportive of shorts).
+    const breadthMult = t.direction === "long"
+      ? (breadthScore < 25 ? 0.25 : breadthScore < 40 ? 0.5 : 1.0)
+      : 1.0;
+
     // Weekend crypto caution: thinner liquidity means the same-size move
     // does more damage — cut position sizes by 25% Sat/Sun regardless of
     // how strong the setup otherwise looks.
     const weekendMult = cryptoWeekend ? 0.75 : 1.0;
-    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor * weekendMult * correlationMult, effectiveMaxPositionPct);
+    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor * weekendMult * correlationMult * breadthMult, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
     // Sector ETF momentum filter: skip long stock entries when sector is below SMA50
     if (t.direction === "long" && ["stock"].includes(t.instrument ?? "stock")) {
