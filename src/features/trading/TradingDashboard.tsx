@@ -27,6 +27,7 @@ import { GettingStartedBanner } from "./components/GettingStartedBanner";
 import { PnLDashboard } from "./components/PnLDashboard";
 import { ClosedTradesHistory } from "./components/ClosedTradesHistory";
 import { SessionPerformancePanel } from "./components/SessionPerformancePanel";
+import { RobinhoodChartCard } from "./components/RobinhoodChartCard";
 import { AbTestingPanel } from "./components/AbTestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
 import { RiskPanel } from "./components/RiskPanel";
@@ -299,12 +300,18 @@ export default function TradingDashboard() {
             {/* P&L Dashboard - today / week / month / all time */}
             <PnLDashboard />
 
-            <section aria-labelledby="paper-portfolio" className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <h2 id="paper-portfolio" className="sr-only">Paper Portfolio</h2>
-              <div className="lg:col-span-2">
+            <section aria-labelledby="paper-portfolio" className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <h2 id="paper-portfolio" className="sr-only">Portfolios</h2>
+              <div>
                 <EquityCurveCard userId={userId} equity={equity} cash={Number(p?.balance ?? 0)} start={start} />
               </div>
-              <Card className="p-4 sm:p-5 border-border/60 bg-card shadow-sm">
+              <div>
+                <RobinhoodChartCard />
+              </div>
+            </section>
+
+            {/* Quick navigation */}
+            <Card className="p-4 sm:p-5 border-border/60 bg-card shadow-sm">
                 <header className="flex items-center justify-between mb-4">
                   <h3 className="font-display font-semibold">Go to</h3>
                 </header>
@@ -335,7 +342,6 @@ export default function TradingDashboard() {
                   )}
                 </div>
               </Card>
-            </section>
 
             <section aria-labelledby="recent-trades" className="hidden">
               <header className="flex items-center justify-between mb-3">

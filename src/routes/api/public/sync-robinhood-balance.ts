@@ -83,15 +83,16 @@ export const Route = createFileRoute("/api/public/sync-robinhood-balance")({
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-        // Only sync users in live execution mode
-        const { data: liveUsers } = await supabaseAdmin
-          .from("user_settings")
+        // Sync ALL users who have Robinhood connected (paper or live mode)
+        const { data: connectedUsers } = await supabaseAdmin
+          .from("mcp_connections")
           .select("user_id")
-          .eq("autonomous_mode", true)
-          .eq("autonomous_execution_mode", "live");
+          .eq("server_url", "https://agent.robinhood.com/mcp/trading")
+          .eq("state", "ready");
 
-        if (!liveUsers || liveUsers.length === 0) {
-          return Response.json({ ok: true, synced: 0, reason: "no_live_users" });
+        const liveUsers = connectedUsers ?? [];
+        if (liveUsers.length === 0) {
+          return Response.json({ ok: true, synced: 0, reason: "no_connected_users" });
         }
 
         let synced = 0;
@@ -145,6 +146,13 @@ export const Route = createFileRoute("/api/public/sync-robinhood-balance")({
               .from("paper_portfolios")
               .update(updates as never)
               .eq("id", portfolio.id);
+
+            // Save daily snapshot for the Robinhood chart
+            await supabaseAdmin.from("robinhood_snapshots").insert({
+              user_id: userId,
+              balance: portfolioValue ?? buyingPower ?? 0,
+              buying_power: buyingPower ?? null,
+            });
 
             // Post sync notification
             await supabaseAdmin.from("agent_messages").insert({
