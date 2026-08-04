@@ -6,7 +6,7 @@ import { getHistoricalBars } from "@/lib/history.functions";
 import { markToMarketPortfolio } from "@/lib/execution.functions";
 import { motion } from "framer-motion";
 import {
-  Activity, Brain, FlaskConical, TestTubes, Zap, Shield, LineChart as LineChartIcon,
+  Activity, Brain, FlaskConical, TestTubes, Zap, Shield, History, LineChart as LineChartIcon,
   TrendingUp, TrendingDown, LogOut, ArrowUpRight, ArrowDownRight, Link2, Bot, ShieldCheck, Trophy, Sigma, ScrollText, Newspaper,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
