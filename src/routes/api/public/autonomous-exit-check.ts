@@ -3,6 +3,7 @@ import { fetchQuotePrice, fetchBars, atr } from "@/lib/indicators";
 import { callGateway } from "@/routes/api/public/autonomous-agent";
 import { updateSignalWeights } from "@/lib/signal-learning";
 import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
+import { estimateFees } from "@/lib/cost-reality";
 
 type ExitAction = { position_id: string; action: "hold" | "trim" | "exit"; reason: string };
 
@@ -46,8 +47,8 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
   if (!openTrades || openTrades.length === 0) return 0;
 
   type Row = typeof openTrades[number];
-  const closures: Array<{ trade: Row; exit_price: number; reason: string }> = [];
-  const trims: Array<{ trade: Row; exit_price: number; reason: string }> = [];
+  const closures: Array<{ trade: Row; exit_price: number; reason: string; quoted_price: number; slippage_bps: number }> = [];
+  const trims: Array<{ trade: Row; exit_price: number; reason: string; quoted_price: number; slippage_bps: number }> = [];
   const aiCandidates: Array<Row & { current_price: number; current_pnl_pct: number; days_held: number }> = [];
 
   for (const t of openTrades) {
@@ -119,20 +120,20 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     // Check trailing stop (if set, use it instead of fixed stop for longs)
     const trailingStop = (t.options_details as Record<string,unknown> | null)?.trailing_stop_price as number | undefined;
     if (trailingStop && t.side === "buy" && price <= trailingStop) {
-      closures.push({ trade: t, exit_price: fillPrice, reason: "trailing_stop_hit" });
+      closures.push({ trade: t, exit_price: fillPrice, reason: "trailing_stop_hit", quoted_price: price, slippage_bps: exitSlip.slippageBps });
       continue;
     }
 
     if (pnlPct <= -stop) {
-      closures.push({ trade: t, exit_price: fillPrice, reason: "stop_loss_hit" });
+      closures.push({ trade: t, exit_price: fillPrice, reason: "stop_loss_hit", quoted_price: price, slippage_bps: exitSlip.slippageBps });
       continue;
     }
     if (pnlPct >= target) {
-      closures.push({ trade: t, exit_price: fillPrice, reason: "take_profit_hit" });
+      closures.push({ trade: t, exit_price: fillPrice, reason: "take_profit_hit", quoted_price: price, slippage_bps: exitSlip.slippageBps });
       continue;
     }
     if (t.hold_duration === "intraday" && afterEod) {
-      closures.push({ trade: t, exit_price: fillPrice, reason: "intraday_eod_close" });
+      closures.push({ trade: t, exit_price: fillPrice, reason: "intraday_eod_close", quoted_price: price, slippage_bps: exitSlip.slippageBps });
       continue;
     }
     if (t.hold_duration && t.hold_duration !== "intraday") {
@@ -237,9 +238,9 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
             const candSlip = estimateSlippageBps({ orderNotional: Number(cand.quantity) * cand.current_price, avgDailyVolume: null, price: cand.current_price, isCrypto: candIsCrypto });
             const candFillPrice = applySlippage(cand.current_price, candExitSide, candSlip.slippageBps);
             if (a.action === "exit") {
-              closures.push({ trade: cand, exit_price: candFillPrice, reason: `ai_exit: ${a.reason}` });
+              closures.push({ trade: cand, exit_price: candFillPrice, reason: `ai_exit: ${a.reason}`, quoted_price: cand.current_price, slippage_bps: candSlip.slippageBps });
             } else if (a.action === "trim") {
-              trims.push({ trade: cand, exit_price: candFillPrice, reason: a.reason });
+              trims.push({ trade: cand, exit_price: candFillPrice, reason: a.reason, quoted_price: cand.current_price, slippage_bps: candSlip.slippageBps });
             }
           }
         }
@@ -284,6 +285,14 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
       hold_duration: t.trade.hold_duration, instrument: t.trade.instrument,
       stop_loss_pct: t.trade.stop_loss_pct, take_profit_pct: t.trade.take_profit_pct,
       rationale: `${sessionTag} [TRIM 50%] ${t.reason}`.trim(),
+      // Experiment 3: carry over the original entry's cost data (this
+      // trimmed row shares the same entry as the original position) and
+      // record this trim's own exit-side cost data.
+      entry_quoted_price: (t.trade as unknown as { entry_quoted_price?: number | null }).entry_quoted_price ?? null,
+      entry_slippage_bps: (t.trade as unknown as { entry_slippage_bps?: number | null }).entry_slippage_bps ?? null,
+      exit_quoted_price: t.quoted_price,
+      exit_slippage_bps: t.slippage_bps,
+      estimated_fees: estimateFees(String(t.trade.instrument ?? "stock")),
     } as never);
 
     await supabaseAdmin.from("paper_trades").update({ quantity: remainingQty }).eq("id", t.trade.id);
@@ -324,7 +333,11 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     const pnl = (c.exit_price - Number(c.trade.entry_price)) * Number(c.trade.quantity) * dir;
     await supabaseAdmin.from("paper_trades").update({
       is_open: false, exit_price: c.exit_price, pnl, closed_at: new Date().toISOString(),
-    }).eq("id", c.trade.id);
+      // Experiment 3: record this closure's exit-side cost data.
+      exit_quoted_price: c.quoted_price,
+      exit_slippage_bps: c.slippage_bps,
+      estimated_fees: estimateFees(String(c.trade.instrument ?? "stock")),
+    } as never).eq("id", c.trade.id);
 
     // Bayesian signal-weight update — nudges this user's learned weight for
     // every signal that was active when this trade opened, using the actual

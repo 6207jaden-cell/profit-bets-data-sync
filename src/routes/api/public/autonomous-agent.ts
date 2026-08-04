@@ -17,6 +17,7 @@ import {
   computeHistoricalVolatility, computeIvHvRatio, getIvRank, classifyEarningsStrategy,
 } from "@/lib/earnings-strategy";
 import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
+import { estimateFees } from "@/lib/cost-reality";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
@@ -735,7 +736,11 @@ async function runForUser(args: {
       const pnl = (fillPrice - entry) * qty * dir;
       await supabaseAdmin.from("paper_trades").update({
         is_open: false, exit_price: fillPrice, pnl, closed_at: new Date().toISOString(),
-      }).eq("id", t.id);
+        // Experiment 3: record this forced closure's exit-side cost data.
+        exit_quoted_price: q,
+        exit_slippage_bps: cbSlip.slippageBps,
+        estimated_fees: estimateFees(String(t.instrument ?? "stock")),
+      } as never).eq("id", t.id);
       // Circuit-breaker closures are real (usually negative) outcomes and should
       // still feed the learning loop — otherwise the signal weights never learn
       // from the trades that were going badly enough to trip the breaker.
@@ -1595,6 +1600,8 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
               instrument: t.instrument,
               entry_signals: scaleEntrySignals,
               rationale: `[SCALE-IN conviction:${t.conviction}] Adding to winning ${t.symbol} position (+${existPnlPct.toFixed(1)}%). ${t.rationale}`,
+              entry_quoted_price: existingPrice,
+              entry_slippage_bps: scaleSlip.slippageBps,
             });
             await supabaseAdmin.from("signals_executions").insert({
               user_id: userId, execution_type: "paper", status: "filled",
@@ -1715,6 +1722,12 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       options_details: (resolvedOptions ?? null) as never,
       entry_signals: entrySignals as never,
       rationale: enrichedRationale,
+      // Experiment 3 (Trading Cost Reality Test): store the pre-slippage
+      // quoted price and the slippage bps that was applied, so a later
+      // report can separate "gross" (before-cost) from "net" (after-cost,
+      // what's already in entry_price above) expectancy. See cost-reality.ts.
+      entry_quoted_price: quotedPrice,
+      entry_slippage_bps: slip.slippageBps,
     }).select("id").single();
     if (error) { console.error("[autonomous] insert trade", error); debugSkips.push({ symbol: t.symbol, reason: "insert_error", detail: error.message }); continue; }
     // Experiment 1: link this real trade to its shadow-log candidate row so
