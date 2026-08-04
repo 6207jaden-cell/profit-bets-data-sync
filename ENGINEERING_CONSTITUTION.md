@@ -660,38 +660,68 @@ numbers meaningful.
   materially
 - `/project-audit/ROADMAP.md` — prioritized, sequenced work, updated as
   items complete or new findings emerge
+- `/project-audit/HYPOTHESIS_LOG.md` — every major unproven assumption
+  the trading system operates on (8 entries as of this writing: H1–H8),
+  each with why-we-believe-it, evidence for, evidence against, the
+  experiment needed to resolve it, a confidence level, and a conclusion.
+  This is where the founder constitution's "Evidence-Based Development"
+  principle and the Skeptic Rule (Section 17) stop being abstractions —
+  every load-bearing trading assumption in this codebase has a real
+  entry here, not a generic placeholder.
+- `/project-audit/DECISION_LOG.md` — architectural and trading-system
+  decisions (9 entries as of this writing: D-01–D-09) with alternatives
+  considered, reasoning, expected impact, and review criteria — cross-
+  referencing `HYPOTHESIS_LOG.md` entries wherever a decision rests on
+  an unproven assumption.
+- `/project-audit/TECHNICAL_DEBT.md` — every known compromise (12
+  entries as of this writing: TD-01–TD-12) with severity, impact,
+  current workaround (if any), recommended solution, and priority,
+  cross-referenced to `ROADMAP.md`'s numbered sequencing.
+- `/project-audit/EXPERIMENTS.md` — the scientific testing framework: 7
+  designed experiments (E-01–E-07) as of this writing, each tied to a
+  specific `HYPOTHESIS_LOG.md` entry, each with a pre-committed
+  methodology written BEFORE the experiment runs — design before data,
+  never the reverse. Every entry currently reads "Results: Not yet run,"
+  honestly, because none have been.
 - `ENGINEERING_CONSTITUTION.md` (this file) — updated when a principle
   changes, not when a feature ships (feature changes belong in
   `CHANGELOG.md`, not here)
 
-## Additional documents this constitution recommends creating (not yet built)
+## Cross-reference discipline (binding rule, added this pass)
+
+These documents are not independent — they form a chain, and that chain
+must be preserved by every future change:
+
+- A **hypothesis** in `HYPOTHESIS_LOG.md` that has an available test
+  method must have a corresponding **experiment** in `EXPERIMENTS.md`
+  citing it by ID.
+- A **decision** in `DECISION_LOG.md` that rests on an unproven
+  assumption must cite the relevant `HYPOTHESIS_LOG.md` entry by ID —
+  never leave a decision's evidentiary basis implicit when it can be
+  named.
+- A **technical debt** item in `TECHNICAL_DEBT.md` with a numbered
+  `ROADMAP.md` sequencing must cite that item number, so the two lists
+  never silently drift apart.
+- When an experiment in `EXPERIMENTS.md` actually runs and produces a
+  result, the corresponding `HYPOTHESIS_LOG.md` entry's confidence level
+  and conclusion must be updated in the same change — a hypothesis log
+  that still says "Unresolved" after its experiment has run is worse
+  than no log at all, because it actively misrepresents what is known.
+
+This chain exists so the Skeptic Rule (Section 17) has an enforced path
+from question to test to answer, not just a value someone is trusted to
+remember.
+
+## Remaining document this constitution still recommends (not yet built)
 
 - **`CHANGELOG.md`** — a running log of what shipped and why, distinct
-  from git history (git history explains individual commits; a changelog
-  explains the narrative across them for someone who wasn't present)
-- **`HYPOTHESIS_LOG.md`** — every time a trading-logic change is made on
-  the basis of reasoning rather than proven evidence (which, honestly, is
-  most of them so far — see Section 4), it should be logged as a
-  hypothesis with an explicit statement of what evidence would confirm
-  or refute it, and revisited once that evidence exists. This directly
-  operationalizes the founder constitution's "Evidence-Based Development"
-  principle and the Skeptic Rule (Section 17) rather than leaving them as
-  abstractions.
-- **`DECISION_LOG.md`** — architectural decisions with the reasoning
-  and alternatives considered (e.g., why fractional Kelly at 40% rather
-  than 25% or 50%; why the single-most-observed-signal approach was
-  chosen over blending multiple signals) — some of this reasoning
-  currently exists only in code comments and commit messages, scattered
-  rather than indexed.
-- **`TECHNICAL_DEBT.md`** — a single list of known shortcuts, starting
-  with: zero test coverage, the `iron_condor` execution gap, the
-  survivorship-bias caveat on any backtest output, and the multiple-
-  comparisons gap in signal learning.
-- **`EXPERIMENTS.md`** — once real trade volume exists, any deliberate
-  A/B-style test of a trading-logic change (e.g., "does widening the
-  correlation lookback window to 20 days change outcomes") should be
-  logged here with its hypothesis, methodology, and result — whether or
-  not the result was what was expected.
+  from git history (git history explains individual commits; a
+  changelog explains the narrative across them for someone who wasn't
+  present). This is the one document from the original recommendation
+  list not yet created — the other four (`HYPOTHESIS_LOG.md`,
+  `DECISION_LOG.md`, `TECHNICAL_DEBT.md`, `EXPERIMENTS.md`) now exist
+  and are populated with real, repository-specific content as of this
+  audit pass.
 
 ---
 
