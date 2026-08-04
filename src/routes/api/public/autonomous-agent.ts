@@ -11,6 +11,10 @@ import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/ag
 import { loadSignalWeights, applySignalWeights } from "@/lib/signal-learning";
 import { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc, isCryptoWeekend } from "@/lib/crypto-signals";
 import { computeBreadthScore, getBreadthMomentum } from "@/lib/market-breadth";
+import {
+  fetchHistoricalEarningsDates, computeAvgHistoricalEarningsMove, computeExpectedMoveFromStraddle,
+  computeHistoricalVolatility, computeIvHvRatio, getIvRank, classifyEarningsStrategy,
+} from "@/lib/earnings-strategy";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
@@ -905,6 +909,81 @@ async function runForUser(args: {
     ? `Recent earnings beats (last 30 days): ${[...earningsBeatMap.entries()].map(([s, p]) => `${s} ${p > 0 ? "+" : ""}${p.toFixed(1)}%`).join(", ")}`
     : "No recent earnings surprises.";
 
+  // ── Earnings options strategy: expected move vs historical move, IV Rank/HV ──
+  // Swing sessions only (morning/midday) — this is a multi-day-hold strategy,
+  // not a scalp or crypto one (crypto doesn't report earnings). Bounded to a
+  // handful of symbols per scan (whichever scanned candidates + open positions
+  // actually have earnings in the next 7 days) since each one requires several
+  // extra fetches (options chain, ~2yr bars, historical earnings dates).
+  let earningsOpportunitiesContext: string | null = null;
+  if ((session === "morning" || session === "midday") && process.env.FINNHUB_API_KEY && process.env.POLYGON_API_KEY) {
+    try {
+      const watchSymbols = Array.from(new Set([
+        ...candidates.slice(0, 20).map((c) => String(c.symbol).toUpperCase()),
+        ...openList.map((o) => String(o.asset).toUpperCase()),
+      ]));
+      const finKey = process.env.FINNHUB_API_KEY;
+      const today = new Date().toISOString().slice(0, 10);
+      const weekOut = new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10);
+      const calRes = await fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${weekOut}&token=${finKey}`);
+      const upcomingMap = new Map<string, string>(); // symbol -> earnings date
+      if (calRes.ok) {
+        const calJson = (await calRes.json()) as { earningsCalendar?: Array<{ symbol: string; date: string }> };
+        for (const e of calJson.earningsCalendar ?? []) {
+          if (watchSymbols.includes(e.symbol.toUpperCase())) upcomingMap.set(e.symbol.toUpperCase(), e.date);
+        }
+      }
+
+      const earningsLines: string[] = [];
+      const symbolsToAnalyze = Array.from(upcomingMap.keys()).slice(0, 5); // bounded cost
+      await Promise.allSettled(symbolsToAnalyze.map(async (sym) => {
+        try {
+          const earningsDate = upcomingMap.get(sym)!;
+          const daysToEarnings = Math.round((new Date(earningsDate).getTime() - Date.now()) / 86400_000);
+          const price = await fetchQuotePrice(sym);
+          if (!price) return;
+
+          const [callContract, putContract, longBars, histDates] = await Promise.all([
+            resolveOptionsContract(sym, "call", price, { expiry_days_out: 21, strike_type: "atm", contracts: 1, spread_width: null }),
+            resolveOptionsContract(sym, "put", price, { expiry_days_out: 21, strike_type: "atm", contracts: 1, spread_width: null }),
+            fetchBars(sym, 760),
+            fetchHistoricalEarningsDates(sym, 8),
+          ]);
+
+          const expectedMovePct = (callContract && putContract)
+            ? computeExpectedMoveFromStraddle(callContract.mid, putContract.mid, price)
+            : null;
+          const avgHistoricalMovePct = (longBars && histDates)
+            ? computeAvgHistoricalEarningsMove(histDates, longBars)
+            : null;
+          const historicalVolPct = longBars ? computeHistoricalVolatility(longBars.closes, 20) : null;
+          const currentIvPct = callContract?.implied_volatility != null ? callContract.implied_volatility * 100
+            : putContract?.implied_volatility != null ? putContract.implied_volatility * 100 : null;
+          const ivHv = (currentIvPct != null && historicalVolPct != null) ? computeIvHvRatio(currentIvPct, historicalVolPct) : null;
+          const ivRankResult = currentIvPct != null ? await getIvRank(supabaseAdmin as never, sym, currentIvPct) : null;
+          const recentMomentumPct = Number((candidates.find((c) => String(c.symbol).toUpperCase() === sym)?.five_day_return as number | undefined) ?? 0);
+
+          const classified = classifyEarningsStrategy({
+            daysToEarnings, expectedMovePct, avgHistoricalMovePct,
+            ivHvRatio: ivHv?.ratio ?? null, ivRank: ivRankResult?.rank ?? null, recentMomentumPct,
+          });
+
+          const parts = [`${sym} reports in ${daysToEarnings}d`];
+          if (expectedMovePct != null) parts.push(`market pricing ±${expectedMovePct.toFixed(1)}% move`);
+          if (avgHistoricalMovePct != null) parts.push(`historically averages ±${avgHistoricalMovePct.toFixed(1)}%`);
+          if (ivRankResult?.rank != null) parts.push(`IV Rank ${ivRankResult.rank}`);
+          else if (ivHv) parts.push(`IV/HV ${ivHv.ratio}`);
+          parts.push(`recommended: ${classified.strategy} — ${classified.rationale}`);
+          earningsLines.push(parts.join(", "));
+        } catch { /* skip this symbol, don't fail the whole batch */ }
+      }));
+
+      earningsOpportunitiesContext = earningsLines.length > 0 ? earningsLines.join(" | ") : null;
+    } catch (e) {
+      console.warn("[autonomous] earnings strategy analysis failed", String(e));
+    }
+  }
+
   // Signal → trade bridge: load recent open market signals for context
   const sixHoursAgo = new Date(Date.now() - 6 * 3600_000).toISOString();
   const { data: recentSignals } = await supabaseAdmin
@@ -1061,6 +1140,7 @@ async function runForUser(args: {
     margin_available: false,
     market_breadth: { score: breadthScore, trend: breadthTrend },
     ...(cryptoMarketContext ? { crypto_market_context: cryptoMarketContext } : {}),
+    ...(earningsOpportunitiesContext ? { earnings_opportunities: earningsOpportunitiesContext } : {}),
   };
 
   // Inject memory into user message
@@ -1187,7 +1267,8 @@ HARD RULES — never violate these:
 - Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
 - Correlation-based sizing is already applied by code: any trade you propose that's highly correlated (>0.75, real return correlation not just sector labels) with something already open gets automatically sized down 40%; above 0.90 correlation it's skipped entirely unless your conviction is 90+. You don't need to check this yourself, but be aware a proposed allocation_pct may end up smaller than requested for this reason.
 - market_breadth.score (0-100) and market_breadth.trend ("improving"/"deteriorating"/"stable") measure how many of the scanned symbols are actually participating in the current move, not just whether the index/regime looks good. Code already cuts new long sizing automatically when score < 40 (more aggressively below 25) — you should independently favor caution on new longs and be more open to shorts when breadth is weak or deteriorating, even if an individual candidate's own technicals look fine, since broad-based selling tends to drag even strong names down with it.
-- robinhood_live_context (when present in input): REAL DATA pulled directly from your Robinhood brokerage account seconds before this scan. It contains: (1) actual positions in Robinhood — NOTE: positions labeled "agent_live_order" in current_positions are the same as what you see here (agent placed them in live mode, they appear in both places — do NOT double count them). Positions in robinhood_live_context that do NOT appear in current_positions are pre-existing holdings the user held before using this app — treat these carefully, do not open positions that conflict with them. (2) live market news headlines (factor negative news into conviction), (3) earnings calendar for the next 7 days (NEVER open new positions in stocks reporting earnings — they move 5-20% unpredictably), (4) live options chain IV and put/call ratio for top candidates (high IV = options are expensive, prefer stock; put/call > 1.2 = bearish institutional bet, reduce long conviction; unusual options activity = strong signal), (5) Level 2 bid/ask spread (spread > 0.5% = low liquidity, reduce size by 50% or skip).
+- robinhood_live_context (when present in input): REAL DATA pulled directly from your Robinhood brokerage account seconds before this scan. It contains: (1) actual positions in Robinhood — NOTE: positions labeled "agent_live_order" in current_positions are the same as what you see here (agent placed them in live mode, they appear in both places — do NOT double count them). Positions in robinhood_live_context that do NOT appear in current_positions are pre-existing holdings the user held before using this app — treat these carefully, do not open positions that conflict with them. (2) live market news headlines (factor negative news into conviction), (3) earnings calendar for the next 7 days — do NOT blanket-avoid these; if earnings_opportunities (below) has a specific analysis for that symbol, follow its recommendation instead, since a well-sized options play around earnings can be a genuine edge, not just a risk to dodge. Only fall back to avoiding a stock's earnings window entirely if it's not covered in earnings_opportunities and you have no clear options-based plan for it. (4) live options chain IV and put/call ratio for top candidates (high IV = options are expensive, prefer stock; put/call > 1.2 = bearish institutional bet, reduce long conviction; unusual options activity = strong signal), (5) Level 2 bid/ask spread (spread > 0.5% = low liquidity, reduce size by 50% or skip).
+- earnings_opportunities (when present, swing sessions only): for each scanned symbol with earnings in the next 7 days, this compares what the options market is pricing in for the move (from the ATM straddle) against what the stock has actually averaged on recent earnings reports — the single sharpest signal in this whole system when both numbers are available. Each entry also includes IV Rank (once enough history has accumulated for that symbol) or IV/HV ratio (works immediately) as a fallback, and a specific recommended instrument: "buy_call"/"buy_put" (options underpriced or IV cheap — go directional with defined risk), "sell_call_spread"/"sell_put_spread" (options overpriced or IV rich — sell a credit spread, NOT "iron_condor" which isn't a real fully-executable instrument in this system, use call_spread/put_spread instead), or "post_earnings_continuation" (earnings already reported, stock gapped meaningfully — trade the underlying stock in the continuation direction, not options). Follow these recommendations when proposing trades on these specific symbols rather than defaulting to avoidance.
 - current_positions source field: every open position now has a "source" label — "agent_paper_trade" (this agent opened it in paper mode), "agent_live_order" (this agent opened it in live mode — real money in Robinhood), "manual_paper_trade" (the user opened this themselves on the website). Treat manual_paper_trade positions with extra care — the user may have specific reasons for holding them, so do not close them without strong justification.
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
 ${learningAdjustments ? "\nLEARNED RULES FROM PAST PERFORMANCE (treat as hard rules):\n" + learningAdjustments : ""}
