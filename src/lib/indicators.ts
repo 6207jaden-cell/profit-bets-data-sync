@@ -431,6 +431,45 @@ export function computeVwap(bars: IntradayBar[]): VwapResult | null {
   return { vwap, upperBand1, lowerBand1, upperBand2, lowerBand2, currentPrice, position };
 }
 
+/**
+ * Pearson correlation coefficient between two symbols' daily returns over a
+ * lookback window. Used to size positions down when a new trade would be
+ * highly correlated with something already held — sector labels are a rough
+ * proxy for this ("NVDA and AAPL are both tech") but real correlation is
+ * far more precise (NVDA/AAPL might only be ~0.45 correlated while NVDA/AMD
+ * runs ~0.85). Returns null if either series has insufficient history.
+ */
+export function computeCorrelation(closesA: number[], closesB: number[], lookbackDays: number): number | null {
+  const n = Math.min(closesA.length, closesB.length, lookbackDays + 1);
+  if (n < 10) return null; // need at least ~9 return observations for a meaningful estimate
+
+  const retA: number[] = [];
+  for (let i = closesA.length - n + 1; i < closesA.length; i++) {
+    if (closesA[i - 1] > 0) retA.push((closesA[i] - closesA[i - 1]) / closesA[i - 1]);
+  }
+  const retB: number[] = [];
+  for (let i = closesB.length - n + 1; i < closesB.length; i++) {
+    if (closesB[i - 1] > 0) retB.push((closesB[i] - closesB[i - 1]) / closesB[i - 1]);
+  }
+
+  const len = Math.min(retA.length, retB.length);
+  if (len < 8) return null;
+  const a = retA.slice(-len), b = retB.slice(-len);
+
+  const meanA = a.reduce((s, v) => s + v, 0) / len;
+  const meanB = b.reduce((s, v) => s + v, 0) / len;
+
+  let cov = 0, varA = 0, varB = 0;
+  for (let i = 0; i < len; i++) {
+    const da = a[i] - meanA, db = b[i] - meanB;
+    cov += da * db;
+    varA += da * da;
+    varB += db * db;
+  }
+  if (varA <= 0 || varB <= 0) return null;
+  return cov / Math.sqrt(varA * varB);
+}
+
 export async function fetchBars(symbol: string, days = 220): Promise<Bars | null> {
   const S = symbol.toUpperCase();
   const isCrypto = isCryptoSymbol(S);

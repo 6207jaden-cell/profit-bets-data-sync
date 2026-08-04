@@ -3,6 +3,7 @@ import {
   buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketOpen,
   computeTrendStrength, computeVolatilityPercentile, vixLevelToPercentile,
   regimePositionMultiplier, atrBasedStopTarget, fetchVwapBars, computeVwap,
+  computeCorrelation,
 } from "@/lib/indicators";
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
@@ -577,6 +578,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               fearGreedIndex: fearGreedValue != null ? `${fearGreedValue}/100 (${fearGreedLabel})` : "unavailable",
             macroOverlay: macroContext,
             vixScaleFactor,
+            volatilityPercentile,
             candidates: sortedWithMtf, supabaseAdmin, settings,
             });
             if (result.skipped) skipped.push({ user: u.user_id, reason: result.skipped });
@@ -604,13 +606,14 @@ async function runForUser(args: {
   regime: string;
   vixLevel: number | null;
   vixScaleFactor: number;
+  volatilityPercentile: number;
   fearGreedIndex: string;
   macroOverlay: string;
   candidates: Array<Record<string, unknown>>;
   supabaseAdmin: Awaited<ReturnType<typeof getAdmin>>;
   settings: AgentSettings;
 }): Promise<{ opened: number; skipped?: string }> {
-  const { userId, session, sessionType, regime, vixLevel, vixScaleFactor, fearGreedIndex, macroOverlay, candidates, supabaseAdmin, executionMode, settings } = args;
+  const { userId, session, sessionType, regime, vixLevel, vixScaleFactor, volatilityPercentile, fearGreedIndex, macroOverlay, candidates, supabaseAdmin, executionMode, settings } = args;
 
   const { data: portfolio } = await supabaseAdmin
     .from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
@@ -1148,6 +1151,7 @@ HARD RULES — never violate these:
 - Trailing stops are automatically set at entry_price × (1 - stop_pct%) once a position gains >5%. When reviewing current_positions, if pnl_pct > 5% the position already has a trailing stop protecting profits — factor this into hold/exit decisions.
 - Use Bollinger Bands: bb_pct_b < 0.05 = near lower band (oversold, buy/call), bb_pct_b > 0.95 = near upper band (overbought, sell/put).
 - Sector ETF filter is already applied: long stock entries are only shown when their sector ETF is bullish.
+- Correlation-based sizing is already applied by code: any trade you propose that's highly correlated (>0.75, real return correlation not just sector labels) with something already open gets automatically sized down 40%; above 0.90 correlation it's skipped entirely unless your conviction is 90+. You don't need to check this yourself, but be aware a proposed allocation_pct may end up smaller than requested for this reason.
 - robinhood_live_context (when present in input): REAL DATA pulled directly from your Robinhood brokerage account seconds before this scan. It contains: (1) actual positions in Robinhood — NOTE: positions labeled "agent_live_order" in current_positions are the same as what you see here (agent placed them in live mode, they appear in both places — do NOT double count them). Positions in robinhood_live_context that do NOT appear in current_positions are pre-existing holdings the user held before using this app — treat these carefully, do not open positions that conflict with them. (2) live market news headlines (factor negative news into conviction), (3) earnings calendar for the next 7 days (NEVER open new positions in stocks reporting earnings — they move 5-20% unpredictably), (4) live options chain IV and put/call ratio for top candidates (high IV = options are expensive, prefer stock; put/call > 1.2 = bearish institutional bet, reduce long conviction; unusual options activity = strong signal), (5) Level 2 bid/ask spread (spread > 0.5% = low liquidity, reduce size by 50% or skip).
 - current_positions source field: every open position now has a "source" label — "agent_paper_trade" (this agent opened it in paper mode), "agent_live_order" (this agent opened it in live mode — real money in Robinhood), "manual_paper_trade" (the user opened this themselves on the website). Treat manual_paper_trade positions with extra care — the user may have specific reasons for holding them, so do not close them without strong justification.
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
@@ -1227,6 +1231,27 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     candidates.map((c) => [String(c.symbol).toUpperCase(), (c.atr_pct as number | null | undefined) ?? null]),
   );
 
+  // ── Correlation-based position sizing prep ──────────────────────────────
+  // Fetch daily closes for every currently open position ONCE (cached), used
+  // below to check each new trade's real correlation against what's already
+  // held. Sector labels are a rough proxy for this; actual pairwise return
+  // correlation is far more precise — NVDA/AAPL might only run ~0.45
+  // correlated while NVDA/AMD runs ~0.85, despite both being "tech."
+  const openPositionClosesMap = new Map<string, number[]>();
+  await Promise.all(
+    Array.from(new Set(openList.map((o) => String(o.asset).toUpperCase()))).map(async (sym) => {
+      try {
+        const bars = await fetchBars(sym, 35);
+        if (bars) openPositionClosesMap.set(sym, bars.closes);
+      } catch { /* skip — correlation check just won't apply for this symbol */ }
+    }),
+  );
+  // Shorter, more reactive lookback during elevated/extreme volatility —
+  // correlations spike toward 1 across supposedly unrelated stocks during
+  // risk-off events, so a 30-day baseline window would be too slow to
+  // reflect that regime shift when it matters most.
+  const correlationLookbackDays = volatilityPercentile > 70 ? 10 : 30;
+
   const debugSkips: Array<{ symbol: string; reason: string; detail?: unknown }> = [];
   for (const raw of ai.trades ?? []) {
     let t = raw;
@@ -1246,11 +1271,44 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     );
     const signalBoost = matchingSignal && Number(matchingSignal.confidence) >= 80 ? 1.15
       : matchingSignal && Number(matchingSignal.confidence) >= 65 ? 1.05 : 1.0;
+
+    // Correlation-based position sizing: check this candidate's real return
+    // correlation against every currently open position. Sector caps are a
+    // rough proxy for "don't over-concentrate"; this is the precise version
+    // — two names in different sector buckets can still move together, and
+    // two names in the same bucket can be only loosely related.
+    let correlationMult = 1.0;
+    let maxCorrelation = 0;
+    let maxCorrelationSymbol = "";
+    if (openPositionClosesMap.size > 0) {
+      try {
+        const candidateBars = await fetchBars(t.symbol, 35);
+        if (candidateBars) {
+          for (const [openSym, openCloses] of openPositionClosesMap) {
+            if (openSym === t.symbol.toUpperCase()) continue; // same-symbol handled by the duplicate detector below
+            const corr = computeCorrelation(candidateBars.closes, openCloses, correlationLookbackDays);
+            if (corr != null && Math.abs(corr) > Math.abs(maxCorrelation)) {
+              maxCorrelation = corr;
+              maxCorrelationSymbol = openSym;
+            }
+          }
+        }
+      } catch { /* correlation check unavailable for this symbol — proceed unadjusted */ }
+    }
+    if (maxCorrelation > 0.90 && (t.conviction ?? 0) < 90) {
+      debugSkips.push({
+        symbol: t.symbol, reason: "correlation_too_high",
+        detail: { correlation: Number(maxCorrelation.toFixed(2)), vs: maxCorrelationSymbol, lookback_days: correlationLookbackDays },
+      });
+      continue;
+    }
+    if (maxCorrelation > 0.75) correlationMult = 0.6; // 40% size reduction
+
     // Weekend crypto caution: thinner liquidity means the same-size move
     // does more damage — cut position sizes by 25% Sat/Sun regardless of
     // how strong the setup otherwise looks.
     const weekendMult = cryptoWeekend ? 0.75 : 1.0;
-    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor * weekendMult, effectiveMaxPositionPct);
+    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor * weekendMult * correlationMult, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
     // Sector ETF momentum filter: skip long stock entries when sector is below SMA50
     if (t.direction === "long" && ["stock"].includes(t.instrument ?? "stock")) {

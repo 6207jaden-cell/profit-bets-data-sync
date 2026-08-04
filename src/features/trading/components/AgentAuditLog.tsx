@@ -197,6 +197,7 @@ function DecisionCard({ d }: { d: DecisionRow }) {
                       <span className={
                         s.reason === "no_price" ? "text-red-400" :
                         s.reason === "insert_error" ? "text-red-400" :
+                        s.reason === "correlation_too_high" ? "text-amber-400" :
                         s.reason.includes("cash") || s.reason.includes("alloc") ? "text-amber-400" :
                         "text-muted-foreground"
                       }>
@@ -205,8 +206,10 @@ function DecisionCard({ d }: { d: DecisionRow }) {
                           : s.reason === "insert_error" ? "❌ Database error"
                           : s.reason === "alloc_gt_cash" ? "💰 Not enough cash"
                           : s.reason === "cum_alloc_exceeded" ? "💰 Max allocation reached"
-                          : s.reason === "duplicate" ? "🔄 Already holding"
-                          : s.reason === "sector_limit" ? "📊 Sector limit"
+                          : s.reason === "already_holding" ? "🔄 Already holding this position"
+                          : s.reason === "sector_cap" ? "📊 Sector concentration limit"
+                          : s.reason === "sector_bearish" ? "📉 Sector ETF below SMA50"
+                          : s.reason === "correlation_too_high" ? "🔗 Too correlated with an existing position"
                           : s.reason}
                       </span>
                     </div>
