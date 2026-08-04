@@ -142,9 +142,30 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
 
   if (aiCandidates.length > 0 && aiReviewWindow) {
     // Fetch regime and current indicators for each position before AI review
-    const { fetchBars, buildContext, detectMarketRegime } = await import("@/lib/indicators");
+    const { fetchBars, buildContext, detectMarketRegime, isCryptoSymbol } = await import("@/lib/indicators");
     const spyBarsForExit = await fetchBars("SPY", 60);
     const exitRegime = spyBarsForExit ? detectMarketRegime(spyBarsForExit.closes) : "sideways";
+
+    // If any positions in this batch are crypto, fetch funding rate + BTC
+    // dominance ROC once (not per-position) so the AI can factor overleverage
+    // / capital-rotation risk into hold/exit decisions on those specific
+    // positions — the same signals the crypto entry prompt uses, now applied
+    // to exits too.
+    const hasCrypto = aiCandidates.some((c) => isCryptoSymbol(String(c.asset)));
+    let cryptoContextLine = "";
+    if (hasCrypto) {
+      try {
+        const { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc } = await import("@/lib/crypto-signals");
+        const [btcFunding, dominance] = await Promise.all([
+          fetchFundingRate("BTC"),
+          getBtcDominanceRoc(supabaseAdmin as never),
+        ]);
+        const parts: string[] = [];
+        if (btcFunding) parts.push(`BTC funding ${btcFunding.fundingRatePct}%/8h (${interpretFundingRate(btcFunding.fundingRatePct)})`);
+        if (dominance) parts.push(`BTC dominance ${dominance.current}% (2h Δ${dominance.changePct > 0 ? "+" : ""}${dominance.changePct}pp — ${dominance.interpretation})`);
+        if (parts.length > 0) cryptoContextLine = ` Crypto market context: ${parts.join(", ")}.`;
+      } catch { /* best-effort */ }
+    }
 
     const positionsWithIndicators = await Promise.all(aiCandidates.map(async (c) => {
       let currentRsi: number | null = null;
@@ -161,6 +182,7 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
       } catch { /* skip */ }
       return {
         position_id: c.id, symbol: c.asset, direction: c.side,
+        is_crypto: isCryptoSymbol(String(c.asset)),
         entry_price: c.entry_price, current_price: c.current_price,
         current_pnl_pct: c.current_pnl_pct, days_held: c.days_held,
         hold_duration: c.hold_duration,
@@ -173,7 +195,7 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
       };
     }));
 
-    const system = `You are a portfolio manager doing a position review. Market regime: ${exitRegime}. For each position, decide: hold, trim (close 50%), or exit (close 100%). Consider: current P&L%, current RSI (>70 overbought, <30 oversold), MACD histogram trend, Bollinger Band position (bb_pct_b: 0=lower band, 1=upper band), days held vs hold_duration, and whether original rationale still holds. Be willing to cut losses on positions not working. Respond ONLY with valid JSON array (no markdown): [{"position_id":"<id>","action":"hold|trim|exit","reason":"<short specific reason referencing indicators>"}]`;
+    const system = `You are a portfolio manager doing a position review. Market regime: ${exitRegime}. For each position, decide: hold, trim (close 50%), or exit (close 100%). Consider: current P&L%, current RSI (>70 overbought, <30 oversold), MACD histogram trend, Bollinger Band position (bb_pct_b: 0=lower band, 1=upper band), days held vs hold_duration, and whether original rationale still holds. Be willing to cut losses on positions not working.${cryptoContextLine} For positions where is_crypto is true, weigh that crypto market context heavily — extreme funding rate in the position's direction is squeeze risk (lean toward trim/exit), and BTC dominance rotating away from alts is a reason to exit altcoin longs even if technicals still look neutral. Respond ONLY with valid JSON array (no markdown): [{"position_id":"<id>","action":"hold|trim|exit","reason":"<short specific reason referencing indicators>"}]`;
     const userMsg = JSON.stringify(positionsWithIndicators);
     try {
       const key = process.env.LOVABLE_API_KEY;

@@ -8,6 +8,7 @@ import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, form
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { loadSignalWeights, applySignalWeights } from "@/lib/signal-learning";
+import { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc, isCryptoWeekend } from "@/lib/crypto-signals";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
@@ -767,6 +768,33 @@ async function runForUser(args: {
   if (session === "crypto") {
     // Crypto session — skip options flow, it's stock-market-hours data
   }
+
+  // ── Crypto-specific market structure signals (funding rate + BTC dominance ROC) ──
+  // These see things price/volume technicals can't: funding rate reveals
+  // leverage/positioning in the derivatives market (extreme funding often
+  // precedes a squeeze), and BTC dominance rate of change reveals capital
+  // rotation between BTC and alts before it's obvious in individual alt
+  // price action. Both are free, keyless public APIs (Binance, CoinGecko).
+  let cryptoMarketContext: string | null = null;
+  const cryptoWeekend = session === "crypto" && isCryptoWeekend();
+  if (session === "crypto") {
+    try {
+      const [btcFunding, ethFunding, dominance] = await Promise.all([
+        fetchFundingRate("BTC"),
+        fetchFundingRate("ETH"),
+        getBtcDominanceRoc(supabaseAdmin as never),
+      ]);
+      const parts: string[] = [];
+      if (btcFunding) parts.push(`BTC funding rate: ${btcFunding.fundingRatePct}% per 8h (${interpretFundingRate(btcFunding.fundingRatePct)})`);
+      if (ethFunding) parts.push(`ETH funding rate: ${ethFunding.fundingRatePct}% per 8h (${interpretFundingRate(ethFunding.fundingRatePct)})`);
+      if (dominance) parts.push(`BTC dominance: ${dominance.current}% (2h change: ${dominance.changePct > 0 ? "+" : ""}${dominance.changePct}pp — ${dominance.interpretation})`);
+      if (cryptoWeekend) parts.push("WEEKEND: liquidity is materially thinner than weekdays — institutional desks are offline, same-size news moves prices further. Apply extra caution.");
+      cryptoMarketContext = parts.length > 0 ? parts.join(" | ") : null;
+    } catch (e) {
+      console.warn("[autonomous] crypto market context fetch failed", String(e));
+    }
+  }
+
   // Options flow: check for unusual institutional options activity on scan symbols
   // High vol/OI ratio on calls = bullish institutional bet; on puts = bearish hedge
   const optionsFlowMap = new Map<string, { signal: "bullish" | "bearish"; premium: number; vol_oi: number }>();
@@ -997,6 +1025,7 @@ async function runForUser(args: {
     fear_greed_index: fearGreedIndex,
     macro_overlay: macroOverlay,
     margin_available: false,
+    ...(cryptoMarketContext ? { crypto_market_context: cryptoMarketContext } : {}),
   };
 
   // Inject memory into user message
@@ -1046,6 +1075,7 @@ CRYPTO SIGNALS TO PRIORITIZE:
 7. Crypto is correlated overnight — don't open 6 altcoin positions if BTC is in downtrend.
 8. Each candidate includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning from a per-user adaptive scoring system that learns which signals have actually won for this account. Treat conflict_warning candidates with skepticism — both directions firing usually means choppy price action.
 9. vwap, vwap_position, vwap_upper1, vwap_lower1: session VWAP (since UTC midnight) with ±1σ bands — the volume-weighted reference price for the current session. Price below_lower1/below_lower2 is a mean-reversion buy zone; above_upper1/above_upper2 favors caution on longs or a short. This resets daily so it's most useful for intraday and short swing crypto holds.
+10. crypto_market_context (when present): live funding rate for BTC/ETH and BTC dominance rate-of-change, pulled from Binance and CoinGecko seconds before this scan. EXTREME or HIGH funding rate (either direction) means that side of the market is dangerously overleveraged — a squeeze in the opposite direction is elevated risk; reduce conviction on new entries in the overleveraged direction. Rising BTC dominance ("rotation to BTC") means alts are likely underperforming or selling off harder than BTC — reduce new altcoin long conviction and consider it supportive of BTC/ETH relative strength. Falling dominance ("rotation to alts") is the opposite — alt season conditions, more favorable for altcoin longs. A WEEKEND flag in this context means position sizes are already being cut 25% by code — factor the added illiquidity into your own conviction too, not just rely on the code-level cut.
 
 RISK RULES:
 - Never allocate more than 10% to any single crypto position overnight.
@@ -1216,7 +1246,11 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     );
     const signalBoost = matchingSignal && Number(matchingSignal.confidence) >= 80 ? 1.15
       : matchingSignal && Number(matchingSignal.confidence) >= 65 ? 1.05 : 1.0;
-    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor, effectiveMaxPositionPct);
+    // Weekend crypto caution: thinner liquidity means the same-size move
+    // does more damage — cut position sizes by 25% Sat/Sun regardless of
+    // how strong the setup otherwise looks.
+    const weekendMult = cryptoWeekend ? 0.75 : 1.0;
+    const allocPct = Math.min(t.allocation_pct * signalBoost * vixScaleFactor * weekendMult, effectiveMaxPositionPct);
     const allocCash = (cash * allocPct) / 100;
     // Sector ETF momentum filter: skip long stock entries when sector is below SMA50
     if (t.direction === "long" && ["stock"].includes(t.instrument ?? "stock")) {
