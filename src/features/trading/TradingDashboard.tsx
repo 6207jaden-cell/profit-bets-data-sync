@@ -27,6 +27,7 @@ import { GettingStartedBanner } from "./components/GettingStartedBanner";
 import { PnLDashboard } from "./components/PnLDashboard";
 import { ClosedTradesHistory } from "./components/ClosedTradesHistory";
 import { SessionPerformancePanel } from "./components/SessionPerformancePanel";
+import { SignalWeightsPanel } from "./components/SignalWeightsPanel";
 import { RobinhoodChartCard } from "./components/RobinhoodChartCard";
 import { AbTestingPanel } from "./components/AbTestingPanel";
 import { ExecutionPanel } from "./components/ExecutionPanel";
@@ -433,6 +434,7 @@ export default function TradingDashboard() {
           </TabsContent>
           <TabsContent value="history" className="space-y-6">
             <SessionPerformancePanel />
+            <SignalWeightsPanel />
             <ClosedTradesHistory />
           </TabsContent>
           <TabsContent value="execution">
