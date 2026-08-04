@@ -1,0 +1,206 @@
+# SECURITY_AUDIT.md
+Last updated: 2026-08-04 (Pass 1)
+
+Every finding below was verified by directly reading the relevant file and,
+where applicable, tracing the actual data flow. Severity ratings reflect
+real, reasoned impact — not worst-case dramatization.
+
+---
+
+## FINDING 1 — CRITICAL: `evaluate-alerts.ts` has no authorization check at all
+
+**File:** `src/routes/api/public/evaluate-alerts.ts`
+
+The handler signature is `POST: async () => { ... }` — it doesn't even
+accept a `request` parameter, so it structurally cannot check any header.
+It immediately uses `supabaseAdmin` (service-role, bypasses all RLS) to
+read every user's `price_alerts` and write `notifications` + update
+`price_alerts` for any user whose alert triggers.
+
+The code's own comment says: *"Called by pg_cron every 5 minutes via the
+project's anon key in the `apikey` header"* — describing intended behavior
+that was never implemented. This is almost certainly a regression, not a
+deliberate design choice, given every sibling cron endpoint (evaluate-
+strategies, snapshot-portfolio, autonomous-agent, etc.) correctly checks
+`apikey !== process.env.SUPABASE_PUBLISHABLE_KEY`.
+
+**Real-world impact:** Anyone who discovers this URL can POST to it
+repeatedly with no rate limit (see Finding 4) and no authentication. The
+JSON response itself only returns counts (`{ ok, checked, triggered }`),
+so this is not a direct data-exfiltration path. The real risk is (a)
+unbounded free execution of service-role-privileged logic by anyone, (b)
+cost/quota exhaustion on the price-lookup calls it makes, (c) spurious
+`notifications` writes for arbitrary users if their alerts happen to be
+triggerable.
+
+**Fix:** Add the same guard every other route in this codebase already
+uses:
+```ts
+POST: async ({ request }: { request: Request }) => {
+  const apikey = request.headers.get("apikey");
+  if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  ...
+```
+
+**Status:** Open. Not yet fixed as of this audit pass.
+
+---
+
+## FINDING 2 — HIGH: `sync-crons.ts` auth check is present but ineffective
+
+**File:** `src/routes/api/public/sync-crons.ts`
+
+```ts
+const apikey = request.headers.get("apikey");
+if (!apikey) return new Response("Unauthorized", { status: 401 });
+```
+
+This only verifies the header is *non-empty*. It never compares it against
+`process.env.SUPABASE_PUBLISHABLE_KEY`. Any request with `apikey: x` (or
+any other non-empty string) passes this check and can trigger
+`register_all_crons()` via a `SECURITY DEFINER` RPC (service-role
+privileges).
+
+This was caught by manual review after an automated grep initially reported
+this file as "protected" — the string `SUPABASE_PUBLISHABLE_KEY` does
+appear in the file, but only later, unrelated to the actual auth check.
+Documenting this explicitly because it's a good example of why automated
+pattern-matching isn't sufficient for a security review.
+
+**Real-world impact:** Lower than Finding 1 — the operation itself
+(re-registering the same fixed set of cron jobs) is idempotent and doesn't
+expose or mutate user data. Still improper access control on an
+admin-privileged action, and a caller could spam it.
+
+**Fix:** Change to the correct comparison:
+```ts
+if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
+  return new Response("Unauthorized", { status: 401 });
+}
+```
+
+**Status:** Open. Not yet fixed as of this audit pass.
+
+---
+
+## FINDING 3 — LOW: Robinhood OAuth callback uses `user_id` as the `state` parameter
+
+**File:** `src/routes/api/public/mcp/robinhood/callback.ts`
+
+OAuth's `state` parameter exists specifically as an anti-CSRF nonce — a
+random, unguessable value generated at flow start and checked on return.
+This implementation sets `state = user_id` directly rather than a separate
+random value.
+
+**Why this is LOW and not HIGH severity, verified:** the actual token
+exchange (`exchangeCode(...)`) passes `code_verifier: row.code_verifier` —
+meaning PKCE is enforced. Robinhood's token endpoint will reject a code
+exchange where the `code_verifier` doesn't match the original
+`code_challenge`. An attacker attempting to inject their own authorization
+`code` against a victim's `state`(=user_id) would fail at this step
+regardless, because they don't possess the victim's `code_verifier`.
+Combined with Supabase user IDs being non-sequential UUIDs (not practically
+guessable), the real-world exploitability here is low. This is a
+"not textbook-correct, but not exploitable given the other layer" finding.
+
+**Fix (hardening, not urgent):** Generate a separate random `state` value
+at flow initiation, store it alongside `code_verifier`, and verify it
+matches on callback — independent of PKCE, as defense in depth.
+
+**Status:** Open, low priority.
+
+---
+
+## FINDING 4 — MEDIUM: No application-level rate limiting anywhere
+
+Verified by search — zero rate-limiting logic exists on any endpoint,
+authenticated or public. The only `429` handling found in the codebase is
+the app correctly reacting to being rate-limited BY an external API
+(Lovable's AI gateway), not the app protecting itself from abuse.
+
+**Real-world impact:** Every `createServerFn` (user-authenticated) and
+every `/api/public/*` endpoint (cron-key-authenticated, when correctly
+implemented) can be called at unlimited frequency by anyone holding a
+valid credential. Combined with Findings 1 and 2, this makes those two
+gaps materially worse — no rate limit means no natural ceiling on abuse
+even after the auth issue itself is understood.
+
+**Fix:** Supabase Edge Functions and most serverless platforms support
+either platform-level rate limiting or a lightweight token-bucket check
+against a Postgres table/Redis. Given the financial nature of this app,
+recommend this before any live-money connection, not just "eventually."
+
+**Status:** Open.
+
+---
+
+## FINDING 5 — LOW: `.env` is tracked in git
+
+**File:** `.env` (repo root)
+
+Confirmed via `git ls-files` that this file is committed, and `.gitignore`
+has no pattern excluding it.
+
+**Why this is LOW and not CRITICAL, verified:** read the actual tracked
+contents. All six values are `SUPABASE_PROJECT_ID`, `SUPABASE_PUBLISHABLE_KEY`,
+`SUPABASE_URL`, and their `VITE_`-prefixed client-side equivalents — these
+are the Supabase *publishable/anon* key and public project identifiers,
+which Supabase's own security model is explicitly designed to allow being
+public (client-side bundles ship this key to every browser; Row Level
+Security is the actual data boundary, not secrecy of this key). This is
+NOT the service-role key, and none of `FINNHUB_API_KEY`, `POLYGON_API_KEY`,
+or `LOVABLE_API_KEY` appear in this file (those are set as Lovable
+environment secrets server-side, confirmed by their exclusive use via
+`process.env.X` throughout the server route files, never referenced in
+this `.env`).
+
+**Fix (hygiene, not urgent given contents):** Add `.env` to `.gitignore`
+and untrack it, to prevent a future genuinely-secret value from being
+added to this same file and committed by habit/muscle-memory.
+
+**Status:** Open, low priority given verified contents.
+
+---
+
+## FINDING 6 — HIGH (dependency): 2 known CVEs in production dependencies
+
+Verified via `npm audit --omit=dev`:
+
+| Package | Severity | Issue | Fix available |
+|---|---|---|---|
+| `js-yaml` 4.0.0–4.2.0 | High | YAML merge-key chains cause quadratic CPU consumption (DoS vector) — [GHSA-52cp-r559-cp3m](https://github.com/advisories/GHSA-52cp-r559-cp3m) | Yes, via `npm audit fix` |
+| `postcss` ≤8.5.22 | High | Path traversal in source-map auto-loading allows arbitrary `.map` file disclosure — [GHSA-r28c-9q8g-f849](https://github.com/advisories/GHSA-r28c-9q8g-f849), [GHSA-fxqj-rqcc-2cmp](https://github.com/advisories/GHSA-fxqj-rqcc-2cmp) | Yes, via `npm audit fix` |
+
+**Status:** Open. `npm audit fix` has not yet been run against this
+repository as of this audit pass — deliberately, since running it without
+then testing the build afterward would itself be an unverified change.
+Flagged for the next work session with the explicit instruction to run
+the fix AND re-verify `tsc --noEmit` + production build afterward.
+
+---
+
+## What's solid (verified, not assumed)
+
+- **Auth middleware (`auth-middleware.ts`)**: Lovable-generated, correctly
+  validates Bearer JWT structure, calls `supabase.auth.getClaims()` against
+  real Supabase Auth, and scopes the resulting client to the user's own
+  session — not service-role. Every `createServerFn` using
+  `.middleware([requireSupabaseAuth])` inherits proper RLS scoping.
+- **10 of 12 checked `/api/public/*` cron endpoints** correctly implement
+  the `apikey !== process.env.SUPABASE_PUBLISHABLE_KEY` check before any
+  service-role database access.
+- **RLS policies exist and follow a consistent pattern** across every new
+  table added this project (`agent_signal_weights`, `btc_dominance_snapshots`,
+  `market_breadth_snapshots`, `iv_history_snapshots`, `robinhood_snapshots`)
+  — authenticated users can only read, service_role does all writes.
+
+## Not yet reviewed in this pass
+
+- Full OWASP Top 10 checklist (only auth/authz, injection-via-Supabase-client
+  patterns, and dependency CVEs have been checked so far — XSS surface,
+  SSRF via the many external fetch() calls to Polygon/Finnhub/Binance/
+  CoinGecko, and insecure deserialization have not been explicitly audited)
+- Supply-chain review beyond the automated CVE scan
+- Whether Supabase Storage (if used) has appropriate bucket policies
