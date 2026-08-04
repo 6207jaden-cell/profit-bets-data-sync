@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   buildContext, detectMarketRegime, fetchBars, fetchQuotePrice, isMarketOpen,
   computeTrendStrength, computeVolatilityPercentile, vixLevelToPercentile,
-  regimePositionMultiplier, atrBasedStopTarget,
+  regimePositionMultiplier, atrBasedStopTarget, fetchVwapBars, computeVwap,
 } from "@/lib/indicators";
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
@@ -525,11 +525,43 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           }));
         }
 
-        // Add MTF data to candidates and boost/reduce opportunity score
+        // ── VWAP with ±1σ/±2σ bands for top candidates ──────────────────────
+        // Scalp & crypto: session VWAP (today only, 5-min bars) — the anchor
+        // that actually matters for same-day/fast trades. Swing sessions
+        // (morning/midday/weekend_prep): weekly-anchored VWAP (since Monday,
+        // hourly bars) — a daily-resetting VWAP isn't meaningful context for
+        // a position meant to be held 1-3 days.
+        const vwapMap = new Map<string, ReturnType<typeof computeVwap>>();
+        if (poly) {
+          const utcDay = new Date().getUTCDay(); // 0=Sun..6=Sat
+          const daysSinceMonday = utcDay === 0 ? 6 : utcDay - 1;
+          const vwapAnchorDays = (session === "scalp" || session === "crypto") ? 0 : daysSinceMonday;
+          const top15ForVwap = sorted.slice(0, 15);
+          await Promise.allSettled(top15ForVwap.map(async (c) => {
+            try {
+              const sym = String(c.symbol);
+              const bars = await fetchVwapBars(sym, vwapAnchorDays);
+              if (!bars) return;
+              const result = computeVwap(bars);
+              if (result) vwapMap.set(sym, result);
+            } catch { /* skip */ }
+          }));
+        }
+
+        // Add MTF + VWAP data to candidates and boost/reduce opportunity score
         const sortedWithMtf = sorted.map((c) => {
           const mtf = mtfMap.get(String(c.symbol));
           const mtfBoost = mtf ? mtf.score * 3 : 0; // +6 if both TFs agree, -6 if both disagree
-          return { ...c, mtf_score: mtf?.score ?? 0, mtf_label: mtf?.label ?? "daily only", _finalScore: opportunityScore(c) + mtfBoost };
+          const vwap = vwapMap.get(String(c.symbol));
+          return {
+            ...c,
+            mtf_score: mtf?.score ?? 0, mtf_label: mtf?.label ?? "daily only",
+            vwap: vwap ? Number(vwap.vwap.toFixed(4)) : null,
+            vwap_position: vwap?.position ?? null,
+            vwap_upper1: vwap ? Number(vwap.upperBand1.toFixed(4)) : null,
+            vwap_lower1: vwap ? Number(vwap.lowerBand1.toFixed(4)) : null,
+            _finalScore: opportunityScore(c) + mtfBoost,
+          };
         }).sort((a, b) => b._finalScore - a._finalScore);
 
         let totalOpened = 0;
@@ -1013,6 +1045,7 @@ CRYPTO SIGNALS TO PRIORITIZE:
 6. Altcoins with BTC correlation: if BTC dumps, alts dump harder. If BTC pumps, alts pump more.
 7. Crypto is correlated overnight — don't open 6 altcoin positions if BTC is in downtrend.
 8. Each candidate includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning from a per-user adaptive scoring system that learns which signals have actually won for this account. Treat conflict_warning candidates with skepticism — both directions firing usually means choppy price action.
+9. vwap, vwap_position, vwap_upper1, vwap_lower1: session VWAP (since UTC midnight) with ±1σ bands — the volume-weighted reference price for the current session. Price below_lower1/below_lower2 is a mean-reversion buy zone; above_upper1/above_upper2 favors caution on longs or a short. This resets daily so it's most useful for intraday and short swing crypto holds.
 
 RISK RULES:
 - Never allocate more than 10% to any single crypto position overnight.
@@ -1046,6 +1079,7 @@ SCALP RULES — follow exactly:
 - Always maintain at least ${effectiveMinCashPct}% cash reserve.
 - Never allocate more than 12% to any single scalp.
 - Each candidate includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning from a per-user adaptive scoring system learning from this account's real trade outcomes. Skip candidates with a conflict_warning — for scalping, ambiguous direction is a fast way to get stopped out both ways.
+- vwap, vwap_position, vwap_upper1, vwap_lower1: session VWAP (today only) with ±1σ bands. This is the single most important intraday reference — price below_lower1/below_lower2 with other bullish signals is a high-probability long entry; above_upper1/above_upper2 favors a short or avoiding a long. Prefer scalps where vwap_position agrees with direction_hint.
 
 Respond with ONLY valid JSON:
 {
@@ -1076,6 +1110,7 @@ HARD RULES — never violate these:
 - fear_greed_index: <20 = Extreme Fear (buy quality names aggressively, high expected value), 20-40 = Fear (be opportunistic), 40-60 = Neutral, 60-80 = Greed (be selective, smaller positions), >80 = Extreme Greed (be very cautious, reduce sizes, take profits on existing positions).
 - mtf_label on each candidate shows multi-timeframe alignment (1h↑ = hourly bullish, W↑ = weekly bullish). Prefer candidates where 1h and W align with your intended direction. Heavily penalize trades where MTF is against you (e.g. going long on 1h↓ W↓).
 - Each candidate now includes bull_score, bear_score, direction_hint, signal_confidence, and conflict_warning — these come from a per-user adaptive scoring system that learns which technical signals have actually been winning for THIS account's trade history (not generic heuristics). direction_hint is "long"/"short"/"unclear" based on which score dominates. signal_confidence (0-1) measures how one-sided the signals are — low confidence means the signals disagree with each other. conflict_warning fires when bull and bear signals are both firing strongly on the same candidate, which usually means a choppy, low-quality setup — treat these with extra skepticism regardless of the raw score, and generally avoid trading candidates with a conflict_warning unless conviction from other context (news, MTF, options flow) is very strong. This system has no effect until enough of your trades close and it starts learning — early on all weights are neutral.
+- vwap, vwap_position, vwap_upper1, vwap_lower1 (when present): weekly-anchored VWAP with ±1σ bands — the institutional reference price since Monday's open. vwap_position of "below_lower1" or "below_lower2" means price is trading meaningfully below the volume-weighted average, a mean-reversion buy zone if other signals agree; "above_upper1"/"above_upper2" is the mirror for shorts/caution on longs. "near_vwap" is neutral, no edge from this signal alone. Treat price beyond the 2σ band as a stronger signal than beyond 1σ.
 - When earnings_surprises shows a recent positive earnings beat (>5%), that stock has post-earnings drift momentum
 - unusual_options_flow shows institutional positioning via options. Large call premium (bullish) = smart money buying upside. Large put premium (bearish) = smart money hedging or betting on downside. This is one of the most reliable leading indicators — weight it as +20 conviction when aligned with your technical view. — weight it as +20 conviction for long positions. Negative surprises (<-5%) = +20 for short/put.
 - Use MACD histogram: positive = bullish momentum building (buy signal), negative and falling = bearish (short/put signal).

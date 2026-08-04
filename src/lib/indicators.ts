@@ -345,6 +345,92 @@ export type Bars = {
  * Sleeps between Polygon calls to respect the free-tier limit.
  * All callers (backtester, live evaluator, generator) go through this one function.
  */
+export type IntradayBar = { t: number; o: number; h: number; l: number; c: number; v: number };
+
+/**
+ * Fetches short-interval bars for VWAP calculation. `days` controls the
+ * anchor window: 0 = today only (session VWAP, for scalps), larger values
+ * anchor further back (e.g. since Monday, for swing-timeframe VWAP).
+ * Uses 5-minute bars for same-day anchors (precision matters for scalping)
+ * and hourly bars for multi-day anchors (keeps the call cheap — a week of
+ * 5-minute bars would be ~390 rows for no real precision benefit at swing
+ * holding periods).
+ */
+export async function fetchVwapBars(symbol: string, daysBack: number): Promise<IntradayBar[] | null> {
+  const S = symbol.toUpperCase();
+  const isCrypto = isCryptoSymbol(S);
+  const poly = process.env.POLYGON_API_KEY;
+  if (!poly) return null;
+  try {
+    const polySym = isCrypto ? `X:${cryptoBase(S)}USD` : S;
+    const to = new Date();
+    const from = new Date(Date.now() - daysBack * 86400_000);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const granularity = daysBack <= 0 ? "5/minute" : "1/hour";
+    const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/range/${granularity}/${fmt(from)}/${fmt(to)}?adjusted=true&sort=asc&limit=500&apiKey=${poly}`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = (await r.json()) as { results?: IntradayBar[] };
+    const rows = (j.results ?? []).filter((b) => Number.isFinite(b.c) && Number.isFinite(b.v) && b.v > 0);
+    return rows.length >= 3 ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
+export type VwapResult = {
+  vwap: number;
+  upperBand1: number;
+  lowerBand1: number;
+  upperBand2: number;
+  lowerBand2: number;
+  currentPrice: number;
+  /** Where current price sits relative to VWAP and its bands. */
+  position: "above_upper2" | "above_upper1" | "near_vwap" | "below_lower1" | "below_lower2";
+};
+
+/**
+ * Volume Weighted Average Price with ±1 and ±2 standard-deviation bands —
+ * the version institutions actually use, not just a plain VWAP line. Price
+ * beyond the 2σ band is a high-probability mean-reversion zone; near VWAP
+ * is neutral/no-edge; between VWAP and 1σ is a mild directional lean.
+ */
+export function computeVwap(bars: IntradayBar[]): VwapResult | null {
+  if (!bars || bars.length < 3) return null;
+
+  let cumPV = 0, cumV = 0;
+  const typicalPrices: number[] = [];
+  for (const b of bars) {
+    const tp = (b.h + b.l + b.c) / 3;
+    typicalPrices.push(tp);
+    cumPV += tp * b.v;
+    cumV += b.v;
+  }
+  if (cumV <= 0) return null;
+  const vwap = cumPV / cumV;
+
+  let weightedSqDiff = 0;
+  for (let i = 0; i < bars.length; i++) {
+    weightedSqDiff += bars[i].v * Math.pow(typicalPrices[i] - vwap, 2);
+  }
+  const stddev = Math.sqrt(weightedSqDiff / cumV);
+
+  const currentPrice = bars[bars.length - 1].c;
+  const upperBand1 = vwap + stddev;
+  const lowerBand1 = vwap - stddev;
+  const upperBand2 = vwap + 2 * stddev;
+  const lowerBand2 = vwap - 2 * stddev;
+
+  const position: VwapResult["position"] =
+    currentPrice >= upperBand2 ? "above_upper2"
+    : currentPrice >= upperBand1 ? "above_upper1"
+    : currentPrice <= lowerBand2 ? "below_lower2"
+    : currentPrice <= lowerBand1 ? "below_lower1"
+    : "near_vwap";
+
+  return { vwap, upperBand1, lowerBand1, upperBand2, lowerBand2, currentPrice, position };
+}
+
 export async function fetchBars(symbol: string, days = 220): Promise<Bars | null> {
   const S = symbol.toUpperCase();
   const isCrypto = isCryptoSymbol(S);
