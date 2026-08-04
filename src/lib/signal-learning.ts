@@ -53,6 +53,33 @@ export type SignalScoreResult = {
  * yet weight-adjusted) signal contributions. Call applySignalWeights() after
  * this with a user's learned weight map to get the final, personalized score.
  */
+/**
+ * The canonical list of every signal name the scoring system can produce
+ * (see computeDirectionalScores/applySignalWeights below). Needed for
+ * Experiment 4's present-vs-absent contribution analysis — to know a
+ * signal was "absent" on a trade requires knowing the full universe of
+ * possible signals, not just the ones that happened to fire.
+ *
+ * Caveat worth being explicit about: several of these are mutually
+ * exclusive pairs by construction (rsi_oversold/rsi_overbought,
+ * macd_bullish/macd_bearish, bb_lower_band/bb_upper_band,
+ * stoch_oversold/stoch_overbought, rs_strong_outperform/
+ * rs_strong_underperform — RSI cannot be both <30 and >70 on the same
+ * candidate). For these pairs, "absent" conflates two different states:
+ * the neutral zone (e.g., RSI 30-70) AND the opposite extreme (e.g., RSI
+ * >70 when checking "absent rsi_oversold"). This phase tracks simple
+ * present/absent as specified; a future refinement could separate
+ * present / absent-neutral / absent-opposite for these specific pairs.
+ * Documented here and in EXPERIMENT_RESULTS.md rather than silently
+ * treated as a clean comparison.
+ */
+export const ALL_TRACKED_SIGNALS = [
+  "momentum", "return_5d", "return_20d", "rs_vs_spy", "rs_strong_outperform",
+  "rs_strong_underperform", "regime_aligned", "rsi_oversold", "rsi_overbought",
+  "volume_surge", "volume_surge_strong", "liquidity", "macd_bullish", "macd_bearish",
+  "bb_lower_band", "bb_upper_band", "stoch_oversold", "stoch_overbought",
+] as const;
+
 export function computeDirectionalScores(c: CandidateInput, regime: "bull" | "bear" | "sideways"): SignalScoreResult {
   const bull: Record<string, number> = {};
   const bear: Record<string, number> = {};
@@ -321,6 +348,44 @@ export async function updateSignalWeights(
       console.warn("[signal-learning] failed to update weight for", signalName, String(e));
     }
   }
+
+  // ── Experiment 4 (Signal Contribution Analysis): absent-side tracking ──
+  // For every KNOWN signal that was NOT active on this trade, update its
+  // "absent" Bayesian track — pure observation, does NOT touch
+  // weight_multiplier or any present-side field above. This is what makes
+  // a genuine present-vs-absent comparison possible later, rather than
+  // only ever seeing "how did trades WITH this signal do" in isolation.
+  // See HYPOTHESIS_LOG.md, EXPERIMENTS.md E-08.
+  const presentSet = new Set(entrySignals);
+  for (const signalName of ALL_TRACKED_SIGNALS) {
+    if (presentSet.has(signalName)) continue; // this trade HAD the signal — present-side loop above already handled it
+    try {
+      const { data: existing } = await supabaseAdmin
+        .from("agent_signal_weights")
+        .select("absent_alpha, absent_beta, absent_sample_size, absent_avg_pnl_pct")
+        .eq("user_id", userId)
+        .eq("signal_name", signalName)
+        .maybeSingle();
+
+      const absentAlpha = Number(existing?.absent_alpha ?? 1) + (won ? 1 : 0);
+      const absentBeta = Number(existing?.absent_beta ?? 1) + (won ? 0 : 1);
+      const absentSampleSize = Number(existing?.absent_sample_size ?? 0) + 1;
+      const priorAbsentAvg = Number(existing?.absent_avg_pnl_pct ?? 0);
+      const absentAvgPnl = priorAbsentAvg + (pnlPct - priorAbsentAvg) / absentSampleSize;
+
+      await supabaseAdmin.from("agent_signal_weights").upsert({
+        user_id: userId,
+        signal_name: signalName,
+        absent_alpha: absentAlpha,
+        absent_beta: absentBeta,
+        absent_sample_size: absentSampleSize,
+        absent_avg_pnl_pct: Number(absentAvgPnl.toFixed(3)),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,signal_name" });
+    } catch (e) {
+      console.warn("[signal-learning] failed to update absent stats for", signalName, String(e));
+    }
+  }
 }
 
 export type KellySizeResult = {
@@ -389,4 +454,76 @@ export function computeKellySizeMultiplier(
     : `signal "${bestName}": ${best.sampleSize} trades, ${(p * 100).toFixed(0)}% win rate, ${best.avgWinPct.toFixed(1)}% avg win vs ${best.avgLossPct.toFixed(1)}% avg loss`;
 
   return { multiplier: Number(multiplier.toFixed(3)), kellyFractionPct: Number(kellyFractionPct.toFixed(1)), reason };
+}
+
+// ── Experiment 4 (Signal Contribution Analysis) reporting ───────────────
+
+export type SignalContributionRow = {
+  signalName: string;
+  presentSampleSize: number;
+  presentWinRate: number;
+  presentAvgPnlPct: number;
+  absentSampleSize: number;
+  absentWinRate: number;
+  absentAvgPnlPct: number;
+  /** presentAvgPnlPct - absentAvgPnlPct — the actual "contribution" figure: how much better (or worse) trades WITH this signal did vs trades WITHOUT it. */
+  contributionPct: number;
+  /** True only once BOTH sides have a minimally meaningful sample — an honest "don't over-read this yet" gate, not a statistical significance test. */
+  hasMinimumEvidence: boolean;
+  isMutuallyExclusivePair: boolean;
+};
+
+const MUTUALLY_EXCLUSIVE_SIGNALS = new Set([
+  "rsi_oversold", "rsi_overbought", "macd_bullish", "macd_bearish",
+  "bb_lower_band", "bb_upper_band", "stoch_oversold", "stoch_overbought",
+  "rs_strong_outperform", "rs_strong_underperform",
+]);
+
+const MIN_SAMPLE_FOR_COMPARISON = 10;
+
+/**
+ * Reads the full present/absent Bayesian stats for every tracked signal and
+ * computes each one's actual contribution — the present-vs-absent average
+ * return gap — rather than just reporting present-side win rate in
+ * isolation (which can't distinguish "this signal has real edge" from
+ * "everything was winning during the period this signal happened to fire").
+ * Pure reporting — does not modify any stored weight or influence any
+ * trading decision. See EXPERIMENTS.md E-08.
+ */
+export async function computeSignalContribution(
+  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  userId: string,
+): Promise<SignalContributionRow[]> {
+  const { data } = await supabaseAdmin
+    .from("agent_signal_weights")
+    .select("*")
+    .eq("user_id", userId);
+
+  const rows: SignalContributionRow[] = [];
+  for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+    const signalName = String(r.signal_name);
+    const presentAlpha = Number(r.alpha ?? 1);
+    const presentBeta = Number(r.beta ?? 1);
+    const presentSampleSize = Number(r.sample_size ?? 0);
+    const presentAvgPnlPct = Number(r.avg_pnl_pct ?? 0);
+    const absentAlpha = Number(r.absent_alpha ?? 1);
+    const absentBeta = Number(r.absent_beta ?? 1);
+    const absentSampleSize = Number(r.absent_sample_size ?? 0);
+    const absentAvgPnlPct = Number(r.absent_avg_pnl_pct ?? 0);
+
+    rows.push({
+      signalName,
+      presentSampleSize,
+      presentWinRate: Number((presentAlpha / (presentAlpha + presentBeta)).toFixed(3)),
+      presentAvgPnlPct: Number(presentAvgPnlPct.toFixed(3)),
+      absentSampleSize,
+      absentWinRate: Number((absentAlpha / (absentAlpha + absentBeta)).toFixed(3)),
+      absentAvgPnlPct: Number(absentAvgPnlPct.toFixed(3)),
+      contributionPct: Number((presentAvgPnlPct - absentAvgPnlPct).toFixed(3)),
+      hasMinimumEvidence: presentSampleSize >= MIN_SAMPLE_FOR_COMPARISON && absentSampleSize >= MIN_SAMPLE_FOR_COMPARISON,
+      isMutuallyExclusivePair: MUTUALLY_EXCLUSIVE_SIGNALS.has(signalName),
+    });
+  }
+
+  return rows.sort((a, b) => b.presentSampleSize - a.presentSampleSize);
 }
