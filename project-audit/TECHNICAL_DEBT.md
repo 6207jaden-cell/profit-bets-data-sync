@@ -233,10 +233,18 @@ decomposing realized P&L by symbol and by asset class
 partition — every trade has exactly one symbol and one asset class, so
 percentages sum to exactly 100%, not more — documented as a deliberate
 contrast in both the code and the test suite. **All four attribution
-categories are now built.** What remains of the full Stage 3 list:
-rolling metrics (rolling Sharpe, rolling correlation over time),
-exposure, holding-time/trade distribution, and regime-conditional
-performance.
+categories are now built.**
+
+**Update 2026-08-05 (same day, sixth slice):** Rolling win-rate/Sharpe/
+Sortino now exist (`computeRollingMetrics`, `computeRollingTrend`,
+`performance-metrics.ts`), shown as a trend chart in
+`PerformanceMetricsPanel` — a single aggregate Sharpe number can hide a
+strategy that's currently improving or deteriorating; this shows the
+trend directly. Reuses the existing tested Sharpe/Sortino formulas
+rather than re-deriving them. What remains of the full Stage 3 list:
+rolling correlation specifically (Beta/Alpha rolling over time, not yet
+built — only win-rate/Sharpe/Sortino roll so far), exposure,
+holding-time/trade distribution, and regime-conditional performance.
 
 **Priority:** Was High — the foundational piece (can this system answer
 "is it better than random") is now answerable, and all four attribution

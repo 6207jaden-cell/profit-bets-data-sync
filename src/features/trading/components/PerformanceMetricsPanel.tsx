@@ -4,11 +4,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Activity } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, LineChart as LineChartIcon } from "lucide-react";
 import { LoadingState } from "@/components/StateViews";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import {
   computeSharpeRatio, computeSortinoRatio, computeMaxDrawdown, buildRealizedEquityCurve,
   computeProfitFactor, computeExpectancy, computeWinRateWithConfidenceInterval,
+  computeRollingMetrics, computeRollingTrend,
   type TradeReturn,
 } from "@/lib/performance-metrics";
 import { getBenchmarkComparison } from "@/lib/benchmark-comparison.functions";
@@ -97,6 +99,10 @@ export function PerformanceMetricsPanel() {
 
     const equityCurve = buildRealizedEquityCurve(tradeReturns);
 
+    const ROLLING_WINDOW = 10;
+    const rollingPoints = computeRollingMetrics(tradeReturns, ROLLING_WINDOW);
+    const rollingTrend = computeRollingTrend(rollingPoints);
+
     return {
       sampleSize: tradeReturns.length,
       sharpe: computeSharpeRatio(tradeReturns),
@@ -105,6 +111,8 @@ export function PerformanceMetricsPanel() {
       profitFactor: computeProfitFactor(pnls),
       expectancy: computeExpectancy(tradeReturns),
       winRate: computeWinRateWithConfidenceInterval(wins, tradeReturns.length),
+      rollingPoints,
+      rollingTrend,
     };
   }, [trades]);
 
@@ -189,6 +197,43 @@ export function PerformanceMetricsPanel() {
                   <p className="text-[10px] text-muted-foreground">Avg Loss</p>
                   <p className="text-sm font-mono font-semibold text-red-400">-{metrics.expectancy.avgLossPct.toFixed(2)}%</p>
                 </div>
+              </Card>
+            </div>
+          )}
+
+          {/* Rolling metrics — shows the TREND, not just the aggregate.
+              Only rendered once there are enough rolling points to actually
+              show a trend rather than 1-2 isolated dots. */}
+          {metrics.rollingPoints.length >= 5 && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <LineChartIcon className="h-3 w-3" /> Rolling Win Rate (10-trade window)
+                </h3>
+                {metrics.rollingTrend?.winRateDelta != null && (
+                  <span className={cn(
+                    "text-[10px] font-mono flex items-center gap-0.5",
+                    metrics.rollingTrend.winRateDelta > 0 ? "text-emerald-400" : metrics.rollingTrend.winRateDelta < 0 ? "text-red-400" : "text-muted-foreground"
+                  )}>
+                    {metrics.rollingTrend.winRateDelta > 0 ? <TrendingUp className="h-3 w-3" /> : metrics.rollingTrend.winRateDelta < 0 ? <TrendingDown className="h-3 w-3" /> : null}
+                    {(metrics.rollingTrend.winRateDelta * 100).toFixed(1)}pp vs. prior window
+                  </span>
+                )}
+              </div>
+              <Card className="p-3 border-border/60 bg-card">
+                <ResponsiveContainer width="100%" height={100}>
+                  <LineChart data={metrics.rollingPoints}>
+                    <XAxis dataKey="index" hide />
+                    <YAxis domain={[0, 1]} hide />
+                    <ReferenceLine y={0.5} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" strokeOpacity={0.4} />
+                    <Tooltip
+                      formatter={(value: number) => [`${(value * 100).toFixed(0)}%`, "Win rate"]}
+                      labelFormatter={(_label, payload) => payload?.[0]?.payload?.date ?? ""}
+                      contentStyle={{ fontSize: 11, background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                    />
+                    <Line type="monotone" dataKey="rollingWinRate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
               </Card>
             </div>
           )}

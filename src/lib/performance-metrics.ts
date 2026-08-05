@@ -294,3 +294,75 @@ export function computeDailyReturns(values: number[]): number[] {
   }
   return returns;
 }
+
+// ── Rolling Metrics ───────────────────────────────────────────────────────
+// A single aggregate Sharpe/win-rate number can hide whether performance is
+// actually improving or degrading — a strategy with a great overall Sharpe
+// could still be in the middle of a recent decline that the aggregate
+// figure smooths over. Rolling metrics show the trend, not just the
+// endpoint. Deliberately reuses computeSharpeRatio/computeSortinoRatio
+// directly (imported implicitly via being in the same module) rather than
+// re-deriving the formulas — one tested implementation, applied to sliding
+// windows instead of the whole history.
+
+export type RollingMetricPoint = {
+  /** Index of the last trade included in this window, in chronological order. */
+  index: number;
+  /** closedAt of the last trade in this window — when this window's figures became true. */
+  date: string;
+  rollingSharpe: number | null;
+  rollingSortino: number | null;
+  rollingWinRate: number | null; // 0-1
+  windowSize: number;
+};
+
+/**
+ * Computes Sharpe, Sortino, and win rate over a trailing window of the
+ * most recent `windowSize` trades, advancing one trade at a time through
+ * the full chronologically-sorted history. Returns one point per window
+ * position once enough trades exist to fill a window — e.g. with
+ * windowSize=20 and 25 total trades, this returns 6 points (windows ending
+ * at trades 20 through 25).
+ */
+export function computeRollingMetrics(trades: TradeReturn[], windowSize: number): RollingMetricPoint[] {
+  if (windowSize < 2 || trades.length < windowSize) return [];
+  const sorted = [...trades].sort((a, b) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime());
+  const points: RollingMetricPoint[] = [];
+
+  for (let i = windowSize - 1; i < sorted.length; i++) {
+    const window = sorted.slice(i - windowSize + 1, i + 1);
+    const sharpeResult = computeSharpeRatio(window);
+    const sortinoResult = computeSortinoRatio(window);
+    const wins = window.filter((t) => t.pnlPct > 0).length;
+
+    points.push({
+      index: i,
+      date: sorted[i].closedAt,
+      rollingSharpe: sharpeResult?.raw ?? null,
+      rollingSortino: sortinoResult,
+      rollingWinRate: Number((wins / window.length).toFixed(4)),
+      windowSize,
+    });
+  }
+
+  return points;
+}
+
+/**
+ * Compares the most recent rolling window against the one immediately
+ * before it, to answer the trend question directly: is the strategy
+ * improving or deteriorating right now, not just "what's the Sharpe been
+ * historically." Returns null when there aren't at least 2 rolling points
+ * to compare.
+ */
+export function computeRollingTrend(points: RollingMetricPoint[]): { sharpeDelta: number | null; winRateDelta: number | null } | null {
+  if (points.length < 2) return null;
+  const latest = points[points.length - 1];
+  const previous = points[points.length - 2];
+  return {
+    sharpeDelta: (latest.rollingSharpe != null && previous.rollingSharpe != null)
+      ? Number((latest.rollingSharpe - previous.rollingSharpe).toFixed(4)) : null,
+    winRateDelta: (latest.rollingWinRate != null && previous.rollingWinRate != null)
+      ? Number((latest.rollingWinRate - previous.rollingWinRate).toFixed(4)) : null,
+  };
+}

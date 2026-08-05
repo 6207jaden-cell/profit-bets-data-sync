@@ -520,3 +520,57 @@ rolling metrics (rolling Sharpe, rolling correlation over time),
 exposure, holding-time/trade distribution, and regime-conditional
 performance — tracked in `TECHNICAL_DEBT.md` TD-12.
 
+---
+
+## 2026-08-05 — Stage 3, sixth slice: rolling metrics
+
+**What changed:** `computeRollingMetrics` and `computeRollingTrend`
+(new, `performance-metrics.ts`) — rolling Sharpe, Sortino, and win rate
+over a trailing 10-trade window. Shown as a trend chart in
+`PerformanceMetricsPanel`, only once at least 5 rolling points exist (14+
+total trades) so it shows an actual trend rather than 1-2 isolated dots.
+
+**Why:** A single aggregate Sharpe/win-rate number can hide whether a
+strategy is currently improving or deteriorating — a great overall
+figure could still be smoothing over a recent decline. This answers "is
+it getting better or worse right now," not just "what has it been
+historically."
+
+**How it was built:** Deliberately reuses `computeSharpeRatio` and
+`computeSortinoRatio` directly rather than re-deriving the formulas for
+a windowed context — one tested implementation applied to sliding
+windows instead of the whole history. `computeRollingTrend` compares
+only the two most recent windows, giving a direct "vs. prior window"
+delta shown next to the chart.
+
+**Files changed:**
+- `src/lib/performance-metrics.ts` (added `computeRollingMetrics`,
+  `computeRollingTrend`)
+- `src/lib/__tests__/performance-metrics.test.ts` (8 new tests, 42 total)
+- `src/features/trading/components/PerformanceMetricsPanel.tsx` (wired
+  in as a rolling win-rate trend chart)
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 updated)
+
+**Tests added:** 8 — hand-computed rolling win rate over a known
+6-trade/window-3 sequence (4 expected windows, each verified by hand),
+empty result for fewer trades than the window size, empty result for an
+invalid window size, chronological sorting applied regardless of input
+order (verified by shuffling the same trades and confirming an
+identical result), each point's date matching the last trade in its
+window, and the trend delta correctly signed in both directions.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 161/161 passing (8 new)
+
+**Remaining risk / honest limitations:**
+- Only win-rate/Sharpe/Sortino roll over time so far — rolling
+  correlation/Beta/Alpha (comparing the trend of market exposure itself,
+  not just risk-adjusted return) is a separate, not-yet-built piece.
+- The 10-trade window and "needs 5 points" thresholds are reasonable
+  defaults, not empirically tuned — worth revisiting once real trade
+  volume exists to see if they're the right granularity.
+- Exposure, holding-time/trade distribution, and regime-conditional
+  performance remain open per `TECHNICAL_DEBT.md` TD-12.
+

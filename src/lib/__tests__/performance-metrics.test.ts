@@ -3,6 +3,7 @@ import {
   computeSharpeRatio, computeSortinoRatio, computeMaxDrawdown, buildRealizedEquityCurve,
   computeProfitFactor, computeExpectancy, computeWinRateWithConfidenceInterval,
   computeBeta, computeAlpha, computeDailyReturns,
+  computeRollingMetrics, computeRollingTrend,
   type TradeReturn,
 } from "@/lib/performance-metrics";
 
@@ -275,5 +276,80 @@ describe("computeDailyReturns", () => {
   it("skips a transition where the prior value is zero or negative, rather than producing Infinity/NaN", () => {
     const returns = computeDailyReturns([0, 100, 110]);
     expect(returns.every((r) => Number.isFinite(r))).toBe(true);
+  });
+});
+
+describe("computeRollingMetrics", () => {
+  it("computes the correct hand-verified rolling win rate over a known trade sequence", () => {
+    // 6 trades, returns [2, -1, 3, -2, 4, 1], window=3
+    // window i=2 (trades 0-2 = [2,-1,3]): 2 wins / 3 = 0.6667
+    // window i=3 (trades 1-3 = [-1,3,-2]): 1 win / 3 = 0.3333
+    // window i=4 (trades 2-4 = [3,-2,4]): 2 wins / 3 = 0.6667
+    // window i=5 (trades 3-5 = [-2,4,1]): 2 wins / 3 = 0.6667
+    const trades: TradeReturn[] = [2, -1, 3, -2, 4, 1].map((pnlPct, i) => ({ pnlPct, closedAt: `2026-01-0${i + 1}` }));
+    const points = computeRollingMetrics(trades, 3);
+    expect(points).toHaveLength(4); // 6 trades - 3 window + 1
+    expect(points[0].rollingWinRate).toBeCloseTo(0.6667, 3);
+    expect(points[1].rollingWinRate).toBeCloseTo(0.3333, 3);
+    expect(points[2].rollingWinRate).toBeCloseTo(0.6667, 3);
+    expect(points[3].rollingWinRate).toBeCloseTo(0.6667, 3);
+  });
+
+  it("returns an empty array when there are fewer trades than the window size", () => {
+    const trades: TradeReturn[] = [1, 2].map((pnlPct, i) => ({ pnlPct, closedAt: `2026-01-0${i + 1}` }));
+    expect(computeRollingMetrics(trades, 5)).toEqual([]);
+  });
+
+  it("returns an empty array for an invalid (too small) window size", () => {
+    const trades: TradeReturn[] = [1, 2, 3].map((pnlPct, i) => ({ pnlPct, closedAt: `2026-01-0${i + 1}` }));
+    expect(computeRollingMetrics(trades, 1)).toEqual([]);
+  });
+
+  it("sorts trades chronologically before windowing, regardless of input order", () => {
+    // Same trades as the first test but shuffled — result should be identical
+    const shuffled: TradeReturn[] = [
+      { pnlPct: 4, closedAt: "2026-01-05" },
+      { pnlPct: 2, closedAt: "2026-01-01" },
+      { pnlPct: 1, closedAt: "2026-01-06" },
+      { pnlPct: -1, closedAt: "2026-01-02" },
+      { pnlPct: -2, closedAt: "2026-01-04" },
+      { pnlPct: 3, closedAt: "2026-01-03" },
+    ];
+    const points = computeRollingMetrics(shuffled, 3);
+    expect(points[0].rollingWinRate).toBeCloseTo(0.6667, 3);
+  });
+
+  it("each rolling point's date matches the closedAt of the last trade in that window", () => {
+    const trades: TradeReturn[] = [1, 2, 3, 4].map((pnlPct, i) => ({ pnlPct, closedAt: `2026-01-0${i + 1}` }));
+    const points = computeRollingMetrics(trades, 3);
+    expect(points[0].date).toBe("2026-01-03"); // window [1,2,3], ends at trade 3
+    expect(points[1].date).toBe("2026-01-04"); // window [2,3,4], ends at trade 4
+  });
+});
+
+describe("computeRollingTrend", () => {
+  it("computes the correct delta between the two most recent rolling windows", () => {
+    const points = [
+      { index: 0, date: "a", rollingSharpe: 1.0, rollingSortino: 1.5, rollingWinRate: 0.5, windowSize: 3 },
+      { index: 1, date: "b", rollingSharpe: 1.5, rollingSortino: 2.0, rollingWinRate: 0.6, windowSize: 3 },
+    ];
+    const trend = computeRollingTrend(points)!;
+    expect(trend.sharpeDelta).toBeCloseTo(0.5, 3);
+    expect(trend.winRateDelta).toBeCloseTo(0.1, 3);
+  });
+
+  it("returns null with fewer than 2 rolling points to compare", () => {
+    expect(computeRollingTrend([])).toBeNull();
+    expect(computeRollingTrend([{ index: 0, date: "a", rollingSharpe: 1, rollingSortino: 1, rollingWinRate: 0.5, windowSize: 3 }])).toBeNull();
+  });
+
+  it("a negative delta correctly indicates deteriorating recent performance", () => {
+    const points = [
+      { index: 0, date: "a", rollingSharpe: 2.0, rollingSortino: 2.0, rollingWinRate: 0.7, windowSize: 3 },
+      { index: 1, date: "b", rollingSharpe: 0.5, rollingSortino: 0.5, rollingWinRate: 0.4, windowSize: 3 },
+    ];
+    const trend = computeRollingTrend(points)!;
+    expect(trend.sharpeDelta).toBeLessThan(0);
+    expect(trend.winRateDelta).toBeLessThan(0);
   });
 });
