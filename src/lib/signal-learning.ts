@@ -18,8 +18,18 @@
 // user contributes less to future scores than one with a 70% win rate,
 // automatically, without needing a scheduled retraining job.
 
-import type { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
+// These functions write to / read from tables (agent_signal_weights'
+// absent-side columns, shadow_candidate_log) that are ahead of the
+// auto-generated Database type — migrations exist and are applied, but
+// codegen hasn't been re-run against the live schema. A strict
+// ReturnType<typeof createClient<Database>> parameter type would force
+// every internal .from()/select()/upsert() call in this file to fail
+// type-checking. Casting the argument at the CALL SITE does not fix this
+// — the parameter's own declared type re-asserts strictness for all usage
+// inside the function body regardless of what the caller passed. This was
+// a real, previously-uncaught type-checking gap (see BUG_TRACKER.md).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseAdminClient = any;
 
 type CandidateInput = {
   rsi: number | null;
@@ -167,7 +177,7 @@ export type SignalStatsMap = Map<string, SignalStats>;
  * one query avoids fetching the same table twice per scan.
  */
 export async function loadFullSignalStats(
-  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  supabaseAdmin: SupabaseAdminClient,
   userId: string,
 ): Promise<SignalStatsMap> {
   const map: SignalStatsMap = new Map();
@@ -195,7 +205,7 @@ export async function loadFullSignalStats(
 
 /** Loads a user's learned signal weights. Missing signals default to neutral 1.0x. */
 export async function loadSignalWeights(
-  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  supabaseAdmin: SupabaseAdminClient,
   userId: string,
 ): Promise<SignalWeightMap> {
   const full = await loadFullSignalStats(supabaseAdmin, userId);
@@ -287,7 +297,7 @@ export function applySignalWeights(
  * using a Bayesian prior instead of a naive running win-rate.
  */
 export async function updateSignalWeights(
-  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  supabaseAdmin: SupabaseAdminClient,
   userId: string,
   entrySignals: string[] | null | undefined,
   pnlPct: number,
@@ -491,7 +501,7 @@ const MIN_SAMPLE_FOR_COMPARISON = 10;
  * trading decision. See EXPERIMENTS.md E-08.
  */
 export async function computeSignalContribution(
-  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  supabaseAdmin: SupabaseAdminClient,
   userId: string,
 ): Promise<SignalContributionRow[]> {
   const { data } = await supabaseAdmin

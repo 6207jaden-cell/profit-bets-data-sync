@@ -36,6 +36,7 @@ type PayloadShape = {
   day_pnl_pct?: number;
   skipped?: string;
   ai_error?: boolean;
+  debug_skips?: Array<{ symbol: string; reason: string; detail?: unknown }>;
 };
 
 const SESSION_LABELS: Record<string, string> = {

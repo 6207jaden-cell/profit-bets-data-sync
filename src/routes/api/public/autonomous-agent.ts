@@ -8,7 +8,7 @@ import {
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
-import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, type SignalWeightMap } from "@/lib/signal-learning";
+import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, updateSignalWeights, type SignalWeightMap } from "@/lib/signal-learning";
 import { logShadowCandidates, linkShadowCandidateToTrade, logWeightingComparison, linkWeightingComparisonToTrade } from "@/lib/shadow-experiments";
 import { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc, isCryptoWeekend } from "@/lib/crypto-signals";
 import { computeBreadthScore, getBreadthMomentum } from "@/lib/market-breadth";
@@ -1084,6 +1084,10 @@ async function runForUser(args: {
       conflict_warning: scored.conflictScore > 15 ? "CONFLICTING SIGNALS — both directions firing, likely choppy" : null,
       _bullSignals: scored.bullSignals,
       _bearSignals: scored.bearSignals,
+    } as Record<string, unknown> & {
+      bull_score: number; bear_score: number; direction_hint: string;
+      signal_confidence: number; conflict_warning: string | null;
+      _bullSignals: string[]; _bearSignals: string[];
     };
   }).sort((a, b) => {
     const aStrength = Math.max(a.bull_score, a.bear_score) * (0.5 + a.signal_confidence);
@@ -1134,6 +1138,22 @@ async function runForUser(args: {
   // Strip internal-only fields before sending to the AI — it only needs the
   // human-readable direction_hint/confidence/conflict_warning fields.
   const candidatesForAi = rescored.map(({ _bullSignals, _bearSignals, ...rest }) => rest);
+
+  // ── Robinhood context: real positions, news, earnings, options, order book ──
+  // Fetched just before AI call so Claude gets the freshest possible picture.
+  // Best-effort — returns null if user has no Robinhood connection.
+  // NOTE: this block was previously positioned much later in the function
+  // (right before the AI call) and referenced a variable name
+  // (sortedWithMtf) that no longer existed after the Stage 2 rescoring
+  // refactor renamed it to `rescored` — meaning this computed nothing
+  // (TypeScript couldn't even resolve the name) and, worse,
+  // userMessageWithMemory referenced robinhoodSection BEFORE this block
+  // ran at all, a genuine use-before-declaration bug. Moved here, fixed
+  // to use the correct variable, verified by removing 126+ accumulated
+  // TypeScript errors this and related issues had been silently causing.
+  const topSymbols = rescored.slice(0, 10).map((c) => String(c.symbol));
+  const robinhoodCtx = await fetchRobinhoodContext(supabaseAdmin, userId, topSymbols).catch(() => null);
+  const robinhoodSection = robinhoodCtx ? formatRobinhoodContext(robinhoodCtx) : null;
 
   const userMessage = {
     session, regime, vix_level: vixLevel,
@@ -1334,13 +1354,6 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   "trades": [ { "symbol": "NVDA", "direction": "long|short", "instrument": "stock|etf|crypto|call|put|call_spread|put_spread|iron_condor", "conviction": <0-100>, "allocation_pct": <1-${effectiveMaxPositionPct}>, "stop_loss_pct": <number>, "take_profit_pct": <number>, "hold_duration": "intraday|swing|position", "rationale": "2-3 sentence explanation", "options_details": { "expiry_days_out": 21, "strike_type": "atm|otm_1|otm_2|itm_1", "contracts": 1, "spread_width": null } } ],
   "message_to_user": "Friendly 2-4 sentence summary."
 }`;
-
-  // ── Robinhood context: real positions, news, earnings, options, order book ──
-  // Fetched just before AI call so Claude gets the freshest possible picture.
-  // Best-effort — returns null if user has no Robinhood connection.
-  const topSymbols = sortedWithMtf.slice(0, 10).map((c) => String(c.symbol));
-  const robinhoodCtx = await fetchRobinhoodContext(supabaseAdmin, userId, topSymbols).catch(() => null);
-  const robinhoodSection = robinhoodCtx ? formatRobinhoodContext(robinhoodCtx) : null;
 
   const ai = await callGateway(systemPrompt, JSON.stringify(userMessageWithMemory));
   if (!ai) {
@@ -1726,8 +1739,8 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       // quoted price and the slippage bps that was applied, so a later
       // report can separate "gross" (before-cost) from "net" (after-cost,
       // what's already in entry_price above) expectancy. See cost-reality.ts.
-      entry_quoted_price: quotedPrice,
-      entry_slippage_bps: slip.slippageBps,
+      entry_quoted_price: quotedPrice as never,
+      entry_slippage_bps: slip.slippageBps as never,
     }).select("id").single();
     if (error) { console.error("[autonomous] insert trade", error); debugSkips.push({ symbol: t.symbol, reason: "insert_error", detail: error.message }); continue; }
     // Experiment 1: link this real trade to its shadow-log candidate row so

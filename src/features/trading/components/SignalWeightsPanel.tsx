@@ -51,7 +51,9 @@ export function SignalWeightsPanel() {
     staleTime: 60_000,
     refetchInterval: 120_000,
     queryFn: async () => {
-      const { data } = await supabase
+      // agent_signal_weights is ahead of the auto-generated Database type
+      // (migration applied, codegen not re-run) — cast needed.
+      const { data } = await (supabase as any)
         .from("agent_signal_weights")
         .select("signal_name, alpha, beta, sample_size, avg_pnl_pct, avg_win_pct, avg_loss_pct, weight_multiplier")
         .eq("user_id", userId!)

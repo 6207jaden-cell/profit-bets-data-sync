@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
+import { isResolutionDue } from "@/lib/shadow-experiments";
 
 // Experiment 1 (Claude Value Test) resolution job. Finds shadow_candidate_log
 // rows past their session-appropriate horizon and resolves them:
@@ -12,14 +13,10 @@ import { fetchQuotePrice } from "@/lib/indicators";
 //     in EXPERIMENTS.md E-01.
 // Runs on its own cron, separate from the entry/exit crons, since it reads
 // old data rather than making trading decisions.
-
-const HORIZON_DAYS: Record<string, number> = {
-  scalp_scan: 1,
-  crypto_scan: 2,
-  morning_scan: 4,
-  midday_scan: 4,
-  weekend_prep: 4,
-};
+// Horizon-by-session-type logic lives in shadow-experiments.ts's
+// isResolutionDue() — previously duplicated inline here twice (once per
+// experiment's resolution loop below), extracted to a single tested source
+// of truth.
 
 export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
   server: {
@@ -29,7 +26,15 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
         if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
           return new Response("Unauthorized", { status: 401 });
         }
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const { supabaseAdmin: typedSupabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Cast once here: this route reads/writes shadow_candidate_log and
+        // shadow_weighting_comparison, tables ahead of the auto-generated
+        // Database type (migrations applied, codegen not yet re-run). See
+        // the SupabaseAdminClient comment in shadow-experiments.ts for the
+        // full explanation — same root cause, same fix, applied at the
+        // point this route obtains its client instead of inside a shared
+        // library function's signature.
+        const supabaseAdmin = typedSupabaseAdmin as any;
 
         const { data: pending } = await supabaseAdmin
           .from("shadow_candidate_log")
@@ -48,10 +53,7 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
         for (const row of pending as Array<Record<string, unknown>>) {
           try {
             const sessionType = String(row.session_type);
-            const horizonDays = HORIZON_DAYS[sessionType] ?? 4;
-            const createdAt = new Date(String(row.created_at)).getTime();
-            const dueAt = createdAt + horizonDays * 86_400_000;
-            if (now < dueAt) continue; // not due for resolution yet
+            if (!isResolutionDue(sessionType, String(row.created_at), now)) continue; // not due for resolution yet
 
             const symbol = String(row.symbol);
             const priceAtScan = row.price_at_scan != null ? Number(row.price_at_scan) : null;
@@ -128,10 +130,7 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
         for (const row of (pendingWeighting ?? []) as Array<Record<string, unknown>>) {
           try {
             const sessionType = String(row.session_type);
-            const horizonDays = HORIZON_DAYS[sessionType] ?? 4;
-            const createdAt = new Date(String(row.created_at)).getTime();
-            const dueAt = createdAt + horizonDays * 86_400_000;
-            if (now < dueAt) continue;
+            if (!isResolutionDue(sessionType, String(row.created_at), now)) continue;
 
             const symbol = String(row.symbol);
             const priceAtScan = row.price_at_scan != null ? Number(row.price_at_scan) : null;

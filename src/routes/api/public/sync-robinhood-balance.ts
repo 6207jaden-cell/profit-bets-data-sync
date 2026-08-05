@@ -147,8 +147,13 @@ export const Route = createFileRoute("/api/public/sync-robinhood-balance")({
               .update(updates as never)
               .eq("id", portfolio.id);
 
-            // Save daily snapshot for the Robinhood chart
-            await supabaseAdmin.from("robinhood_snapshots").insert({
+            // Save daily snapshot for the Robinhood chart. robinhood_snapshots
+            // is ahead of the auto-generated Database type (migration applied,
+            // codegen not re-run) — cast needed on supabaseAdmin itself, since
+            // .from() fails to resolve a valid overload before .insert() is
+            // even reached; casting only the insert argument (my first attempt)
+            // wasn't sufficient.
+            await (supabaseAdmin as any).from("robinhood_snapshots").insert({
               user_id: userId,
               balance: portfolioValue ?? buyingPower ?? 0,
               buying_power: buyingPower ?? null,

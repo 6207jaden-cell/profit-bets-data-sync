@@ -36,7 +36,10 @@ export function RobinhoodChartCard() {
     enabled: !!userId && isConnected,
     staleTime: 120_000,
     queryFn: async () => {
-      const { data } = await supabase
+      // robinhood_snapshots is ahead of the auto-generated Database type
+      // (migration applied, codegen not re-run) — cast needed on the
+      // table name to bypass strict client-side query builder typing.
+      const { data } = await (supabase as any)
         .from("robinhood_snapshots")
         .select("balance, created_at")
         .eq("user_id", userId!)

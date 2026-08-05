@@ -21,6 +21,7 @@ import { Route as ApiPublicSyncRobinhoodBalanceRouteImport } from './routes/api/
 import { Route as ApiPublicSyncCronsRouteImport } from './routes/api/public/sync-crons'
 import { Route as ApiPublicSnapshotPortfolioRouteImport } from './routes/api/public/snapshot-portfolio'
 import { Route as ApiPublicResolveSignalsRouteImport } from './routes/api/public/resolve-signals'
+import { Route as ApiPublicResolveShadowExperimentsRouteImport } from './routes/api/public/resolve-shadow-experiments'
 import { Route as ApiPublicGenerateStrategiesRouteImport } from './routes/api/public/generate-strategies'
 import { Route as ApiPublicFridayReviewRouteImport } from './routes/api/public/friday-review'
 import { Route as ApiPublicEvaluateStrategiesRouteImport } from './routes/api/public/evaluate-strategies'
@@ -94,6 +95,12 @@ const ApiPublicResolveSignalsRoute = ApiPublicResolveSignalsRouteImport.update({
   path: '/api/public/resolve-signals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicResolveShadowExperimentsRoute =
+  ApiPublicResolveShadowExperimentsRouteImport.update({
+    id: '/api/public/resolve-shadow-experiments',
+    path: '/api/public/resolve-shadow-experiments',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicGenerateStrategiesRoute =
   ApiPublicGenerateStrategiesRouteImport.update({
     id: '/api/public/generate-strategies',
@@ -174,6 +181,7 @@ export interface FileRoutesByFullPath {
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/friday-review': typeof ApiPublicFridayReviewRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
+  '/api/public/resolve-shadow-experiments': typeof ApiPublicResolveShadowExperimentsRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
   '/api/public/sync-crons': typeof ApiPublicSyncCronsRoute
@@ -198,6 +206,7 @@ export interface FileRoutesByTo {
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/friday-review': typeof ApiPublicFridayReviewRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
+  '/api/public/resolve-shadow-experiments': typeof ApiPublicResolveShadowExperimentsRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
   '/api/public/sync-crons': typeof ApiPublicSyncCronsRoute
@@ -224,6 +233,7 @@ export interface FileRoutesById {
   '/api/public/evaluate-strategies': typeof ApiPublicEvaluateStrategiesRoute
   '/api/public/friday-review': typeof ApiPublicFridayReviewRoute
   '/api/public/generate-strategies': typeof ApiPublicGenerateStrategiesRoute
+  '/api/public/resolve-shadow-experiments': typeof ApiPublicResolveShadowExperimentsRoute
   '/api/public/resolve-signals': typeof ApiPublicResolveSignalsRoute
   '/api/public/snapshot-portfolio': typeof ApiPublicSnapshotPortfolioRoute
   '/api/public/sync-crons': typeof ApiPublicSyncCronsRoute
@@ -250,6 +260,7 @@ export interface FileRouteTypes {
     | '/api/public/evaluate-strategies'
     | '/api/public/friday-review'
     | '/api/public/generate-strategies'
+    | '/api/public/resolve-shadow-experiments'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
     | '/api/public/sync-crons'
@@ -274,6 +285,7 @@ export interface FileRouteTypes {
     | '/api/public/evaluate-strategies'
     | '/api/public/friday-review'
     | '/api/public/generate-strategies'
+    | '/api/public/resolve-shadow-experiments'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
     | '/api/public/sync-crons'
@@ -299,6 +311,7 @@ export interface FileRouteTypes {
     | '/api/public/evaluate-strategies'
     | '/api/public/friday-review'
     | '/api/public/generate-strategies'
+    | '/api/public/resolve-shadow-experiments'
     | '/api/public/resolve-signals'
     | '/api/public/snapshot-portfolio'
     | '/api/public/sync-crons'
@@ -321,6 +334,7 @@ export interface RootRouteChildren {
   ApiPublicEvaluateStrategiesRoute: typeof ApiPublicEvaluateStrategiesRoute
   ApiPublicFridayReviewRoute: typeof ApiPublicFridayReviewRoute
   ApiPublicGenerateStrategiesRoute: typeof ApiPublicGenerateStrategiesRoute
+  ApiPublicResolveShadowExperimentsRoute: typeof ApiPublicResolveShadowExperimentsRoute
   ApiPublicResolveSignalsRoute: typeof ApiPublicResolveSignalsRoute
   ApiPublicSnapshotPortfolioRoute: typeof ApiPublicSnapshotPortfolioRoute
   ApiPublicSyncCronsRoute: typeof ApiPublicSyncCronsRoute
@@ -412,6 +426,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/resolve-signals'
       fullPath: '/api/public/resolve-signals'
       preLoaderRoute: typeof ApiPublicResolveSignalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/resolve-shadow-experiments': {
+      id: '/api/public/resolve-shadow-experiments'
+      path: '/api/public/resolve-shadow-experiments'
+      fullPath: '/api/public/resolve-shadow-experiments'
+      preLoaderRoute: typeof ApiPublicResolveShadowExperimentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/generate-strategies': {
@@ -526,6 +547,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicEvaluateStrategiesRoute: ApiPublicEvaluateStrategiesRoute,
   ApiPublicFridayReviewRoute: ApiPublicFridayReviewRoute,
   ApiPublicGenerateStrategiesRoute: ApiPublicGenerateStrategiesRoute,
+  ApiPublicResolveShadowExperimentsRoute:
+    ApiPublicResolveShadowExperimentsRoute,
   ApiPublicResolveSignalsRoute: ApiPublicResolveSignalsRoute,
   ApiPublicSnapshotPortfolioRoute: ApiPublicSnapshotPortfolioRoute,
   ApiPublicSyncCronsRoute: ApiPublicSyncCronsRoute,

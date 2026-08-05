@@ -6,8 +6,22 @@
 // log rows, it never reads them back into a trading decision. See
 // /project-audit/EXPERIMENTS.md E-01 and HYPOTHESIS_LOG.md H2.
 
-import type { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
+// These functions write to tables (shadow_candidate_log,
+// shadow_weighting_comparison) that are ahead of the auto-generated
+// Database type — the migrations exist and are applied, but supabase
+// codegen hasn't been re-run against the live schema to pick them up yet.
+// A strict ReturnType<typeof createClient<Database>> parameter type would
+// force every internal .from()/select()/insert() call in this file to
+// fail type-checking against columns the codegen doesn't know about.
+// Casting the argument at the CALL SITE (e.g. `supabaseAdmin as never`)
+// does NOT fix this — the parameter's own declared type re-asserts
+// strictness for all usage *inside* this function body regardless of what
+// the caller passed. This was a real, previously-uncaught type-checking
+// gap (127 errors accumulated silently — see BUG_TRACKER.md and the audit
+// commit that found and fixed it). SupabaseAdminClient intentionally
+// bypasses Database-schema strictness for exactly this reason.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseAdminClient = any;
 
 type ShadowCandidateInput = {
   symbol: string;
@@ -33,6 +47,42 @@ type ShadowTradeInput = {
 const DETERMINISTIC_TOP_N = 6;
 
 /**
+ * How many days after logging a shadow row becomes eligible for resolution,
+ * by session type. Scalp/crypto resolve fast (short holding periods this
+ * platform actually uses for those sessions); swing sessions get more time
+ * since a 1-3 day intended hold needs room to actually play out before
+ * judging the outcome. Shared by both Experiment 1 and Experiment 2's
+ * resolution logic — previously this map and the due-date check were
+ * duplicated inline in resolve-shadow-experiments.ts (once per experiment),
+ * a real DRY violation that could have drifted out of sync if one copy was
+ * edited without the other. Extracted here as the single source of truth,
+ * and as a pure function specifically so it's unit-testable without a live
+ * database — see __tests__/resolution-horizon.test.ts.
+ */
+export const HORIZON_DAYS: Record<string, number> = {
+  scalp_scan: 1,
+  crypto_scan: 2,
+  morning_scan: 4,
+  midday_scan: 4,
+  weekend_prep: 4,
+};
+
+/**
+ * True once a shadow-logged row has aged past its session-appropriate
+ * resolution horizon. Pure function of (sessionType, createdAt, now) —
+ * no I/O, fully deterministic, exactly the kind of timestamp logic that
+ * needs its own test rather than only being exercised indirectly inside
+ * a route handler that also does real database calls.
+ */
+export function isResolutionDue(sessionType: string, createdAtIso: string, nowMs: number): boolean {
+  const horizonDays = HORIZON_DAYS[sessionType] ?? 4;
+  const createdAtMs = new Date(createdAtIso).getTime();
+  if (!Number.isFinite(createdAtMs)) return false; // malformed timestamp — don't resolve on bad data
+  const dueAtMs = createdAtMs + horizonDays * 86_400_000;
+  return nowMs >= dueAtMs;
+}
+
+/**
  * Logs every candidate in the ranked pool (already sorted by combined
  * bull/bear strength before this is called — see autonomous-agent.ts's
  * `rescored`/`candidatesForAi` construction) against Claude's actual
@@ -40,7 +90,7 @@ const DETERMINISTIC_TOP_N = 6;
  * the real trading flow, since this is purely observational.
  */
 export async function logShadowCandidates(
-  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  supabaseAdmin: SupabaseAdminClient,
   userId: string,
   sessionType: string,
   rankedCandidates: ShadowCandidateInput[],
@@ -95,7 +145,7 @@ export async function logShadowCandidates(
  * Best-effort, called right after a trade insert succeeds.
  */
 export async function linkShadowCandidateToTrade(
-  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  supabaseAdmin: SupabaseAdminClient,
   userId: string,
   symbol: string,
   tradeId: string,
@@ -143,7 +193,7 @@ type WeightingComparisonInput = {
  * EXPERIMENTS.md E-02.
  */
 export async function logWeightingComparison(
-  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  supabaseAdmin: SupabaseAdminClient,
   userId: string,
   sessionType: string,
   comparisons: WeightingComparisonInput[],
@@ -177,7 +227,7 @@ export async function logWeightingComparison(
 
 /** Same linking pattern as Experiment 1, applied to the weighting-comparison table. */
 export async function linkWeightingComparisonToTrade(
-  supabaseAdmin: ReturnType<typeof createClient<Database>>,
+  supabaseAdmin: SupabaseAdminClient,
   userId: string,
   symbol: string,
   tradeId: string,

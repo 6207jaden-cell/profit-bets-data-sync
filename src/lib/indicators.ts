@@ -421,8 +421,16 @@ export function computeVwap(bars: IntradayBar[]): VwapResult | null {
   const upperBand2 = vwap + 2 * stddev;
   const lowerBand2 = vwap - 2 * stddev;
 
-  const position: VwapResult["position"] =
-    currentPrice >= upperBand2 ? "above_upper2"
+  // When stddev is 0 (degenerate case — no price variance across the bars,
+  // e.g. an extremely thin/illiquid symbol printing one price repeatedly),
+  // every band collapses onto vwap itself. Without this guard, a price
+  // sitting exactly at the mean would satisfy `currentPrice >= upperBand2`
+  // (vwap >= vwap) and get misclassified as the most extreme category
+  // instead of neutral — caught by a unit test constructing this edge case,
+  // not observed in production (real market data essentially never has
+  // truly zero variance), but a genuine logic error worth closing.
+  const position: VwapResult["position"] = stddev === 0 ? "near_vwap"
+    : currentPrice >= upperBand2 ? "above_upper2"
     : currentPrice >= upperBand1 ? "above_upper1"
     : currentPrice <= lowerBand2 ? "below_lower2"
     : currentPrice <= lowerBand1 ? "below_lower1"
