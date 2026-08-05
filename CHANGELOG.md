@@ -166,3 +166,47 @@ including malformed-input handling.
 - All Stage 2 Critical items (1–3) are now complete. Priority 4
   (dependency vulnerability remediation) remains.
 
+---
+
+## 2026-08-05 — Stage 2, Priority 4: Dependency vulnerability remediation
+
+**What changed:** Applied `npm audit fix` for the 2 known high-severity
+CVEs (`SECURITY_AUDIT.md` Finding 6, `BUG_TRACKER.md` BUG-005). `npm
+audit --omit=dev` now reports 0 vulnerabilities.
+
+**Why:** `js-yaml` (quadratic-CPU DoS vector via YAML merge-key chains)
+and `postcss` (path traversal allowing arbitrary `.map` file disclosure)
+were flagged in the Stage 1 audit but deliberately not applied until now
+without re-verification.
+
+**How it was fixed:** `npm audit fix` resolved both at the patch-version
+level — no major version bumps: `js-yaml` 4.2.0 → 4.3.1, `postcss`
+8.5.15 → 8.5.25. Checked before applying that both are transitive
+build-tooling dependencies (via `@tanstack/react-start`/`eslint` and
+`vite` respectively), not direct application code — lower risk than a
+runtime dependency change would carry.
+
+**Files changed:**
+- `package.json`, `package-lock.json`
+- `project-audit/SECURITY_AUDIT.md` (Finding 6 marked fixed)
+- `project-audit/BUG_TRACKER.md` (BUG-005 marked fixed)
+- `project-audit/TECHNICAL_DEBT.md` (TD-06 marked resolved)
+- `project-audit/ROADMAP.md` (item 5 marked done)
+
+**Tests added:** None new — this is a dependency version change, not new
+logic. Full existing suite re-run to confirm nothing broke.
+
+**Verification performed:**
+- `npm audit --omit=dev`: 0 vulnerabilities (was 2 high)
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 94/94 passing (sandbox)
+- Independent fresh-clone + fresh-install verification per the Release
+  Verification Rule, since this is explicitly a dependency change.
+
+**Remaining risk:** None specific to this change. This completes all
+four Stage 2 priorities — Critical items 1–3 (auth, auth, rate limiting)
+and this dependency fix. Per the explicit instruction for this stage,
+Stage 3 (analytics) should not begin until this is verified complete,
+which the fresh-clone check below confirms.
+

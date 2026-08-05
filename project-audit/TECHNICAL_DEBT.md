@@ -96,10 +96,11 @@ execution properly.
 **Impact:** `js-yaml` (quadratic-CPU DoS vector) and `postcss`
 (arbitrary `.map` file disclosure via path traversal) — verified via
 `npm audit --omit=dev`. See `SECURITY_AUDIT.md` Finding 6.
-**Workaround:** None currently applied.
+**Workaround:** None needed — resolved.
 **Recommended solution:** `npm audit fix`, then re-verify `tsc --noEmit`
 and production build before considering this closed.
-**Priority:** High — `ROADMAP.md` item 5.
+**Status:** RESOLVED 2026-08-05 (Stage 2, Priority 4). 0 vulnerabilities.
+**Priority:** Was High — `ROADMAP.md` item 5, now complete.
 
 ---
 

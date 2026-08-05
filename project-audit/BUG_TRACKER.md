@@ -94,8 +94,11 @@ Full detail: see SECURITY_AUDIT.md Finding 5.
 **Severity:** High
 **Root cause:** Outdated `js-yaml` and `postcss` versions.
 **Affected files:** `package.json` / `package-lock.json` (transitive deps)
-**Status:** Open — fix available but deliberately not yet applied without
-re-verification (see SECURITY_AUDIT.md Finding 6 for reasoning).
+**Status:** FIXED 2026-08-05 (Stage 2, Priority 4). `npm audit fix`
+applied — `js-yaml` 4.2.0→4.3.1, `postcss` 8.5.15→8.5.25, both patch-
+level, no major bumps. `npm audit --omit=dev` now reports 0
+vulnerabilities. Full quality gates (tsc, build, vitest) re-run clean
+afterward, plus independent fresh-clone verification.
 **Fix:** `npm audit fix`, then re-run `tsc --noEmit` and `npm run build`
 to confirm nothing broke.
 **Verification steps:** Re-run `npm audit --omit=dev` after the fix and

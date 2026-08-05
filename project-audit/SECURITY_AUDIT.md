@@ -249,11 +249,17 @@ Verified via `npm audit --omit=dev`:
 | `js-yaml` 4.0.0–4.2.0 | High | YAML merge-key chains cause quadratic CPU consumption (DoS vector) — [GHSA-52cp-r559-cp3m](https://github.com/advisories/GHSA-52cp-r559-cp3m) | Yes, via `npm audit fix` |
 | `postcss` ≤8.5.22 | High | Path traversal in source-map auto-loading allows arbitrary `.map` file disclosure — [GHSA-r28c-9q8g-f849](https://github.com/advisories/GHSA-r28c-9q8g-f849), [GHSA-fxqj-rqcc-2cmp](https://github.com/advisories/GHSA-fxqj-rqcc-2cmp) | Yes, via `npm audit fix` |
 
-**Status:** Open. `npm audit fix` has not yet been run against this
-repository as of this audit pass — deliberately, since running it without
-then testing the build afterward would itself be an unverified change.
-Flagged for the next work session with the explicit instruction to run
-the fix AND re-verify `tsc --noEmit` + production build afterward.
+**Status:** FIXED 2026-08-05 (Stage 2, Priority 4). `npm audit fix`
+applied both patches at the patch-version level, no major version
+bumps: `js-yaml` 4.2.0 → 4.3.1, `postcss` 8.5.15 → 8.5.25. Both are
+transitive build-tooling dependencies (via `@tanstack/react-start`/
+`eslint` and `vite` respectively), not direct application code — lower
+risk than a runtime dependency change. `npm audit --omit=dev` now
+reports 0 vulnerabilities. Re-verified `tsc --noEmit` (0 errors),
+`npm run build` (exit 0), and the full test suite (94/94) after
+applying the fix, then again on an independent fresh clone + fresh
+install per the Release Verification Rule — dependency changes are
+explicitly one of the change categories that rule covers.
 
 ---
 

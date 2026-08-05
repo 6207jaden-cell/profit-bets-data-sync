@@ -55,8 +55,8 @@ infrastructure only just started collecting data.
    `estimateSlippageBps`, `computeBreadthScore`) plus
    `computeDirectionalScores`, the auth utility, and the rate limiter.
    See `src/lib/__tests__/`.
-5. **Fix BUG-005** — apply `npm audit fix` for the 2 dependency CVEs, then
-   re-verify build.
+5. ~~**Fix BUG-005** — apply `npm audit fix` for the 2 dependency CVEs, then
+   re-verify build.~~ **DONE 2026-08-05** (Stage 2, Priority 4).
 6. **Review the `agent-backtest` endpoint** for the same rigor applied to
    the live trading path in this pass (look-ahead bias, fill assumptions,
    the survivorship-bias caveat from TRADING_ENGINE_REVIEW.md Finding 4).
