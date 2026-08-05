@@ -216,11 +216,14 @@ comparison of Claude's actual picks vs. what pure deterministic ranking
 alone would have captured, `shadow-experiments.ts`, directly
 operationalizing `HYPOTHESIS_LOG.md` H2 using data Experiment 1 has
 already been collecting). Both surfaced in a new `AttributionPanel`.
-Still open: Portfolio Attribution and Learning Attribution (the latter
-has real infrastructure sitting behind it too — Experiment 2's
-`shadow_weighting_comparison` — not yet surfaced as an attribution
-analysis), plus rolling metrics, exposure, holding-time distribution,
-and regime-conditional performance.
+
+**Update 2026-08-05 (same day, fourth slice):** Learning Attribution —
+the 3rd of 4 attribution categories — also now exists
+(`computeLearningAttribution`, `shadow-experiments.ts`), directly
+operationalizing `HYPOTHESIS_LOG.md` H3 using Experiment 2's already-
+collecting `shadow_weighting_comparison` data. Only Portfolio Attribution
+remains of the original 4, plus rolling metrics, exposure, holding-time
+distribution, and regime-conditional performance.
 
 **Priority:** Was High — the foundational piece (can this system answer
 "is it better than random") is now answerable. Remaining sub-items

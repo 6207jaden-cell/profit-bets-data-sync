@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useProfile } from "@/hooks/use-profile";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { GitBranch, Brain } from "lucide-react";
+import { GitBranch, Brain, Sparkles } from "lucide-react";
 import { LoadingState } from "@/components/StateViews";
-import { getSignalAttribution, getClaudeAttribution } from "@/lib/attribution.functions";
+import { getSignalAttribution, getClaudeAttribution, getLearningAttribution } from "@/lib/attribution.functions";
 
 export function AttributionPanel() {
   const { userId } = useProfile();
@@ -21,6 +21,13 @@ export function AttributionPanel() {
     enabled: !!userId,
     staleTime: 300_000,
     queryFn: async () => getClaudeAttribution(),
+  });
+
+  const { data: learningAttr, isLoading: learningLoading } = useQuery({
+    queryKey: ["learning-attribution", userId],
+    enabled: !!userId,
+    staleTime: 300_000,
+    queryFn: async () => getLearningAttribution(),
   });
 
   return (
@@ -76,6 +83,55 @@ export function AttributionPanel() {
                   {claudeAttr.claudeAddedValuePct != null ? `${claudeAttr.claudeAddedValuePct >= 0 ? "+" : ""}${claudeAttr.claudeAddedValuePct.toFixed(2)}pp` : "—"}
                 </p>
                 <p className="text-[9px] text-muted-foreground mt-0.5">vs. pure ranking</p>
+              </Card>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Learning Attribution */}
+      <div className="mb-4">
+        <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3" /> Adaptive Learning vs. Neutral Weighting
+        </h3>
+        {learningLoading ? (
+          <LoadingState message="Loading learning attribution…" />
+        ) : !learningAttr || learningAttr.totalResolvedSampleSize === 0 ? (
+          <Card className="p-4 border-border/60 bg-card text-xs text-muted-foreground text-center">
+            No resolved weighting-comparison data yet — this fills in as logged candidates age past their resolution horizon.
+          </Card>
+        ) : (
+          <>
+            {!learningAttr.hasMinimumEvidence && (
+              <div className="mb-2 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
+                Only {learningAttr.promotedSampleSize} promoted / {learningAttr.demotedSampleSize} demoted resolved rows — treat this as provisional until both reach 30. Most signals are still near-neutral early on, so meaningful promotion/demotion is expected to be rare at first.
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-2">
+              <Card className="p-3 border-border/60 bg-card">
+                <p className="text-[10px] text-muted-foreground mb-1">Promoted Candidates</p>
+                <p className="text-base font-mono font-bold">
+                  {learningAttr.promotedAvgReturnPct != null ? `${learningAttr.promotedAvgReturnPct >= 0 ? "+" : ""}${learningAttr.promotedAvgReturnPct.toFixed(2)}%` : "—"}
+                </p>
+                <p className="text-[9px] text-muted-foreground mt-0.5">avg return, n={learningAttr.promotedSampleSize}</p>
+              </Card>
+              <Card className="p-3 border-border/60 bg-card">
+                <p className="text-[10px] text-muted-foreground mb-1">Demoted Candidates</p>
+                <p className="text-base font-mono font-bold">
+                  {learningAttr.demotedAvgReturnPct != null ? `${learningAttr.demotedAvgReturnPct >= 0 ? "+" : ""}${learningAttr.demotedAvgReturnPct.toFixed(2)}%` : "—"}
+                </p>
+                <p className="text-[9px] text-muted-foreground mt-0.5">avg return, n={learningAttr.demotedSampleSize}</p>
+              </Card>
+              <Card className="p-3 border-border/60 bg-card">
+                <p className="text-[10px] text-muted-foreground mb-1">Learning's Added Value</p>
+                <p className={cn(
+                  "text-base font-mono font-bold",
+                  learningAttr.learningAddedValuePct != null && learningAttr.learningAddedValuePct > 0 ? "text-emerald-400"
+                    : learningAttr.learningAddedValuePct != null && learningAttr.learningAddedValuePct < 0 ? "text-red-400" : ""
+                )}>
+                  {learningAttr.learningAddedValuePct != null ? `${learningAttr.learningAddedValuePct >= 0 ? "+" : ""}${learningAttr.learningAddedValuePct.toFixed(2)}pp` : "—"}
+                </p>
+                <p className="text-[9px] text-muted-foreground mt-0.5">promoted vs. demoted</p>
               </Card>
             </div>
           </>

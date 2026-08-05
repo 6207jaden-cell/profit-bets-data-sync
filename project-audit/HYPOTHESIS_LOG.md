@@ -144,6 +144,16 @@ enough signals have crossed the 15-trade threshold for their adaptive
 weight to meaningfully differ from neutral — see
 `EXPERIMENT_RESULTS.md`'s interpretive note for this experiment.
 
+**Reporting layer added (same day, Stage 3 attribution work):**
+`computeLearningAttribution()` in `shadow-experiments.ts` now directly
+answers this hypothesis once enough resolved data exists — splits
+resolved rows into "promoted" (adaptive weighting ranked higher than
+neutral would have) and "demoted" (ranked lower), compares their average
+resolved returns, surfaced in the `AttributionPanel` UI. Gated at 30
+resolved rows per side. Same caveat as above still applies: this doesn't
+change the answer, still genuinely unresolved, but the tooling to read
+the answer the moment enough data exists is now built and tested.
+
 **Confidence:** Low — mechanism is reasonable, specific and named
 statistical risk attached, unproven either direction.
 **Conclusion:** Unresolved. Highest-priority hypothesis to formally test

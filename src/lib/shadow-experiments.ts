@@ -315,3 +315,72 @@ export async function computeClaudeAttribution(
     hasMinimumEvidence: claudePicks.length >= MIN_SAMPLE && deterministicPicks.length >= MIN_SAMPLE,
   };
 }
+
+// ── Stage 3: Learning Attribution ────────────────────────────────────────
+// Directly operationalizes HYPOTHESIS_LOG.md H3 ("does adaptive signal
+// weighting improve returns") using resolved shadow_weighting_comparison
+// rows Experiment 2 has already been collecting. This is literally the
+// exact comparison EXPERIMENTS.md E-02 and EXPERIMENT_RESULTS.md's "how to
+// read results" section describe for this experiment — this function is
+// that description turned into code, not a new analysis design.
+
+export type LearningAttributionResult = {
+  /** Average resolved return for candidates adaptive weighting ranked HIGHER than neutral weighting would have (rank_delta > 0). */
+  promotedAvgReturnPct: number | null;
+  promotedSampleSize: number;
+  /** Average resolved return for candidates adaptive weighting ranked LOWER than neutral weighting would have (rank_delta < 0). */
+  demotedAvgReturnPct: number | null;
+  demotedSampleSize: number;
+  /** promotedAvgReturnPct - demotedAvgReturnPct — positive means adaptive weighting is promoting candidates that go on to perform better (real signal); near-zero or negative supports the multiple-comparisons/noise concern already documented in TECHNICAL_DEBT.md TD-10. */
+  learningAddedValuePct: number | null;
+  /** rank_delta === 0 — adaptive weighting had no meaningful effect on this candidate (common while most signals are still near-neutral). */
+  neutralSampleSize: number;
+  totalResolvedSampleSize: number;
+  hasMinimumEvidence: boolean;
+};
+
+export async function computeLearningAttribution(
+  supabaseAdmin: SupabaseAdminClient,
+  userId: string,
+): Promise<LearningAttributionResult> {
+  const empty: LearningAttributionResult = {
+    promotedAvgReturnPct: null, promotedSampleSize: 0,
+    demotedAvgReturnPct: null, demotedSampleSize: 0,
+    learningAddedValuePct: null, neutralSampleSize: 0,
+    totalResolvedSampleSize: 0, hasMinimumEvidence: false,
+  };
+
+  const { data } = await supabaseAdmin
+    .from("shadow_weighting_comparison")
+    .select("rank_delta, hypothetical_return_pct")
+    .eq("user_id", userId)
+    .eq("resolved", true)
+    .not("hypothetical_return_pct", "is", null);
+
+  const rows = (data ?? []) as Array<{ rank_delta: number; hypothetical_return_pct: number }>;
+  if (rows.length === 0) return empty;
+
+  const promoted = rows.filter((r) => Number(r.rank_delta) > 0);
+  const demoted = rows.filter((r) => Number(r.rank_delta) < 0);
+  const neutral = rows.filter((r) => Number(r.rank_delta) === 0);
+
+  const avg = (arr: typeof rows): number | null =>
+    arr.length > 0 ? arr.reduce((s, r) => s + Number(r.hypothetical_return_pct), 0) / arr.length : null;
+
+  const promotedAvgReturnPct = avg(promoted);
+  const demotedAvgReturnPct = avg(demoted);
+  const MIN_SAMPLE = 30; // consistent with computeClaudeAttribution's threshold above
+
+  return {
+    promotedAvgReturnPct: promotedAvgReturnPct != null ? Number(promotedAvgReturnPct.toFixed(3)) : null,
+    promotedSampleSize: promoted.length,
+    demotedAvgReturnPct: demotedAvgReturnPct != null ? Number(demotedAvgReturnPct.toFixed(3)) : null,
+    demotedSampleSize: demoted.length,
+    learningAddedValuePct: (promotedAvgReturnPct != null && demotedAvgReturnPct != null)
+      ? Number((promotedAvgReturnPct - demotedAvgReturnPct).toFixed(3))
+      : null,
+    neutralSampleSize: neutral.length,
+    totalResolvedSampleSize: rows.length,
+    hasMinimumEvidence: promoted.length >= MIN_SAMPLE && demoted.length >= MIN_SAMPLE,
+  };
+}

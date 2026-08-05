@@ -10,7 +10,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { computeSignalAttribution } from "@/lib/signal-learning";
-import { computeClaudeAttribution } from "@/lib/shadow-experiments";
+import { computeClaudeAttribution, computeLearningAttribution } from "@/lib/shadow-experiments";
 
 export const getSignalAttribution = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -22,4 +22,10 @@ export const getClaudeAttribution = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     return computeClaudeAttribution(context.supabase, context.userId);
+  });
+
+export const getLearningAttribution = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    return computeLearningAttribution(context.supabase, context.userId);
   });

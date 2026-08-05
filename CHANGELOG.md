@@ -417,3 +417,57 @@ negative-added-value case correctly indicating underperformance.
   behind it too (Experiment 2's `shadow_weighting_comparison`) — not yet
   surfaced as a proper attribution analysis, a natural next slice.
 
+---
+
+## 2026-08-05 — Stage 3, fourth slice: Learning Attribution
+
+**What changed:** `computeLearningAttribution` (new, `shadow-experiments.ts`)
+— the 3rd of 4 Stage 3 attribution categories. Wired into
+`AttributionPanel`.
+
+**Why:** Directly operationalizes `HYPOTHESIS_LOG.md` H3 ("does adaptive
+signal weighting improve returns") using Experiment 2's
+`shadow_weighting_comparison` data, which has been collecting since
+commit `c892f06`. Only Portfolio Attribution remains of the original
+four attribution categories after this.
+
+**How it was built:** Splits resolved rows by `rank_delta` sign —
+"promoted" (adaptive weighting ranked the candidate higher than neutral
+weighting would have) vs. "demoted" (ranked lower) — and compares their
+average resolved returns. This is literally the exact comparison
+`EXPERIMENTS.md` E-02 and `EXPERIMENT_RESULTS.md`'s "how to read
+results" section for Experiment 2 already described; this function is
+that description turned into code, not a new analysis design. Gated at
+30 resolved rows per side, same threshold as Claude Attribution.
+
+**Files changed:**
+- `src/lib/shadow-experiments.ts` (added `computeLearningAttribution`)
+- `src/lib/attribution.functions.ts` (added `getLearningAttribution`)
+- `src/lib/__tests__/learning-attribution.test.ts` (new, 6 tests)
+- `src/features/trading/components/AttributionPanel.tsx` (wired in)
+- `project-audit/TECHNICAL_DEBT.md`, `HYPOTHESIS_LOG.md` (H3 updated)
+
+**Tests added:** 6 — hand-computed promoted/demoted average return
+comparison, `rank_delta === 0` correctly excluded from both groups (not
+silently included in one), the 30-sample floor checked independently on
+each side, and a negative-added-value case explicitly framed as
+supporting the multiple-comparisons/noise concern rather than disproving
+adaptive learning's value — the honest interpretation either direction
+of this result could show.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 146/146 passing (6 new)
+
+**Remaining risk / honest limitations:**
+- Correctly shows "not enough data yet" for brand-new accounts.
+- As already documented for the underlying experiment: most signals are
+  still near-neutral early on (few have crossed the 15-trade Kelly
+  threshold), so meaningful promotion/demotion is expected to be rare at
+  first — the UI's provisional warning specifically calls this out
+  rather than letting a near-empty comparison look conclusive either way.
+- Only Portfolio Attribution remains of the original four attribution
+  categories; rolling metrics, exposure, holding-time distribution, and
+  regime-conditional performance remain open per `TECHNICAL_DEBT.md` TD-12.
+
