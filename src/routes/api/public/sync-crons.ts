@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 export const Route = createFileRoute("/api/public/sync-crons")({
   server: {
@@ -12,6 +13,13 @@ export const Route = createFileRoute("/api/public/sync-crons")({
         if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Manual, rare (Settings button) — tight limit protects against
+        // rapid button-mashing/abuse while allowing legitimate occasional use.
+        const rl = resolveRateLimit(5, 60);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("sync-crons"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         // Call the register_all_crons() SQL function defined in migrations.
         // That function runs as SECURITY DEFINER so it can call cron.schedule()

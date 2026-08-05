@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { sma, ema, rsi, evalGroup, fetchBars, type IndicatorContext } from "@/lib/indicators";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 /**
  * AI Strategy Lab. Called hourly by pg_cron.
@@ -149,6 +150,15 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
         if (!apiKey) return Response.json({ ok: false, error: "missing_lovable_api_key" }, { status: 500 });
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Runs hourly — generous headroom above that. Named rateLimitConfig
+        // (not the shorter "rl" used elsewhere for this function) since
+        // this file already uses "rl" for an unrelated risk-level variable
+        // later in the same scope.
+        const rateLimitConfig = resolveRateLimit(5, 3600);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("generate-strategies"), maxRequests: rateLimitConfig.maxRequests, windowSeconds: rateLimitConfig.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         // Cap active AI Lab strategies at 10.
         const { count: activeCount } = await supabaseAdmin

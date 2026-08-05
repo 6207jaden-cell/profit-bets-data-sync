@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
+import { enforceRateLimit, endpointAndIpBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 /**
  * Emergency exit endpoint called by the client-side price watcher when a
@@ -18,6 +19,16 @@ export const Route = createFileRoute("/api/public/emergency-exit")({
         if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
           return new Response("Unauthorized", { status: 401 });
         }
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Unlike the cron-only endpoints, this one is legitimately called
+        // by browser-side price watchers for potentially many distinct
+        // users/sessions — per-IP limiting (not a single global limit)
+        // fits this traffic pattern better.
+        const rl = resolveRateLimit(20, 60);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointAndIpBucketKey("emergency-exit", request), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         const body = (await request.json().catch(() => ({}))) as {
           trade_id?: string;
@@ -26,8 +37,6 @@ export const Route = createFileRoute("/api/public/emergency-exit")({
         if (!body.trade_id) {
           return Response.json({ ok: false, error: "missing trade_id" }, { status: 400 });
         }
-
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         // Load trade
         const { data: trade, error: tErr } = await supabaseAdmin

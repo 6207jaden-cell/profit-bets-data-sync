@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 /**
  * Resolve open market_signals against current market prices.
@@ -53,6 +54,14 @@ export const Route = createFileRoute("/api/public/resolve-signals")({
           return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
         }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Cadence uncertain (not currently in the registered cron list —
+        // possibly manually triggered or, like evaluate-alerts was found to
+        // be, an orphaned intended-cron endpoint). Conservative default.
+        const rl = resolveRateLimit(10, 60);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("resolve-signals"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         const thirtyMinAgo = new Date(Date.now() - 30 * 60_000).toISOString();
         const fiveDaysAgo = new Date(Date.now() - 5 * 86400_000).toISOString();

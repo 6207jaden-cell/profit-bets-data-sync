@@ -595,10 +595,15 @@ value doesn't get added to the same file by habit.
 
 ## Rate limiting
 
-**Does not exist anywhere in this codebase today.** This is Critical
-priority (`ROADMAP.md` item 3) specifically because it multiplies the
-severity of any authorization gap — an endpoint with broken auth AND no
-rate limit is materially worse than either problem alone.
+**Implemented 2026-08-05 (Stage 2, Priority 3).** Shared infrastructure
+in `src/lib/rate-limit.ts` — Postgres-backed fixed-window counter, atomic
+via a row-locked SECURITY DEFINER function, applied to all 15
+`/api/public/*` endpoints with per-endpoint limits reasoned from actual
+cron cadence. See `SECURITY_AUDIT.md` Finding 4 for full detail.
+**Standard for any new endpoint going forward:** call `enforceRateLimit()`
+with an appropriately-reasoned limit/window/identifier strategy — never
+ship a new public endpoint without it, and never hand-roll a new
+rate-limiting implementation when this shared one exists.
 
 ## OAuth (Robinhood MCP integration)
 

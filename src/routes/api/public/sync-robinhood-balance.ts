@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getValidToken } from "@/lib/robinhood-live";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 /**
  * Syncs the Robinhood Agentic account balance and open positions to the
@@ -82,6 +83,12 @@ export const Route = createFileRoute("/api/public/sync-robinhood-balance")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Daily weekday cron — very low legitimate frequency, tight limit.
+        const rl = resolveRateLimit(3, 3600);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("sync-robinhood-balance"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         // Sync ALL users who have Robinhood connected (paper or live mode)
         const { data: connectedUsers } = await supabaseAdmin

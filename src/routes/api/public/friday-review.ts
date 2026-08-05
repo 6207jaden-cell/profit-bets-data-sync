@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
 import { callGateway } from "./autonomous-agent";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 /**
  * Friday 3:45pm ET position review.
@@ -21,6 +22,12 @@ export const Route = createFileRoute("/api/public/friday-review")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Weekly cron — very low legitimate frequency, tight limit.
+        const rl = resolveRateLimit(3, 3600);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("friday-review"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         // Only run for users with autonomous mode on
         const { data: users } = await supabaseAdmin

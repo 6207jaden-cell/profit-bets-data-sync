@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 /**
  * Called by pg_cron every 5 minutes via the project's anon key in the `apikey` header.
@@ -17,6 +18,13 @@ export const Route = createFileRoute("/api/public/evaluate-alerts")({
         if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Intended to run every 5 min — generous headroom above that.
+        const rl = resolveRateLimit(10, 300);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("evaluate-alerts"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
+
         const { data: alerts, error } = await supabaseAdmin
           .from("price_alerts")
           .select("id, user_id, asset, asset_type, target_price, direction")

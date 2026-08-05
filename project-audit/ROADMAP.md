@@ -36,23 +36,25 @@ infrastructure only just started collecting data.
 
 ## CRITICAL (before any live-money connection, no exceptions)
 
-1. **Fix BUG-001** — `evaluate-alerts.ts` has zero authorization.
-2. **Fix BUG-002** — `sync-crons.ts` auth check doesn't verify the key.
-3. **Add basic rate limiting** to every `/api/public/*` endpoint (Finding 4,
-   SECURITY_AUDIT.md) — becomes far more urgent once 1 and 2 are fixed,
-   since an attacker without those two open doors would otherwise just
-   try unlimited-frequency requests against whatever remains.
+1. ~~**Fix BUG-001** — `evaluate-alerts.ts` has zero authorization.~~
+   **DONE 2026-08-05** (Stage 2, Priority 1). See `CHANGELOG.md`.
+2. ~~**Fix BUG-002** — `sync-crons.ts` auth check doesn't verify the key.~~
+   **DONE 2026-08-05** (Stage 2, Priority 2). See `CHANGELOG.md`.
+3. ~~**Add basic rate limiting** to every `/api/public/*` endpoint~~
+   **DONE 2026-08-05** (Stage 2, Priority 3). All 15 endpoints covered.
+   See `CHANGELOG.md`, `SECURITY_AUDIT.md` Finding 4.
+
+**All Stage 2 Critical items are now complete.**
 
 ## HIGH
 
-4. **Stand up real test infrastructure.** Zero tests exist today on a
-   system that makes financial decisions. Recommend Vitest (fastest
-   integration with the existing Vite build) starting with the pure,
-   easily-testable math functions first: `computeATR`, `computeCorrelation`,
-   `computeVwap`, `computeKellySizeMultiplier`, `estimateSlippageBps`,
-   `computeBreadthScore` — all are pure functions with no I/O, ideal first
-   targets, and exactly the functions this whole session's work depends on
-   being correct.
+4. ~~**Stand up real test infrastructure.**~~ **DONE** (Stage 1.5,
+   2026-08-05). Vitest installed, 94 tests across 11 files as of this
+   writing, including all originally-named targets (`atr`,
+   `computeCorrelation`, `computeVwap`, `computeKellySizeMultiplier`,
+   `estimateSlippageBps`, `computeBreadthScore`) plus
+   `computeDirectionalScores`, the auth utility, and the rate limiter.
+   See `src/lib/__tests__/`.
 5. **Fix BUG-005** — apply `npm audit fix` for the 2 dependency CVEs, then
    re-verify build.
 6. **Review the `agent-backtest` endpoint** for the same rigor applied to
@@ -92,6 +94,11 @@ infrastructure only just started collecting data.
 ## LOW / deferred, needs more foundational work first
 
 13. Full OWASP Top 10 pass, SSRF review of the many external fetch() calls.
+13a. **Consolidate auth-check implementations** (TD-13, discovered
+    2026-08-05 during Priority 3). 5 of 15 `/api/public/*` endpoints use
+    a different (but not broken) auth-check variant than the other 10 —
+    migrate all onto the single tested `verifyPublicApiKeyFromEnv()`
+    utility from `src/lib/api-auth.ts`.
 14. Bundle size / code-splitting analysis.
 15. Real performance profiling (latency, memory, CPU) — needs actual
     running-system access, not static review.

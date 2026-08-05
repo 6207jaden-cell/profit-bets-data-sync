@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 export const Route = createFileRoute("/api/public/daily-digest")({
   server: {
@@ -11,6 +12,12 @@ export const Route = createFileRoute("/api/public/daily-digest")({
         }
         const aiKey = process.env.LOVABLE_API_KEY;
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Daily cron — very low legitimate frequency, tight limit.
+        const rl = resolveRateLimit(3, 3600);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("daily-digest"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         const dayAgo = new Date(Date.now() - 86400_000).toISOString();
 

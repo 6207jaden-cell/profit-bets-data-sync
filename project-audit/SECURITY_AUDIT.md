@@ -148,6 +148,66 @@ either platform-level rate limiting or a lightweight token-bucket check
 against a Postgres table/Redis. Given the financial nature of this app,
 recommend this before any live-money connection, not just "eventually."
 
+**Status:** FIXED 2026-08-05 (Stage 2, Priority 3). Built shared,
+reusable infrastructure (`src/lib/rate-limit.ts`) — a Postgres-backed
+fixed-window counter (no Redis in this architecture), made atomic via a
+row-locked (`FOR UPDATE`) SECURITY DEFINER function
+(`rate_limit_increment`) rather than a naive select-then-write, which
+would have had a real race condition under concurrent calls (relevant
+here specifically because `autonomous-agent` is legitimately called by
+multiple overlapping cron schedules). Applied to all 15
+`/api/public/*` endpoints, each with a limit/window reasoned from its
+actual cron cadence (not a copy-pasted default) — e.g. daily-cadence
+endpoints get a tight 3-per-hour limit, the every-10-minute exit-check
+gets 6-per-5-minutes, the user-triggered `agent-backtest` gets a
+per-user (not global) bucket since it's computationally expensive and
+legitimately multi-user.
+
+Deliberately fails OPEN on infrastructure errors (DB unreachable, RPC
+failure) — documented as a considered tradeoff, not an oversight: rate
+limiting is defense-in-depth layered on top of the Finding 1/2 auth
+fixes, not the primary security boundary, and blocking all legitimate
+cron traffic (including actual trading scans) during a transient DB
+issue would be a worse outcome than briefly operating without this
+specific layer.
+
+17 tests in `src/lib/__tests__/rate-limit.test.ts` covering: allowed
+under limit, blocked over limit, window reset (verified with a real
+timed wait past the window boundary, not simulated), bucket
+independence (bypass prevention — one endpoint's limit exhaustion
+doesn't affect another), fail-open on 3 distinct RPC failure modes
+(throw, error field, malformed data), the 429 response shape and
+`Retry-After` header, both identifier strategies (global-per-endpoint
+and per-IP), and env-var override configurability including malformed-
+input handling.
+
+Configurable via `RATE_LIMIT_MAX_REQUESTS_OVERRIDE` /
+`RATE_LIMIT_WINDOW_SECONDS_OVERRIDE` env vars — a global lever to
+tighten every endpoint at once during an active incident without a
+redeploy.
+
+**Discovered while fixing this:** `evaluate-alerts.ts`'s own code
+comment claimed it was "called by pg_cron every 5 minutes," but it was
+never actually present in `register_all_crons()`'s job list — meaning
+the price-alert-checking feature has likely never run in production.
+Registered it as part of this fix.
+
+**Also discovered, not fixed in this pass (flagged for follow-up):**
+two different auth-check implementations exist across the 15 endpoints
+— most use a direct `apikey !== process.env.SUPABASE_PUBLISHABLE_KEY`
+comparison, but `daily-digest`, `evaluate-strategies`,
+`generate-strategies`, `resolve-signals`, and `snapshot-portfolio` use
+a variant that also falls back to `SUPABASE_ANON_KEY` and checks an
+alternate `"Apikey"` header capitalization. Both appear to correctly
+reject invalid keys — this is not a BUG-001/002-style hole — but it's
+real, undocumented drift the constitution's own principles argue
+against. Left alone in this pass specifically to avoid scope creep
+(Priority 3's job was rate limiting, not further auth consolidation);
+candidate for `TECHNICAL_DEBT.md`.
+
+Verified on an independent fresh clone + fresh install per the Release
+Verification Rule.
+
 **Status:** Open.
 
 ---

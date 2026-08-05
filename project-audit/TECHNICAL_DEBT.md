@@ -192,3 +192,28 @@ metric and a real benchmark comparison.
 **Priority:** High — Phase 2 of the current roadmap direction,
 deliberately sequenced after Phase 1's trustworthiness fixes
 (TD-01 through TD-06).
+
+---
+
+## TD-13 — Two different auth-check implementations across `/api/public/*` endpoints
+
+**Severity:** Low (both variants correctly reject invalid keys — this is
+drift/inconsistency, not a security hole like TD-02/TD-03 were)
+**Impact:** Most endpoints use a direct
+`apikey !== process.env.SUPABASE_PUBLISHABLE_KEY` comparison.
+`daily-digest.ts`, `evaluate-strategies.ts`, `generate-strategies.ts`,
+`resolve-signals.ts`, and `snapshot-portfolio.ts` use a different
+variant that also falls back to `SUPABASE_ANON_KEY` and checks an
+alternate `"Apikey"` header capitalization. Discovered while adding
+rate limiting (Stage 2, Priority 3) — both patterns work correctly as
+far as verified, but this is exactly the kind of undocumented drift
+`ENGINEERING_CONSTITUTION.md`'s principles argue against, and the same
+class of drift that caused BUG-001/BUG-002 to exist as two different
+bugs in the first place.
+**Workaround:** None needed — not currently broken, just inconsistent.
+**Recommended solution:** Consolidate all 15 endpoints onto the single
+`verifyPublicApiKeyFromEnv()` utility already built and tested for
+Priorities 1–2 (`src/lib/api-auth.ts`), retiring both inline variants.
+**Priority:** Low — not blocking, add to `ROADMAP.md` as a follow-up
+cleanup item once Stage 2's Critical items are otherwise complete.
+

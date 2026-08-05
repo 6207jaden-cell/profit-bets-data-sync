@@ -101,3 +101,68 @@ pattern this exact bug represents.
 **Remaining risk:** Both Priority 1 and Priority 2's endpoints are now
 correctly authorized but still have no rate limiting — Priority 3, next.
 
+---
+
+## 2026-08-05 — Stage 2, Priority 3: Application-level rate limiting
+
+**What changed:** All 15 `/api/public/*` endpoints now enforce a rate
+limit, checked after authentication succeeds. Exceeding the limit returns
+429 with a `Retry-After` header.
+
+**Why:** Zero rate limiting existed anywhere in the codebase
+(`SECURITY_AUDIT.md` Finding 4). Combined with the now-fixed Findings 1
+and 2, an endpoint with broken auth AND no rate limit was the worst-case
+combination — even correctly-authorized endpoints had no ceiling on
+request volume from a caller holding a valid (or leaked) key.
+
+**How it was fixed:** Shared, reusable infrastructure
+(`src/lib/rate-limit.ts`) rather than 15 separate implementations —
+Postgres-backed (no Redis in this architecture), atomic via a row-locked
+SECURITY DEFINER function to avoid a real race condition a naive
+select-then-write would have under concurrent cron overlaps. Each
+endpoint configures its own limit, window, and identifier strategy
+(global-per-endpoint for cron-only endpoints; per-IP for the
+browser-triggered `emergency-exit`; per-user for the expensive,
+user-initiated `agent-backtest`) without duplicating any logic.
+
+**Files changed:**
+- `src/lib/rate-limit.ts` (new)
+- `src/lib/__tests__/rate-limit.test.ts` (new, 17 tests)
+- `supabase/migrations/20260805010000_rate_limiting.sql` (new — table +
+  atomic increment function + cleanup function)
+- `supabase/migrations/20260805010500_rate_limit_cleanup_cron.sql` (new
+  — registers the cleanup cron; also registers `evaluate-alerts` as an
+  actual cron job, discovered to be missing despite its own code comment
+  claiming otherwise)
+- All 15 route files under `src/routes/api/public/`
+- `project-audit/SECURITY_AUDIT.md` (Finding 4 marked fixed)
+
+**Tests added:** 17 — allowed/blocked at the limit boundary, window
+reset (verified with a real timed wait, not simulated), bucket
+independence, 3 distinct fail-open scenarios (RPC throws, RPC returns an
+error field, RPC returns malformed data), the 429 response shape and
+header, both bucket-key strategies, and env-var override configurability
+including malformed-input handling.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox) — caught and fixed one real
+  issue along the way: a variable name collision (`rl`) between the new
+  rate-limit config and a pre-existing, unrelated variable in
+  `generate-strategies.ts`
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 94/94 passing (17 new)
+- Independent fresh-clone + fresh-install verification per the Release
+  Verification Rule, since this touches database access and (via the
+  route changes) authentication-adjacent request handling.
+
+**Remaining risks:**
+- Deliberately fails open on rate-limiter infrastructure errors — a
+  documented tradeoff (availability of legitimate cron traffic over
+  strict enforcement during a transient DB issue), not an oversight.
+- Two different auth-check implementations across the 15 endpoints
+  (discovered, not fixed — see `SECURITY_AUDIT.md` Finding 4 for detail
+  and reasoning on why this was left for a follow-up rather than folded
+  into this change).
+- All Stage 2 Critical items (1–3) are now complete. Priority 4
+  (dependency vulnerability remediation) remains.
+

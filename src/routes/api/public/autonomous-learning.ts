@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { saveTradeOutcomeMemory } from "@/lib/agent-memory";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 export const Route = createFileRoute("/api/public/autonomous-learning")({
   server: {
@@ -10,6 +11,13 @@ export const Route = createFileRoute("/api/public/autonomous-learning")({
           return new Response("Unauthorized", { status: 401 });
         }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Weekly cron — very low legitimate frequency, tight limit.
+        const rl = resolveRateLimit(3, 3600);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("autonomous-learning"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
+
         const { data: users } = await supabaseAdmin
           .from("user_settings").select("user_id").eq("autonomous_mode", true);
         if (!users || users.length === 0) return Response.json({ ok: true, reason: "no_users" });

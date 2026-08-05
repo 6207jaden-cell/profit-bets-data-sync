@@ -8,6 +8,7 @@
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchBars, sma } from "@/lib/indicators";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 const UNIVERSE = [
   "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM",
@@ -53,6 +54,15 @@ export const Route = createFileRoute("/api/public/agent-backtest")({
         const picks = Math.min(Math.max(Number(body.picks_per_day ?? 3), 1), 8);
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Backtests are computationally expensive (simulates up to 180 days
+        // across the universe) and user-triggered, not cron-driven — a
+        // per-user bucket (not global, not IP) is the right granularity so
+        // one user running a backtest doesn't exhaust another user's quota.
+        const rl = resolveRateLimit(5, 60);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: `${endpointBucketKey("agent-backtest")}:user:${userId}`, maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         const universe = await loadAll(daysBack);
         if (universe.length < 5) {

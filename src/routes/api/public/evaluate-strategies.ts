@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, fetchQuotePrice, type Bars } from "@/lib/indicators";
 import { fireWebhook } from "@/lib/webhook.functions";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 
 
@@ -155,6 +156,13 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
         if (!anon || apikey !== anon) return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Runs every 5 min — generous headroom above that.
+        const rl = resolveRateLimit(10, 300);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("evaluate-strategies"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
+
         const ts = new Date().toISOString();
         const marketOpen = isMarketOpen();
 

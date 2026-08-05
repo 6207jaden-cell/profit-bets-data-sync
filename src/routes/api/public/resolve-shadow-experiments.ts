@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
 import { isResolutionDue } from "@/lib/shadow-experiments";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 // Experiment 1 (Claude Value Test) resolution job. Finds shadow_candidate_log
 // rows past their session-appropriate horizon and resolves them:
@@ -35,6 +36,12 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
         // point this route obtains its client instead of inside a shared
         // library function's signature.
         const supabaseAdmin = typedSupabaseAdmin as any;
+        // Daily cron — very low legitimate frequency, tight limit.
+        const rl = resolveRateLimit(3, 3600);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("resolve-shadow-experiments"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         const { data: pending } = await supabaseAdmin
           .from("shadow_candidate_log")

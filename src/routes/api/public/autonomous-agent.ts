@@ -18,6 +18,7 @@ import {
 } from "@/lib/earnings-strategy";
 import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 import { estimateFees } from "@/lib/cost-reality";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
@@ -175,6 +176,19 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
         if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
           return new Response("Unauthorized", { status: 401 });
         }
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Rate limit: this endpoint is legitimately called by up to a
+        // dozen different cron schedules (scalp fires every 30 min,
+        // multiple session types can overlap), so the limit is generous —
+        // sized to comfortably exceed any realistic overlap while still
+        // blocking sustained abuse from a leaked key. Priority 3,
+        // Stage 2 — see rate-limit.ts.
+        const rl = resolveRateLimit(10, 300);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("autonomous-agent"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
+
         const body = (await request.json().catch(() => ({}))) as { session?: string };
         const session: "morning" | "midday" | "weekend_prep" | "scalp" | "crypto" =
           body.session === "midday" ? "midday"
@@ -187,8 +201,6 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           : session === "scalp" ? "scalp_scan"
           : session === "crypto" ? "crypto_scan"
           : "morning_scan";
-
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         // Auto-clear expired pauses so they take effect on next run.
         await supabaseAdmin

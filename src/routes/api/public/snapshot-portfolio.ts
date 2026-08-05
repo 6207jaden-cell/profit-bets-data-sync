@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { estimateOptionValue, fetchQuotePrice } from "@/lib/indicators";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 export const Route = createFileRoute("/api/public/snapshot-portfolio")({
   server: {
@@ -11,6 +12,12 @@ export const Route = createFileRoute("/api/public/snapshot-portfolio")({
           return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
         }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Daily cron — very low legitimate frequency, tight limit.
+        const rl = resolveRateLimit(3, 3600);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("snapshot-portfolio"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
 
         const { data: portfolios, error } = await supabaseAdmin
           .from("paper_portfolios").select("user_id, balance, equity");

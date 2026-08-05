@@ -4,6 +4,7 @@ import { callGateway } from "@/routes/api/public/autonomous-agent";
 import { updateSignalWeights } from "@/lib/signal-learning";
 import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 import { estimateFees } from "@/lib/cost-reality";
+import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 type ExitAction = { position_id: string; action: "hold" | "trim" | "exit"; reason: string };
 
@@ -16,6 +17,13 @@ export const Route = createFileRoute("/api/public/autonomous-exit-check")({
           return new Response("Unauthorized", { status: 401 });
         }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // Rate limit: runs every 10 min via cron; generous headroom above that.
+        const rl = resolveRateLimit(6, 300);
+        const rateLimited = await enforceRateLimit(supabaseAdmin, {
+          key: endpointBucketKey("autonomous-exit-check"), maxRequests: rl.maxRequests, windowSeconds: rl.windowSeconds,
+        });
+        if (rateLimited) return rateLimited;
+
         const { data: users } = await supabaseAdmin
           .from("user_settings").select("user_id").eq("autonomous_mode", true);
         if (!users || users.length === 0) return Response.json({ ok: true, reason: "no_users" });
