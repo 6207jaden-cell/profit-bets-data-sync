@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { GitBranch, Brain, Sparkles } from "lucide-react";
 import { LoadingState } from "@/components/StateViews";
-import { getSignalAttribution, getClaudeAttribution, getLearningAttribution } from "@/lib/attribution.functions";
+import { getSignalAttribution, getClaudeAttribution, getLearningAttribution, getPortfolioAttribution } from "@/lib/attribution.functions";
 
 export function AttributionPanel() {
   const { userId } = useProfile();
@@ -28,6 +28,13 @@ export function AttributionPanel() {
     enabled: !!userId,
     staleTime: 300_000,
     queryFn: async () => getLearningAttribution(),
+  });
+
+  const { data: portfolioAttr, isLoading: portfolioLoading } = useQuery({
+    queryKey: ["portfolio-attribution", userId],
+    enabled: !!userId,
+    staleTime: 300_000,
+    queryFn: async () => getPortfolioAttribution(),
   });
 
   return (
@@ -173,6 +180,56 @@ export function AttributionPanel() {
               Percentages commonly sum to more than 100% — a trade with multiple signals active gives each one full credit, not a split share. This shows which signals were involved in profit/loss, not a strict partition of it.
             </div>
           </Card>
+        )}
+      </div>
+
+      {/* Portfolio Attribution — by asset class and symbol. Unlike Signal
+          Attribution above, this IS a true partition (every trade has
+          exactly one symbol and one asset class), so percentages here sum
+          to exactly 100%, not more. */}
+      <div className="mt-4">
+        <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Portfolio Attribution (by Asset Class / Symbol)</h3>
+        {portfolioLoading ? (
+          <LoadingState message="Loading portfolio attribution…" />
+        ) : !portfolioAttr || portfolioAttr.tradeCount === 0 ? (
+          <Card className="p-4 border-border/60 bg-card text-xs text-muted-foreground text-center">
+            No closed trades yet.
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Card className="border-border/60 bg-card overflow-hidden">
+              <div className="px-4 py-2 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 font-medium">By Asset Class</div>
+              <div className="divide-y divide-border/30">
+                {portfolioAttr.byAssetClass.map((r) => (
+                  <div key={r.assetClass} className="flex items-center justify-between px-4 py-2">
+                    <span className="text-sm font-medium capitalize">{r.assetClass}</span>
+                    <div className="text-right">
+                      <span className={cn("text-xs font-mono block", r.totalPnlDollar >= 0 ? "text-emerald-400" : "text-red-400")}>
+                        {r.totalPnlDollar >= 0 ? "+" : ""}${r.totalPnlDollar.toFixed(2)}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground">{r.tradeCount} trades · {r.pctOfTotalPnl != null ? `${r.pctOfTotalPnl.toFixed(0)}%` : "—"}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+            <Card className="border-border/60 bg-card overflow-hidden">
+              <div className="px-4 py-2 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 font-medium">Top Symbols</div>
+              <div className="divide-y divide-border/30">
+                {portfolioAttr.bySymbol.slice(0, 8).map((r) => (
+                  <div key={r.symbol} className="flex items-center justify-between px-4 py-2">
+                    <span className="text-sm font-medium">{r.symbol}</span>
+                    <div className="text-right">
+                      <span className={cn("text-xs font-mono block", r.totalPnlDollar >= 0 ? "text-emerald-400" : "text-red-400")}>
+                        {r.totalPnlDollar >= 0 ? "+" : ""}${r.totalPnlDollar.toFixed(2)}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground">{r.tradeCount} trade{r.tradeCount !== 1 ? "s" : ""}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
         )}
       </div>
     </section>

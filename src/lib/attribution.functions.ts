@@ -11,6 +11,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { computeSignalAttribution } from "@/lib/signal-learning";
 import { computeClaudeAttribution, computeLearningAttribution } from "@/lib/shadow-experiments";
+import { computePortfolioAttribution } from "@/lib/portfolio-attribution";
 
 export const getSignalAttribution = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -28,4 +29,10 @@ export const getLearningAttribution = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     return computeLearningAttribution(context.supabase, context.userId);
+  });
+
+export const getPortfolioAttribution = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    return computePortfolioAttribution(context.supabase, context.userId);
   });

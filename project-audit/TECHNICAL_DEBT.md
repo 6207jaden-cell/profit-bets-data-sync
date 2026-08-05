@@ -225,9 +225,23 @@ collecting `shadow_weighting_comparison` data. Only Portfolio Attribution
 remains of the original 4, plus rolling metrics, exposure, holding-time
 distribution, and regime-conditional performance.
 
+**Update 2026-08-05 (same day, fifth slice):** Portfolio Attribution —
+the 4th and last of the 4 original attribution categories — now exists
+(`computePortfolioAttribution`, new `src/lib/portfolio-attribution.ts`),
+decomposing realized P&L by symbol and by asset class
+(stock/etf/crypto/options). Unlike Signal Attribution, this IS a true
+partition — every trade has exactly one symbol and one asset class, so
+percentages sum to exactly 100%, not more — documented as a deliberate
+contrast in both the code and the test suite. **All four attribution
+categories are now built.** What remains of the full Stage 3 list:
+rolling metrics (rolling Sharpe, rolling correlation over time),
+exposure, holding-time/trade distribution, and regime-conditional
+performance.
+
 **Priority:** Was High — the foundational piece (can this system answer
-"is it better than random") is now answerable. Remaining sub-items
-tracked separately as Stage 3 continues.
+"is it better than random") is now answerable, and all four attribution
+categories exist. Remaining sub-items tracked separately as Stage 3
+continues.
 
 ---
 

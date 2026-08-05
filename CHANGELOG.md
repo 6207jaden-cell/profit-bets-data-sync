@@ -471,3 +471,52 @@ of this result could show.
   categories; rolling metrics, exposure, holding-time distribution, and
   regime-conditional performance remain open per `TECHNICAL_DEBT.md` TD-12.
 
+---
+
+## 2026-08-05 — Stage 3, fifth slice: Portfolio Attribution (all 4 categories complete)
+
+**What changed:** `computePortfolioAttribution` (new
+`src/lib/portfolio-attribution.ts`) — the 4th and last of the four Stage
+3 attribution categories. Wired into `AttributionPanel`.
+
+**Why:** Closes the attribution set. Answers a genuinely different
+question than the other three: not "which signal/Claude/learning
+mechanism was involved," but "which specific assets and asset classes is
+the P&L actually coming from."
+
+**How it was built:** Decomposes realized P&L by symbol and by asset
+class (stock/etf/crypto/options, with all four options instrument
+variants — call/put/call_spread/put_spread — collapsed into one
+"options" bucket). Reads the same `paper_trades` dollar-P&L data source
+as Signal Attribution, for consistency — both should always sum to the
+identical total. Worth stating explicitly as a deliberate contrast: this
+IS a true partition (every trade has exactly one symbol and one asset
+class), so percentages sum to exactly 100%, unlike Signal Attribution's
+deliberate >100% credit-sharing for co-occurring signals.
+
+**Files changed:**
+- `src/lib/portfolio-attribution.ts` (new)
+- `src/lib/__tests__/portfolio-attribution.test.ts` (new, 7 tests)
+- `src/lib/attribution.functions.ts` (added `getPortfolioAttribution`)
+- `src/features/trading/components/AttributionPanel.tsx` (wired in)
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 — all 4 attribution categories now complete)
+
+**Tests added:** 7 — hand-computed multi-symbol/multi-asset-class
+decomposition, the exact-100% partition check (explicitly contrasted
+against Signal Attribution's >100% case), every documented instrument
+type correctly classified (including all 4 options variants collapsing
+into one bucket), null-instrument fallback to "stock" matching the same
+convention already used in `estimateFees`, and the zero-total
+divide-by-zero guard.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 153/153 passing (7 new)
+
+**This completes all four Stage 3 attribution categories** (Signal,
+Claude, Learning, Portfolio). What remains of the full Stage 3 list:
+rolling metrics (rolling Sharpe, rolling correlation over time),
+exposure, holding-time/trade distribution, and regime-conditional
+performance — tracked in `TECHNICAL_DEBT.md` TD-12.
+
