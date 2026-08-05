@@ -206,6 +206,22 @@ genuinely separate work: rolling metrics (rolling Sharpe/correlation over
 time), exposure, holding-time/trade distribution, regime-conditional
 performance, and all four attribution categories (portfolio/signal/
 Claude/learning) from the full Stage 3 list.
+
+**Update 2026-08-05 (same day, third slice):** Signal Attribution and
+Claude Attribution — 2 of the 4 attribution categories — now also exist,
+built by extending already-tested infrastructure rather than starting
+from scratch: `computeSignalAttribution` (dollar P&L decomposition by
+signal, `signal-learning.ts`) and `computeClaudeAttribution` (head-to-head
+comparison of Claude's actual picks vs. what pure deterministic ranking
+alone would have captured, `shadow-experiments.ts`, directly
+operationalizing `HYPOTHESIS_LOG.md` H2 using data Experiment 1 has
+already been collecting). Both surfaced in a new `AttributionPanel`.
+Still open: Portfolio Attribution and Learning Attribution (the latter
+has real infrastructure sitting behind it too — Experiment 2's
+`shadow_weighting_comparison` — not yet surfaced as an attribution
+analysis), plus rolling metrics, exposure, holding-time distribution,
+and regime-conditional performance.
+
 **Priority:** Was High — the foundational piece (can this system answer
 "is it better than random") is now answerable. Remaining sub-items
 tracked separately as Stage 3 continues.

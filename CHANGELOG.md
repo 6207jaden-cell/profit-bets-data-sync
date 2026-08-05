@@ -336,3 +336,84 @@ zero/negative-prior-value edge case.
   regime-conditional performance, and all four attribution categories
   remain open — see `TECHNICAL_DEBT.md` TD-12 for the full remaining list.
 
+---
+
+## 2026-08-05 — Stage 3, third slice: Signal Attribution and Claude Attribution
+
+**What changed:** Two of the four Stage 3 attribution categories now
+exist — `computeSignalAttribution` (dollar P&L decomposition by signal)
+and `computeClaudeAttribution` (Claude's actual picks vs. pure
+deterministic ranking, head-to-head). New `AttributionPanel` in the
+History tab.
+
+**Why:** Both were natural next slices specifically because they extend
+already-tested infrastructure from earlier sessions rather than starting
+from scratch — Experiment 4's per-signal tracking and Experiment 1's
+shadow candidate logging. Claude Attribution directly operationalizes
+`HYPOTHESIS_LOG.md` H2 ("does Claude add value compared to deterministic
+rules alone") using data that's already been accumulating since
+Experiment 1 shipped.
+
+**How it was built:**
+
+Signal Attribution reads real closed-trade dollar P&L directly (not the
+averaged stats in `agent_signal_weights`, since attribution needs actual
+dollar amounts) and sums it per signal. Important methodological point
+documented directly in the code and the UI: a trade commonly has
+multiple signals active simultaneously, and each gets FULL credit for
+that trade's P&L — so percentages across signals typically sum to more
+than 100%, not exactly 100%. This is "credit sharing" attribution (how
+much did this signal touch), not a strict partition, and arbitrarily
+splitting credit across co-occurring signals would imply a precision
+about individual causal contribution that isn't actually knowable from
+this data.
+
+Claude Attribution reads resolved `shadow_candidate_log` rows and splits
+them into two groups: Claude's actual picks (`agree_traded` +
+`disagree_claude_added`) vs. what the deterministic top-6 ranking alone
+would have captured (`agree_traded` + `disagree_claude_skipped`) —
+`agree_traded` rows correctly count toward BOTH groups since both
+systems agreed on them. Gated at 30 resolved rows per side before
+treating the comparison as meaningful, matching the threshold already
+specified in `EXPERIMENT_RESULTS.md`.
+
+Both exposed via new server functions
+(`src/lib/attribution.functions.ts`) using the RLS-scoped
+`context.supabase` client, not `supabaseAdmin` — both underlying tables
+already have "users read own rows" policies, so no service-role access
+was needed.
+
+**Files changed:**
+- `src/lib/signal-learning.ts` (added `computeSignalAttribution`)
+- `src/lib/shadow-experiments.ts` (added `computeClaudeAttribution`)
+- `src/lib/attribution.functions.ts` (new)
+- `src/lib/__tests__/signal-attribution.test.ts` (new, 6 tests)
+- `src/lib/__tests__/claude-attribution.test.ts` (new, 6 tests)
+- `src/features/trading/components/AttributionPanel.tsx` (new)
+- `src/features/trading/TradingDashboard.tsx` (wired into History tab)
+- `project-audit/TECHNICAL_DEBT.md`, `HYPOTHESIS_LOG.md` (H2 updated)
+
+**Tests added:** 12 — Signal Attribution's hand-computed dollar
+decomposition across overlapping signals (explicitly verifying the
+>100% sum is expected, not a bug), manual trades correctly excluded from
+signal-level attribution but still counted in the total, divide-by-zero
+guard on exactly-zero total P&L. Claude Attribution's hand-computed
+head-to-head average, `agree_traded` counting toward both groups,
+the 30-sample evidence floor on both sides independently, and a
+negative-added-value case correctly indicating underperformance.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 140/140 passing (12 new)
+
+**Remaining risk / honest limitations:**
+- Both panels correctly show "not enough data yet" states — Claude
+  Attribution needs resolved shadow-log data (1–4 day horizon), Signal
+  Attribution needs closed trades with `entry_signals` populated (only
+  since Stage 2's signal-learning work began tracking it).
+- Portfolio Attribution and Learning Attribution remain open. Learning
+  Attribution specifically already has real infrastructure sitting
+  behind it too (Experiment 2's `shadow_weighting_comparison`) — not yet
+  surfaced as a proper attribution analysis, a natural next slice.
+

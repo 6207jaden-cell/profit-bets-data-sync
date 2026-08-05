@@ -537,3 +537,76 @@ export async function computeSignalContribution(
 
   return rows.sort((a, b) => b.presentSampleSize - a.presentSampleSize);
 }
+
+// ── Stage 3: Signal Attribution ──────────────────────────────────────────
+// Distinct from computeSignalContribution above, which asks "is this
+// signal good" (present-vs-absent average return comparison). This asks a
+// different question: "how much of my TOTAL realized P&L came from trades
+// involving this signal" — a dollar-P&L decomposition, not a quality
+// comparison. Reads real closed-trade dollar P&L directly rather than the
+// aggregate stats in agent_signal_weights, since attribution needs actual
+// dollar amounts, not averages.
+
+export type SignalAttributionRow = {
+  signalName: string;
+  totalPnlDollar: number;
+  tradeCount: number;
+  /** Share of total portfolio P&L attributable to trades involving this signal — see the important caveat on credit-sharing below. */
+  pctOfTotalPnl: number | null;
+};
+
+export type SignalAttributionResult = {
+  rows: SignalAttributionRow[];
+  totalPnlDollar: number;
+  tradeCount: number;
+};
+
+/**
+ * IMPORTANT METHODOLOGICAL NOTE, not hidden: a single trade commonly has
+ * MULTIPLE signals active simultaneously (that's the whole point of the
+ * scoring system — several signals reinforcing each other). This means
+ * each signal present on a trade gets FULL credit for that trade's P&L,
+ * not a fractional share. The sum of every row's pctOfTotalPnl will
+ * therefore typically exceed 100%, not equal it — this is "credit
+ * sharing" attribution (how much did this signal touch), not a strict
+ * partition of P&L into non-overlapping buckets. Presented this way
+ * deliberately rather than arbitrarily splitting credit across
+ * co-occurring signals, which would imply a precision about each
+ * signal's individual causal contribution that isn't actually knowable
+ * from this data.
+ */
+export async function computeSignalAttribution(
+  supabaseAdmin: SupabaseAdminClient,
+  userId: string,
+): Promise<SignalAttributionResult> {
+  const { data } = await supabaseAdmin
+    .from("paper_trades")
+    .select("pnl, entry_signals")
+    .eq("user_id", userId)
+    .eq("is_open", false)
+    .not("pnl", "is", null);
+
+  const trades = (data ?? []) as Array<{ pnl: number | string; entry_signals: string[] | null }>;
+  const totalPnlDollar = trades.reduce((s, t) => s + Number(t.pnl ?? 0), 0);
+
+  const bySignal = new Map<string, { totalPnl: number; count: number }>();
+  for (const t of trades) {
+    const signals = t.entry_signals ?? [];
+    const pnl = Number(t.pnl ?? 0);
+    for (const sig of signals) {
+      const existing = bySignal.get(sig) ?? { totalPnl: 0, count: 0 };
+      existing.totalPnl += pnl;
+      existing.count += 1;
+      bySignal.set(sig, existing);
+    }
+  }
+
+  const rows: SignalAttributionRow[] = Array.from(bySignal.entries()).map(([signalName, stats]) => ({
+    signalName,
+    totalPnlDollar: Number(stats.totalPnl.toFixed(2)),
+    tradeCount: stats.count,
+    pctOfTotalPnl: totalPnlDollar !== 0 ? Number(((stats.totalPnl / totalPnlDollar) * 100).toFixed(1)) : null,
+  })).sort((a, b) => b.totalPnlDollar - a.totalPnlDollar);
+
+  return { rows, totalPnlDollar: Number(totalPnlDollar.toFixed(2)), tradeCount: trades.length };
+}

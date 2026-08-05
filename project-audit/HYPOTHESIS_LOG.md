@@ -88,6 +88,17 @@ table + logging/resolution code shipped in commit `784852f`. See
 `EXPERIMENT_RESULTS.md` for how to read results once they accumulate —
 no results exist yet, infrastructure only just started collecting data.
 
+**Reporting layer added (same day, Stage 3 attribution work):**
+`computeClaudeAttribution()` in `shadow-experiments.ts` now directly
+answers this hypothesis once enough resolved data exists — a real
+head-to-head average-return comparison between Claude's actual picks and
+what pure deterministic ranking alone would have captured, surfaced in
+the `AttributionPanel` UI. Gated at 30 resolved rows per side (matching
+`EXPERIMENT_RESULTS.md`'s Experiment 1 threshold) before treating the
+result as anything but provisional. This doesn't change the answer —
+still genuinely unresolved, no data yet — but the tooling to actually
+read the answer the moment enough data exists is now built and tested.
+
 **Confidence:** Untested
 **Conclusion:** Unresolved — this is arguably the single most important
 open question in the entire system, since Claude sits at the center of

@@ -250,3 +250,68 @@ export async function linkWeightingComparisonToTrade(
     console.warn("[shadow-experiments] linkWeightingComparisonToTrade failed (non-fatal)", String(e));
   }
 }
+
+// ── Stage 3: Claude Attribution ──────────────────────────────────────────
+// Directly operationalizes HYPOTHESIS_LOG.md H2 ("does Claude add value
+// compared to deterministic rules alone") using the resolved data
+// Experiment 1's shadow logging has already been collecting since
+// logShadowCandidates() started running. Not a new data source — this is
+// the aggregation/reporting layer that turns raw shadow_candidate_log rows
+// into an actual head-to-head comparison.
+
+export type ClaudeAttributionResult = {
+  /** Average resolved return for what Claude actually traded (agree_traded + disagree_claude_added, real outcomes where available). */
+  claudePicksAvgReturnPct: number | null;
+  claudePicksSampleSize: number;
+  /** Average resolved return for what the deterministic top-6 ranking alone would have captured (agree_traded + disagree_claude_skipped). */
+  deterministicOnlyAvgReturnPct: number | null;
+  deterministicOnlySampleSize: number;
+  /** claudePicksAvgReturnPct - deterministicOnlyAvgReturnPct — positive means Claude's judgment added value over the raw ranking; negative means it subtracted value. */
+  claudeAddedValuePct: number | null;
+  totalResolvedSampleSize: number;
+  /** Same "don't over-read this yet" floor used throughout this project — 30 resolved rows per side, matching the threshold already specified in EXPERIMENT_RESULTS.md for this exact comparison. */
+  hasMinimumEvidence: boolean;
+};
+
+export async function computeClaudeAttribution(
+  supabaseAdmin: SupabaseAdminClient,
+  userId: string,
+): Promise<ClaudeAttributionResult> {
+  const empty: ClaudeAttributionResult = {
+    claudePicksAvgReturnPct: null, claudePicksSampleSize: 0,
+    deterministicOnlyAvgReturnPct: null, deterministicOnlySampleSize: 0,
+    claudeAddedValuePct: null, totalResolvedSampleSize: 0, hasMinimumEvidence: false,
+  };
+
+  const { data } = await supabaseAdmin
+    .from("shadow_candidate_log")
+    .select("agreement, hypothetical_return_pct")
+    .eq("user_id", userId)
+    .eq("resolved", true)
+    .not("hypothetical_return_pct", "is", null);
+
+  const rows = (data ?? []) as Array<{ agreement: string; hypothetical_return_pct: number }>;
+  if (rows.length === 0) return empty;
+
+  const claudePicks = rows.filter((r) => r.agreement === "agree_traded" || r.agreement === "disagree_claude_added");
+  const deterministicPicks = rows.filter((r) => r.agreement === "agree_traded" || r.agreement === "disagree_claude_skipped");
+
+  const avg = (arr: typeof rows): number | null =>
+    arr.length > 0 ? arr.reduce((s, r) => s + Number(r.hypothetical_return_pct), 0) / arr.length : null;
+
+  const claudePicksAvgReturnPct = avg(claudePicks);
+  const deterministicOnlyAvgReturnPct = avg(deterministicPicks);
+  const MIN_SAMPLE = 30; // matches the threshold already documented in EXPERIMENT_RESULTS.md for this exact comparison
+
+  return {
+    claudePicksAvgReturnPct: claudePicksAvgReturnPct != null ? Number(claudePicksAvgReturnPct.toFixed(3)) : null,
+    claudePicksSampleSize: claudePicks.length,
+    deterministicOnlyAvgReturnPct: deterministicOnlyAvgReturnPct != null ? Number(deterministicOnlyAvgReturnPct.toFixed(3)) : null,
+    deterministicOnlySampleSize: deterministicPicks.length,
+    claudeAddedValuePct: (claudePicksAvgReturnPct != null && deterministicOnlyAvgReturnPct != null)
+      ? Number((claudePicksAvgReturnPct - deterministicOnlyAvgReturnPct).toFixed(3))
+      : null,
+    totalResolvedSampleSize: rows.length,
+    hasMinimumEvidence: claudePicks.length >= MIN_SAMPLE && deterministicPicks.length >= MIN_SAMPLE,
+  };
+}
