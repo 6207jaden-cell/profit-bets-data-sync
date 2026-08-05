@@ -465,7 +465,14 @@ re-verifying.
 
 # 8. Testing Standards
 
-**Binding standard, not yet met by this codebase:**
+**Status update (2026-08-05):** the "mandatory first targets" list below
+was fully built out in Stage 1.5 — 68 tests across 9 files, all 7 targets
+covered, verified via an independent clean-clone check, not just
+sandbox-local trust (see the Release Verification Rule immediately below,
+added specifically because sandbox-local trust alone failed to catch a
+real 127-error regression during that same session). Testing is no
+longer "not yet met" for this specific list — it is now the maintained
+baseline every future change must not regress.
 
 Every pure function in `src/lib/` that performs trading math must have a
 unit test asserting its output against hand-computed expected values for
@@ -475,8 +482,8 @@ specific function (e.g., for `computeCorrelation`, a test with two
 perfectly correlated series should return ~1.0; two perfectly inverse
 series should return ~-1.0).
 
-**Mandatory first targets, in priority order** (see `ROADMAP.md` item 4):
-1. `computeATR` / the ATR portion of `atrBasedStopTarget`
+**Mandatory first targets** (completed, see `src/lib/__tests__/`):
+1. `atr` / the ATR portion of `atrBasedStopTarget`
 2. `computeCorrelation`
 3. `computeVwap`
 4. `computeKellySizeMultiplier`
@@ -497,6 +504,39 @@ threshold (Section 6), any change to the position-sizing chain (Section
 Tests are strongly recommended but not strictly mandatory for: UI
 components with no financial calculation inside them, cosmetic changes,
 documentation.
+
+## Release Verification Rule (added 2026-08-05, binding)
+
+**This rule exists because it was learned the hard way.** During Stage
+1.5, a sandbox-local `tsc --noEmit` was reported clean multiple times
+across an extended session, while the actual pushed `main` branch had
+accumulated 127 real compile errors — only caught when a fully
+independent clean clone with a fresh `npm install` was run. Sandbox-local
+state (cached `node_modules`, prior compilation state, stale in-memory
+assumptions) can mask real regressions that a genuinely clean environment
+will not.
+
+**The rule:** any change affecting authentication, authorization,
+environment configuration, build tooling, database access, trading
+calculations, or deployment configuration must be verified on a fresh
+clone with a fresh dependency install before being considered complete —
+not merely re-checked in the same working directory the change was made
+in. This means, at minimum:
+
+```bash
+rm -rf /tmp/verify_clean && git clone <repo> /tmp/verify_clean
+cd /tmp/verify_clean && npm install
+npx tsc --noEmit
+npm run build
+npx vitest run
+```
+
+**This is not optional for the change categories listed above**, even
+when a sandbox-local check already passed. It is the difference between
+"the code I'm looking at right now compiles" and "the code that will
+actually run in production compiles" — those are not guaranteed to be
+the same thing, and this project has direct, recent evidence they can
+diverge silently.
 
 ---
 
@@ -818,7 +858,11 @@ session picking up work on this repository.
 
 - Run `git fetch origin && git reset --hard origin/main` and confirm
   `tsc --noEmit` and `npm run build` are clean on the current state
-  before attributing any error to your own upcoming change.
+  before attributing any error to your own upcoming change. **This
+  sandbox-local check alone is not sufficient trust for auth/env/build-
+  tooling/dependency/database/trading-calculation changes — see the
+  Release Verification Rule in Section 8, added after sandbox-local
+  checks failed to catch a real 127-error regression.**
 - Read the specific file(s) you're about to touch in full, not a
   search-result snippet — this codebase has a real history of bugs
   introduced by pattern-matching on a partial view (see the duplicate
