@@ -190,9 +190,21 @@ by anything the product shows.
 **Recommended solution:** Build a `PerformanceMetricsPanel` computing
 the above from `paper_trades`, with sample size shown alongside every
 metric and a real benchmark comparison.
-**Priority:** High — Phase 2 of the current roadmap direction,
-deliberately sequenced after Phase 1's trustworthiness fixes
-(TD-01 through TD-06).
+**Status:** PARTIALLY RESOLVED 2026-08-05 (Stage 3, first slice).
+Sharpe, Sortino, max drawdown, profit factor, expectancy, avg win/loss,
+and win rate WITH a real Wilson-score confidence interval now exist
+(`src/lib/performance-metrics.ts`, 23 tests, `PerformanceMetricsPanel`
+in the History tab) — every figure shown alongside its sample size, with
+an explicit "provisional, not enough data yet" warning below 20 closed
+trades. NOT yet resolved: the "real benchmark comparison" part of this
+item's own recommended solution (Alpha/Beta/correlation to SPY) — that's
+genuinely separate, harder work (needs SPY return data aligned to the
+same trade windows) and remains open. Also still open: rolling metrics,
+regime-conditional performance, and all four attribution categories
+(portfolio/signal/Claude/learning) from the full Stage 3 list.
+**Priority:** Was High — the foundational piece (can this system answer
+"is it better than random") is now answerable. Remaining sub-items
+tracked separately as Stage 3 continues.
 
 ---
 

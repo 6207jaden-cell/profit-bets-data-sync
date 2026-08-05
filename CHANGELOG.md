@@ -210,3 +210,68 @@ and this dependency fix. Per the explicit instruction for this stage,
 Stage 3 (analytics) should not begin until this is verified complete,
 which the fresh-clone check below confirms.
 
+---
+
+## 2026-08-05 — Stage 3, first slice: core risk-adjusted performance metrics
+
+**What changed:** New `src/lib/performance-metrics.ts` with Sharpe ratio,
+Sortino ratio, maximum drawdown, profit factor, expectancy, average
+win/loss, and win rate with a real 95% Wilson-score confidence interval.
+New `PerformanceMetricsPanel` dashboard in the History tab.
+
+**Why:** `TECHNICAL_DEBT.md` TD-12 flagged this as the single most
+important foundational gap — no page anywhere could answer "is this
+system actually better than randomly investing in the market." This is
+the first, highest-priority slice of the full Stage 3 list (Sharpe,
+Sortino, Max Drawdown, Profit Factor, Expectancy, Average Win, Average
+Loss, Average R, Rolling Performance, Volatility, Alpha, Beta,
+Correlation to SPY, Rolling Correlation, Exposure, Holding Time, Win
+Rate, Trade Distribution, Session Performance, Regime Performance,
+Portfolio/Signal/Claude/Learning Attribution) — the rest remains
+separate, sequenced work, not silently dropped.
+
+**How it was built:** Every formula documented with its exact
+convention (population vs. sample stdev, Sortino's total-N downside
+deviation denominator, Sharpe annualization derived from actual observed
+trade frequency rather than assumed daily cadence, Wilson score over the
+simpler normal approximation for small-sample correctness) so there's
+never ambiguity about which textbook definition is in use. Every
+function returns `null` rather than `Infinity`/`NaN` for undefined cases
+(no losses for profit factor, zero variance for Sharpe, etc.) — designed
+to be hard to misuse downstream.
+
+**Files changed:**
+- `src/lib/performance-metrics.ts` (new)
+- `src/lib/__tests__/performance-metrics.test.ts` (new, 23 tests)
+- `src/features/trading/components/PerformanceMetricsPanel.tsx` (new)
+- `src/features/trading/TradingDashboard.tsx` (wired into History tab)
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 marked partially resolved)
+
+**Tests added:** 23, every one asserting a hand-computed expected value
+— including a Sharpe/Sortino pair computed from the identical return
+series to cross-check the Sortino-more-forgiving-of-upside-volatility
+property directly, a Wilson CI computed by hand against the exact
+"68% over 24 trades" example already used in `HYPOTHESIS_LOG.md` H4, and
+an expectancy cross-check confirming `expectancy == winRate*avgWin -
+lossRate*avgLoss` holds exactly, not just approximately.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 117/117 passing (23 new)
+
+**Remaining risk / honest limitations, stated in the code and the UI
+itself, not hidden:**
+- Max drawdown is computed from a synthetic realized-P&L curve
+  (sequential trade compounding), not true mark-to-market equity — this
+  understates real intra-period volatility for a system where multiple
+  positions can be open simultaneously. Documented directly in
+  `performance-metrics.ts` and the panel's own footer text.
+- The UI shows an explicit "provisional, not enough data yet" warning
+  below 20 closed trades — every number is real, but not yet trustworthy
+  as a stable estimate at low sample sizes.
+- Alpha, Beta, and correlation-to-SPY (the actual "benchmark comparison"
+  TD-12 originally called for) are NOT part of this slice — genuinely
+  separate work requiring SPY return data aligned to matching trade
+  windows, remains open.
+
