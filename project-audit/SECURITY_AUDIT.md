@@ -92,7 +92,12 @@ if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
 }
 ```
 
-**Status:** Open. Not yet fixed as of this audit pass.
+**Status:** FIXED 2026-08-05 (Stage 2, Priority 2). Now uses the same
+`verifyPublicApiKeyFromEnv()` shared utility as Finding 1's fix, so this
+exact regression pattern (naive presence-only check) is covered by the
+same 9-test suite in `src/lib/__tests__/api-auth.test.ts` — specifically
+the test explicitly named as locking in this bug's exact pattern.
+Verified on an independent fresh clone + fresh install.
 
 ---
 

@@ -61,3 +61,43 @@ the same shared utility. Rate limiting (Priority 3) is not yet in place,
 so this endpoint — now correctly rejecting unauthorized callers — still
 has no protection against a caller who *does* have the correct key
 making unlimited requests.
+
+---
+
+## 2026-08-05 — Stage 2, Priority 2: Fixed `sync-crons.ts` authorization
+
+**What changed:** `sync-crons.ts` now uses `verifyPublicApiKeyFromEnv()`
+(the same shared utility built for Priority 1) instead of its previous
+`if (!apikey)` presence-only check.
+
+**Why:** The existing check verified the `apikey` header was non-empty
+but never compared it against the real secret — any non-empty string
+passed. Lower real-world severity than Priority 1's finding (the
+operation is idempotent, re-registers a fixed cron list, doesn't expose
+or mutate user data) but still improper access control on an
+admin-privileged action. `SECURITY_AUDIT.md` Finding 2.
+
+**How it was fixed:** Reused the exact same tested utility from Priority
+1 rather than writing a second, potentially-inconsistent inline check —
+this is precisely the pattern whose absence caused Findings 1 and 2 to
+exist as two different bugs in the first place.
+
+**Files changed:**
+- `src/routes/api/public/sync-crons.ts`
+- `project-audit/SECURITY_AUDIT.md` (Finding 2 marked fixed)
+
+**Tests added:** None new — this fix is covered by the same 9 tests
+added for Priority 1, since it calls the identical utility. The test
+suite's "rejects ANY non-empty string" case is explicitly the regression
+pattern this exact bug represents.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: clean (sandbox)
+- `npx vitest run`: 77/77 passing (sandbox)
+- Independent fresh-clone + fresh-install verification per the Release
+  Verification Rule, since this touches authentication.
+
+**Remaining risk:** Both Priority 1 and Priority 2's endpoints are now
+correctly authorized but still have no rate limiting — Priority 3, next.
+

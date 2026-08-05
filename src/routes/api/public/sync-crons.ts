@@ -1,11 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 export const Route = createFileRoute("/api/public/sync-crons")({
   server: {
     handlers: {
       POST: async ({ request }: { request: Request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey) return new Response("Unauthorized", { status: 401 });
+        // SECURITY FIX (BUG-002): this previously only checked that the
+        // apikey header was non-empty (`if (!apikey)`), never that it
+        // matched the actual secret — meaning any non-empty string passed.
+        // See SECURITY_AUDIT.md Finding 2.
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
