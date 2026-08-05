@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 /**
  * Called by pg_cron every 5 minutes via the project's anon key in the `apikey` header.
@@ -7,7 +8,14 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/api/public/evaluate-alerts")({
   server: {
     handlers: {
-      POST: async () => {
+      POST: async ({ request }: { request: Request }) => {
+        // SECURITY FIX (BUG-001): this endpoint previously had NO authorization
+        // check at all — the handler didn't even accept a `request` parameter,
+        // so the comment claiming it verified the apikey header was describing
+        // intended behavior that was never implemented. See SECURITY_AUDIT.md
+        // Finding 1, CHANGELOG.md for the fix record.
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
+
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { data: alerts, error } = await supabaseAdmin
           .from("price_alerts")

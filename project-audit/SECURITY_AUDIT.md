@@ -44,7 +44,18 @@ POST: async ({ request }: { request: Request }) => {
   ...
 ```
 
-**Status:** Open. Not yet fixed as of this audit pass.
+**Status:** FIXED 2026-08-05 (Stage 2, Priority 1). The handler now
+accepts `{ request }`, calls the new shared `verifyPublicApiKeyFromEnv()`
+utility (`src/lib/api-auth.ts`), and returns 401 via `unauthorizedResponse()`
+when the check fails — before any `supabaseAdmin` access. Built as a
+centralized, unit-tested utility (9 tests in `src/lib/__tests__/api-auth.test.ts`
+covering valid/invalid/missing/malformed keys, including a test that
+specifically locks in the exact regression pattern from Finding 2 below —
+a naive presence-only check accepting any non-empty string) rather than
+a one-off inline fix, so Finding 2's identical root cause gets the same
+correct, tested logic instead of a second hand-written copy. Verified on
+an independent fresh clone + fresh install, not sandbox-local state only
+— see `ENGINEERING_CONSTITUTION.md`'s Release Verification Rule (Section 8).
 
 ---
 
