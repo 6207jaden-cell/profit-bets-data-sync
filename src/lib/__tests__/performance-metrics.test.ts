@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeSharpeRatio, computeSortinoRatio, computeMaxDrawdown, buildRealizedEquityCurve,
   computeProfitFactor, computeExpectancy, computeWinRateWithConfidenceInterval,
+  computeBeta, computeAlpha, computeDailyReturns,
   type TradeReturn,
 } from "@/lib/performance-metrics";
 
@@ -188,5 +189,91 @@ describe("computeWinRateWithConfidenceInterval", () => {
     const allLosses = computeWinRateWithConfidenceInterval(0, 10)!;
     expect(allLosses.ciLower).toBeGreaterThanOrEqual(0);
     expect(allLosses.ciUpper).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("computeBeta", () => {
+  it("computes the correct hand-verified beta for known return series", () => {
+    // portfolio = [1, 2, -1, 3], benchmark = [0.5, 1.5, -0.5, 2]
+    // meanP=1.25, meanB=0.875
+    // Cov (population) = 1.40625, Var(benchmark) = 0.921875
+    // Beta = 1.40625/0.921875 ≈ 1.5254
+    const portfolio = [1, 2, -1, 3];
+    const benchmark = [0.5, 1.5, -0.5, 2];
+    const beta = computeBeta(portfolio, benchmark);
+    expect(beta).not.toBeNull();
+    expect(beta!).toBeCloseTo(1.5254, 3);
+  });
+
+  it("returns beta ≈ 1 when the portfolio moves identically to the benchmark", () => {
+    const series = [1, 2, -1, 3, 0.5];
+    const beta = computeBeta(series, series);
+    expect(beta!).toBeCloseTo(1, 3);
+  });
+
+  it("returns null when the benchmark has zero variance (undefined, can't divide by zero)", () => {
+    expect(computeBeta([1, 2, 3], [1, 1, 1])).toBeNull();
+  });
+
+  it("returns null with fewer than 2 aligned data points", () => {
+    expect(computeBeta([1], [1])).toBeNull();
+  });
+
+  it("truncates to the shorter series length when inputs are mismatched, using the most recent overlapping data", () => {
+    const portfolio = [1, 2, -1, 3, 5]; // 5 points
+    const benchmark = [0.5, 1.5, -0.5]; // 3 points
+    const beta = computeBeta(portfolio, benchmark);
+    // Should use only the last 3 portfolio points: [-1, 3, 5] vs [0.5, 1.5, -0.5]
+    const expected = computeBeta([-1, 3, 5], [0.5, 1.5, -0.5]);
+    expect(beta).toEqual(expected);
+  });
+});
+
+describe("computeAlpha", () => {
+  it("computes the correct hand-verified alpha for the same known series used in the beta test", () => {
+    // Using beta=1.5254 (computed above), meanP=1.25, meanB=0.875, rf=0
+    // expectedReturn = 0 + 1.5254*(0.875-0) = 1.33474...
+    // alpha = 1.25 - 1.33474 ≈ -0.08474
+    const portfolio = [1, 2, -1, 3];
+    const benchmark = [0.5, 1.5, -0.5, 2];
+    const beta = computeBeta(portfolio, benchmark)!;
+    const alpha = computeAlpha(portfolio, benchmark, beta, 0);
+    expect(alpha).not.toBeNull();
+    expect(alpha!).toBeCloseTo(-0.0847, 2);
+  });
+
+  it("returns alpha ≈ 0 when the portfolio exactly tracks the benchmark (no excess return)", () => {
+    const series = [1, 2, -1, 3, 0.5];
+    const beta = computeBeta(series, series)!;
+    const alpha = computeAlpha(series, series, beta, 0);
+    expect(alpha!).toBeCloseTo(0, 3);
+  });
+
+  it("a higher risk-free rate reduces alpha for a portfolio with beta < 1 relative to the same test at rf=0", () => {
+    const portfolio = [1, 2, -1, 3];
+    const benchmark = [0.5, 1.5, -0.5, 2];
+    const beta = computeBeta(portfolio, benchmark)!;
+    const alphaNoRf = computeAlpha(portfolio, benchmark, beta, 0)!;
+    const alphaWithRf = computeAlpha(portfolio, benchmark, beta, 0.1)!;
+    expect(alphaWithRf).not.toBe(alphaNoRf);
+  });
+});
+
+describe("computeDailyReturns", () => {
+  it("computes correct percentage returns from a known value series", () => {
+    // [100, 110, 104.5] -> +10%, -5%
+    const returns = computeDailyReturns([100, 110, 104.5]);
+    expect(returns).toHaveLength(2);
+    expect(returns[0]).toBeCloseTo(10, 3);
+    expect(returns[1]).toBeCloseTo(-5, 3);
+  });
+
+  it("returns an empty array for a single value (no return computable)", () => {
+    expect(computeDailyReturns([100])).toEqual([]);
+  });
+
+  it("skips a transition where the prior value is zero or negative, rather than producing Infinity/NaN", () => {
+    const returns = computeDailyReturns([0, 100, 110]);
+    expect(returns.every((r) => Number.isFinite(r))).toBe(true);
   });
 });

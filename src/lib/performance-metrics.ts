@@ -229,3 +229,68 @@ export function computeWinRateWithConfidenceInterval(wins: number, total: number
     sampleSize: total,
   };
 }
+
+// ── Beta and Alpha (benchmark comparison) ────────────────────────────────
+// The actual "real benchmark comparison" TD-12 originally called for and
+// the first slice deliberately deferred. Computed from REAL daily-aligned
+// data (portfolio_snapshots vs SPY daily closes on matching dates) — see
+// src/lib/benchmark-comparison.functions.ts for the data-fetching and
+// date-alignment layer that feeds these pure functions. Kept as pure,
+// independently-testable math here, consistent with every other metric
+// in this module.
+
+/**
+ * Beta = Cov(portfolio returns, benchmark returns) / Var(benchmark returns).
+ * Uses population covariance/variance (dividing by N), matching the
+ * convention already used for Sharpe's standard deviation in this same
+ * module. Beta > 1 means the portfolio has historically moved MORE than
+ * the benchmark (amplified market exposure); Beta < 1 means less; Beta
+ * near 0 means largely uncorrelated with the benchmark's moves.
+ */
+export function computeBeta(portfolioReturns: number[], benchmarkReturns: number[]): number | null {
+  const n = Math.min(portfolioReturns.length, benchmarkReturns.length);
+  if (n < 2) return null;
+  const p = portfolioReturns.slice(-n);
+  const b = benchmarkReturns.slice(-n);
+  const meanP = p.reduce((s, v) => s + v, 0) / n;
+  const meanB = b.reduce((s, v) => s + v, 0) / n;
+  let cov = 0, varB = 0;
+  for (let i = 0; i < n; i++) {
+    cov += (p[i] - meanP) * (b[i] - meanB);
+    varB += (b[i] - meanB) ** 2;
+  }
+  cov /= n;
+  varB /= n;
+  if (varB === 0) return null;
+  return Number((cov / varB).toFixed(4));
+}
+
+/**
+ * Jensen's Alpha = portfolio mean return - [risk-free rate + Beta *
+ * (benchmark mean return - risk-free rate)] — the excess return NOT
+ * explained by the portfolio's market exposure (Beta) alone. A positive
+ * Alpha means the strategy outperformed what its level of market exposure
+ * would predict; a negative Alpha means it underperformed that prediction,
+ * even if raw returns looked fine. Requires beta to already be computed
+ * (via computeBeta) rather than recomputing it internally, since callers
+ * that need both should only compute the covariance/variance pass once.
+ */
+export function computeAlpha(portfolioReturns: number[], benchmarkReturns: number[], beta: number, riskFreeRatePct = 0): number | null {
+  const n = Math.min(portfolioReturns.length, benchmarkReturns.length);
+  if (n < 2) return null;
+  const p = portfolioReturns.slice(-n);
+  const b = benchmarkReturns.slice(-n);
+  const meanP = p.reduce((s, v) => s + v, 0) / n;
+  const meanB = b.reduce((s, v) => s + v, 0) / n;
+  const expectedReturn = riskFreeRatePct + beta * (meanB - riskFreeRatePct);
+  return Number((meanP - expectedReturn).toFixed(4));
+}
+
+/** Computes daily % returns from a chronologically-ordered series of values (equity or price). */
+export function computeDailyReturns(values: number[]): number[] {
+  const returns: number[] = [];
+  for (let i = 1; i < values.length; i++) {
+    if (values[i - 1] > 0) returns.push(((values[i] - values[i - 1]) / values[i - 1]) * 100);
+  }
+  return returns;
+}

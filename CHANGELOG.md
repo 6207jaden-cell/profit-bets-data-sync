@@ -275,3 +275,64 @@ itself, not hidden:**
   separate work requiring SPY return data aligned to matching trade
   windows, remains open.
 
+---
+
+## 2026-08-05 — Stage 3, second slice: real Alpha/Beta/Correlation-to-SPY
+
+**What changed:** New `computeBeta`, `computeAlpha`, `computeDailyReturns`
+in `performance-metrics.ts`, plus a new server function
+(`getBenchmarkComparison`) that fetches real data and computes them.
+Wired into `PerformanceMetricsPanel`.
+
+**Why:** The first slice deliberately deferred the actual "benchmark
+comparison" TD-12 originally called for — this closes that gap.
+
+**How it was built:** Uses REAL daily-aligned data rather than a
+synthetic approximation — `portfolio_snapshots` (already collected daily
+by the existing `snapshot-portfolio` cron) matched by calendar date
+against SPY's own daily closes (`fetchBars`). Beta/Alpha specifically
+need genuine calendar-time alignment between two independently-sourced
+series to be meaningful; the trade-sequence curve used for Sharpe/Sortino
+in the first slice wouldn't have been appropriate here. Date alignment
+matches by calendar day (not exact timestamp), since portfolio snapshots
+and SPY bars are captured at different times by different systems —
+exact-timestamp matching would have silently dropped nearly everything.
+
+Beta = Cov(portfolio returns, SPY returns) / Var(SPY returns). Alpha =
+Jensen's alpha, the excess return not explained by the portfolio's market
+exposure alone. Correlation reuses the existing, already-tested
+`computeCorrelation` from `indicators.ts` rather than a new formula.
+
+**Files changed:**
+- `src/lib/performance-metrics.ts` (added computeBeta, computeAlpha,
+  computeDailyReturns)
+- `src/lib/__tests__/performance-metrics.test.ts` (11 new tests, 34 total)
+- `src/lib/benchmark-comparison.functions.ts` (new)
+- `src/features/trading/components/PerformanceMetricsPanel.tsx` (wired in)
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 updated — core + benchmark
+  comparison now resolved, remaining sub-items listed explicitly)
+
+**Tests added:** 11 — Beta and Alpha hand-computed against the same
+known return series (cross-checked together), Beta≈1 when a series is
+compared against itself, Beta returning null on zero benchmark variance
+(not divide-by-zero), mismatched-length series correctly truncating to
+the most recent overlapping window, Alpha≈0 when a portfolio exactly
+tracks its benchmark, and daily-returns computation including the
+zero/negative-prior-value edge case.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 128/128 passing (11 new)
+
+**Remaining risk / honest limitations:**
+- Requires several days of `portfolio_snapshots` history to produce any
+  result — a brand-new account correctly shows "not enough daily
+  portfolio history yet" rather than a misleading number from too little
+  data.
+- Still uses the same 20-observation "provisional" floor as the rest of
+  this panel, shown explicitly in the UI, not hidden.
+- Rolling metrics, exposure, holding-time/trade distribution,
+  regime-conditional performance, and all four attribution categories
+  remain open — see `TECHNICAL_DEBT.md` TD-12 for the full remaining list.
+

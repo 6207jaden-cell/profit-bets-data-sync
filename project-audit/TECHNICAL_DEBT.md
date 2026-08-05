@@ -190,18 +190,22 @@ by anything the product shows.
 **Recommended solution:** Build a `PerformanceMetricsPanel` computing
 the above from `paper_trades`, with sample size shown alongside every
 metric and a real benchmark comparison.
-**Status:** PARTIALLY RESOLVED 2026-08-05 (Stage 3, first slice).
-Sharpe, Sortino, max drawdown, profit factor, expectancy, avg win/loss,
-and win rate WITH a real Wilson-score confidence interval now exist
-(`src/lib/performance-metrics.ts`, 23 tests, `PerformanceMetricsPanel`
-in the History tab) — every figure shown alongside its sample size, with
-an explicit "provisional, not enough data yet" warning below 20 closed
-trades. NOT yet resolved: the "real benchmark comparison" part of this
-item's own recommended solution (Alpha/Beta/correlation to SPY) — that's
-genuinely separate, harder work (needs SPY return data aligned to the
-same trade windows) and remains open. Also still open: rolling metrics,
-regime-conditional performance, and all four attribution categories
-(portfolio/signal/Claude/learning) from the full Stage 3 list.
+**Status:** RESOLVED for the core + benchmark comparison, 2026-08-05
+(Stage 3, first slice + second slice same day). Sharpe, Sortino, max
+drawdown, profit factor, expectancy, avg win/loss, win rate with a real
+Wilson-score confidence interval, AND Beta/Alpha/correlation-to-SPY now
+all exist (`src/lib/performance-metrics.ts`, 34 tests,
+`src/lib/benchmark-comparison.functions.ts`, `PerformanceMetricsPanel`
+in the History tab). The benchmark comparison uses REAL daily-aligned
+data — `portfolio_snapshots` matched by calendar date against SPY's own
+daily closes, not a synthetic approximation — since Beta/Alpha
+specifically need genuine calendar-time alignment to mean anything.
+Every figure shown alongside its sample size, with explicit "provisional,
+not enough data yet" warnings below the evidence floor. Still open,
+genuinely separate work: rolling metrics (rolling Sharpe/correlation over
+time), exposure, holding-time/trade distribution, regime-conditional
+performance, and all four attribution categories (portfolio/signal/
+Claude/learning) from the full Stage 3 list.
 **Priority:** Was High — the foundational piece (can this system answer
 "is it better than random") is now answerable. Remaining sub-items
 tracked separately as Stage 3 continues.

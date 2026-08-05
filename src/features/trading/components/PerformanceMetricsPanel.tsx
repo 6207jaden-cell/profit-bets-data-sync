@@ -11,6 +11,7 @@ import {
   computeProfitFactor, computeExpectancy, computeWinRateWithConfidenceInterval,
   type TradeReturn,
 } from "@/lib/performance-metrics";
+import { getBenchmarkComparison } from "@/lib/benchmark-comparison.functions";
 
 type ClosedTrade = {
   side: string;
@@ -73,6 +74,13 @@ export function PerformanceMetricsPanel() {
         .order("closed_at", { ascending: true });
       return (data ?? []) as ClosedTrade[];
     },
+  });
+
+  const { data: benchmark, isLoading: benchmarkLoading } = useQuery({
+    queryKey: ["benchmark-comparison", userId],
+    enabled: !!userId,
+    staleTime: 3_600_000, // hourly — this doesn't change meaningfully faster than daily portfolio snapshots do
+    queryFn: async () => getBenchmarkComparison(),
   });
 
   const metrics = useMemo(() => {
@@ -184,6 +192,48 @@ export function PerformanceMetricsPanel() {
               </Card>
             </div>
           )}
+
+          {/* Real benchmark comparison — Beta/Alpha/Correlation to SPY, from
+              actual daily-aligned portfolio equity vs SPY closes, not the
+              synthetic trade-sequence curve the metrics above use. */}
+          <div className="mt-3">
+            <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">vs. SPY (real daily-aligned data)</h3>
+            {benchmarkLoading ? (
+              <p className="text-xs text-muted-foreground">Loading benchmark comparison…</p>
+            ) : !benchmark || benchmark.sampleSize < 3 ? (
+              <Card className="p-3 border-border/60 bg-card text-xs text-muted-foreground">
+                Not enough daily portfolio history yet to compare against SPY — this needs several days of snapshots, not just closed trades.
+              </Card>
+            ) : (
+              <>
+                {benchmark.insufficientData && (
+                  <div className="mb-2 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
+                    Only {benchmark.sampleSize} days of aligned data — treat Beta/Alpha as provisional until at least 20.
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  <MetricCard
+                    label="Beta"
+                    value={benchmark.beta != null ? benchmark.beta.toFixed(2) : "—"}
+                    sublabel="market exposure"
+                    tone="neutral"
+                  />
+                  <MetricCard
+                    label="Alpha"
+                    value={benchmark.alpha != null ? `${benchmark.alpha >= 0 ? "+" : ""}${benchmark.alpha.toFixed(3)}%` : "—"}
+                    sublabel="excess vs. predicted"
+                    tone={benchmark.alpha != null && benchmark.alpha > 0 ? "positive" : benchmark.alpha != null && benchmark.alpha < 0 ? "negative" : "neutral"}
+                  />
+                  <MetricCard
+                    label="Correlation"
+                    value={benchmark.correlationToSpy != null ? benchmark.correlationToSpy.toFixed(2) : "—"}
+                    sublabel="to SPY"
+                    tone="neutral"
+                  />
+                </div>
+              </>
+            )}
+          </div>
 
           <p className="text-[9px] text-muted-foreground mt-3">
             Based on {metrics.sampleSize} closed trades with realized P&L. Max drawdown is computed from a synthetic realized-P&L curve (sequential trade compounding), not true mark-to-market equity — see performance-metrics.ts for why that's a meaningful simplification worth knowing about.
