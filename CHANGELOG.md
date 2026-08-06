@@ -1023,3 +1023,67 @@ Findings 11-13 first — the numbers it currently produces are
 systematically more favorable than a live version of the same rule
 would actually achieve.
 
+---
+
+## 2026-08-06 — Fix Finding 11: `agent-backtest.ts`'s same-bar execution bias
+
+**What changed:** `agent-backtest.ts`'s core simulation loop now enters
+trades at the next trading session's open (`opens[day + 1]`) instead of
+the same closing price used to generate the momentum signal
+(`closes[day]`). Extracted into a new pure function, `simulateBacktestDay`
+(`src/lib/backtest-simulation.ts`), rather than editing the inline loop.
+
+**Why:** The most severe of the three findings from reviewing this
+endpoint. Scoring and entry previously read the identical array index —
+the backtest assumed it could transact at the exact closing price that
+generated the signal, with zero latency, which isn't achievable in live
+trading. This systematically inflated every trade's reported return,
+compounding across the whole simulation.
+
+**How it was fixed:** Extracted rather than patched inline, specifically
+because this project's standard requires real tests for any change to
+trading-relevant calculations, and this kind of off-by-one index change
+is exactly the sort of thing that's easy to get subtly wrong without
+them. Entry is `opens[day + 1]` (the next session's open — chosen over
+next-bar-close as the more realistic of the two options considered:
+you see a day's close after the fact, decide to act, and the earliest
+achievable fill is the following session's open). Exit is
+`closes[day + 1 + holdDays]`. A second small pure function,
+`lastValidSimulationDay`, computes the correct loop boundary so the
+route handler and its tests agree on the exact same off-by-one logic
+rather than each computing it independently.
+
+**Files changed:**
+- `src/lib/backtest-simulation.ts` (new)
+- `src/lib/__tests__/backtest-simulation.test.ts` (new, 7 tests)
+- `src/routes/api/public/agent-backtest.ts` (now uses the extracted
+  function; `loadAll`/`SymBars` updated to also capture `opens`, not
+  just `closes`; header comment updated to mark Finding 11 fixed)
+- `project-audit/TRADING_ENGINE_REVIEW.md` (Finding 11 marked fixed,
+  the "combined impact" note updated to reflect only Finding 13 remains
+  genuinely open)
+- `project-audit/ROADMAP.md` (item 6a marked done)
+
+**Tests added:** 7 — a full hand-computed day simulation (momentum
+scoring across two symbols built so SMA50 is computable by hand, correct
+symbol selection by momentum ranking, and the exact entry/exit/return
+values, landing on a clean 10% return by construction), an explicit
+assertion that the entry price is never equal to the scoring price (the
+precise invariant this fix exists to guarantee), correct top-N selection
+with more than one pick per day, graceful handling of insufficient SMA
+history and missing/invalid entry prices, and the loop-boundary
+function's off-by-one logic verified directly.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 205/205 passing (7 new)
+- Independent fresh-clone + fresh-install verification to follow, since
+  this is a trading-calculation change.
+
+**Remaining risk:** Finding 13 (no slippage/fee modeling) is still open
+— `agent-backtest.ts`'s output is now execution-timing-realistic but
+still doesn't reflect real trading costs, and still tests a narrower
+strategy than the full live system (documented in the file's own header
+comment). Not a complete picture yet, meaningfully improved.
+

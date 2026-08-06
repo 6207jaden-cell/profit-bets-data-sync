@@ -10,22 +10,25 @@
  * 11-13 for full detail. Do not treat this endpoint's output as a
  * credible estimate of the live system's actual edge without reading
  * those findings first:
- *   (11) Same-bar execution bias — scores and enters at the identical
- *        close price, assuming impossible zero-latency execution. This
- *        systematically inflates every trade's reported return.
+ *   (11) FIXED 2026-08-06 — previously scored and entered at the
+ *        identical close price, assuming impossible zero-latency
+ *        execution. Now enters at the NEXT bar's open via
+ *        simulateBacktestDay() (src/lib/backtest-simulation.ts), a pure,
+ *        independently tested function — see backtest-simulation.test.ts.
  *   (12) This comment previously (incorrectly) claimed regime alignment
  *        was simulated. It never was — corrected here.
  *   (13) No slippage or fee modeling, despite this project having both
  *        built and applied to every real paper trade elsewhere
- *        (src/lib/slippage.ts, src/lib/cost-reality.ts).
+ *        (src/lib/slippage.ts, src/lib/cost-reality.ts). Still open.
  *
  * Public route: verifies caller by apikey header (verifyPublicApiKeyFromEnv)
  * + explicit user_id in body.
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchBars, sma } from "@/lib/indicators";
+import { fetchBars } from "@/lib/indicators";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
+import { simulateBacktestDay, lastValidSimulationDay, type SymBars } from "@/lib/backtest-simulation";
 
 const UNIVERSE = [
   "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM",
@@ -33,8 +36,6 @@ const UNIVERSE = [
   "SPY","QQQ","IWM","GLD","XLF","XLK","XLE",
   "BTC-USD","ETH-USD","SOL-USD",
 ];
-
-type SymBars = { symbol: string; times: number[]; closes: number[] };
 
 async function loadAll(days: number): Promise<SymBars[]> {
   const target = Math.max(days + 60, 120); // headroom for SMA lookback
@@ -45,7 +46,7 @@ async function loadAll(days: number): Promise<SymBars[]> {
     const bars = await Promise.all(slice.map(async (s) => {
       const b = await fetchBars(s, target);
       if (!b || b.closes.length < 60) return null;
-      return { symbol: s, times: b.times, closes: b.closes };
+      return { symbol: s, times: b.times, opens: b.opens, closes: b.closes };
     }));
     for (const b of bars) if (b) out.push(b);
   }
@@ -90,37 +91,13 @@ export const Route = createFileRoute("/api/public/agent-backtest")({
         let equity = 10000;
         const dailyEquity: Array<{ day: number; equity: number }> = [];
 
-        for (let day = startIdx; day < minLen - holdDays; day++) {
-          // Score = momentum vs sma50 for each symbol at 'day'
-          const scored: Array<{ u: SymBars; mom: number }> = [];
-          for (const u of universe) {
-            const closesSlice = u.closes.slice(0, day + 1);
-            const smaArr = sma(closesSlice, 50);
-            const s50 = smaArr[smaArr.length - 1];
-            if (!s50) continue;
-            const price = u.closes[day];
-            scored.push({ u, mom: (price - s50) / s50 });
-          }
-          scored.sort((a, b) => b.mom - a.mom);
-          const chosen = scored.slice(0, picks);
-          if (chosen.length === 0) continue;
-          // Equal weight, hold holdDays, PnL on close-to-close
-          let dayPnlPct = 0;
-          for (const c of chosen) {
-            const entry = c.u.closes[day];
-            const exit = c.u.closes[day + holdDays];
-            const r = (exit - entry) / entry;
-            dayPnlPct += r / chosen.length;
-            trades.push({
-              day: day - startIdx,
-              symbol: c.u.symbol,
-              entry: Number(entry.toFixed(4)),
-              exit: Number(exit.toFixed(4)),
-              pnl_pct: Number((r * 100).toFixed(2)),
-            });
-          }
-          returns.push(dayPnlPct);
-          equity = equity * (1 + dayPnlPct);
+        const lastDay = lastValidSimulationDay(minLen, holdDays);
+        for (let day = startIdx; day <= lastDay; day++) {
+          const result = simulateBacktestDay(universe, day, picks, holdDays);
+          if (!result) continue;
+          for (const t of result.trades) trades.push({ ...t, day: t.day - startIdx });
+          returns.push(result.dayPnlPct);
+          equity = equity * (1 + result.dayPnlPct);
           dailyEquity.push({ day: day - startIdx, equity: Number(equity.toFixed(2)) });
         }
 

@@ -120,12 +120,15 @@ once enough real trade volume exists, not more infrastructure work.
    slippage/fee modeling (fix flagged, not yet applied). This endpoint's
    output should not be treated as credible evidence of edge until at
    least the execution-bias finding is addressed.
-6a. **Fix `agent-backtest.ts`'s same-bar execution bias** (Finding 11,
+6a. ~~**Fix `agent-backtest.ts`'s same-bar execution bias** (Finding 11,
     discovered 2026-08-06). Entry currently uses the identical price
     index that generated the momentum score — change to enter at the
     NEXT bar (close or open) after the signal, not the same bar. Touches
     every subsequent index calculation in the backtest loop; needs its
-    own careful review and tests, not a quick inline edit.
+    own careful review and tests, not a quick inline edit.~~ **DONE
+    2026-08-06.** Extracted to a pure, tested function
+    (`simulateBacktestDay`, `src/lib/backtest-simulation.ts`, 7 tests).
+    Entry now uses `opens[day+1]`. See `TRADING_ENGINE_REVIEW.md` Finding 11.
 6b. **Apply real cost modeling to `agent-backtest.ts`** (Finding 13,
     discovered 2026-08-06). Pipe `estimateSlippageBps`/`applySlippage`/
     `estimateFees` (already built, already applied to every real paper

@@ -247,6 +247,22 @@ one-line fix — it changes every subsequent index calculation in the
 function and deserves its own careful review and testing, not a rushed
 edit alongside finding it.
 
+**FIXED 2026-08-06.** Extracted the core scoring/entry/exit logic into
+a pure, independently testable function (`simulateBacktestDay`,
+`src/lib/backtest-simulation.ts`) rather than editing the inline loop —
+consistent with this project's standard that any change to trading-
+relevant calculations needs real tests, and this one genuinely needed
+them given how easy an off-by-one is to introduce here. Entry is now
+`opens[day + 1]` (the next trading session's open, the more realistic
+of the two options considered above — you see a day's close after the
+fact, decide to act, and the earliest achievable fill is the following
+session's open) and exit is `closes[day + 1 + holdDays]`. 7 new tests,
+including one that hand-computes a full day's simulation (momentum
+scoring across two symbols, correct symbol selection, and the exact
+entry/exit/return values) and one that explicitly asserts the entry
+price is never equal to the scoring price — the precise invariant this
+fix exists to guarantee. See `src/lib/__tests__/backtest-simulation.test.ts`.
+
 ### 12. `agent-backtest.ts`'s own header comment overclaims what it simulates — "regime alignment" is not implemented
 
 The file's top comment states it "Simulates the autonomous agent's core
@@ -281,18 +297,20 @@ applied here. Not fixed in this pass — would require piping
 backtest's trade loop, a moderate, well-scoped follow-up rather than a
 quick inline change.
 
-**Combined impact of Findings 11-13:** `agent-backtest.ts`'s reported
-numbers should not be treated as a credible estimate of the live
-system's actual edge, for three independent, compounding reasons: it
-assumes impossible zero-latency same-bar execution (11), it tests a
-narrower strategy than the one actually running live despite its own
-comment claiming otherwise (12), and it has no cost model applied where
-this project already has one built and ready to use (13). Any of these
-alone would already caution against treating a backtest run as strong
-evidence; together, they mean this endpoint's current output is not a
-reliable signal of edge one way or the other, and using it to justify
-a live-money decision would be a mistake until at least Finding 11 is
-addressed.
+**Combined impact of Findings 11-13, updated 2026-08-06:** Finding 11
+(same-bar execution bias, the most severe of the three) is now fixed.
+Finding 12 (misleading comment) was fixed the same day it was found.
+Finding 13 (no cost modeling) remains open. This meaningfully improves
+the endpoint's trustworthiness — the execution-timing assumption that
+was inflating every trade's reported return no longer exists — but the
+output still isn't a complete picture: it tests a narrower strategy than
+the one actually running live (no Claude review, no regime/correlation/
+breadth/Kelly logic, documented in the file's own header comment now),
+and still has zero cost modeling despite this project having slippage
+and fee modeling built and ready to use elsewhere. Treat current output
+as "execution timing is now realistic, but costs are not modeled and
+this isn't the full live strategy" rather than either "still broken" or
+"fully trustworthy."
 
 ---
 
