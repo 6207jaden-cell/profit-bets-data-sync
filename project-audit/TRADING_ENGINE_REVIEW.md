@@ -297,20 +297,39 @@ applied here. Not fixed in this pass — would require piping
 backtest's trade loop, a moderate, well-scoped follow-up rather than a
 quick inline change.
 
-**Combined impact of Findings 11-13, updated 2026-08-06:** Finding 11
-(same-bar execution bias, the most severe of the three) is now fixed.
-Finding 12 (misleading comment) was fixed the same day it was found.
-Finding 13 (no cost modeling) remains open. This meaningfully improves
-the endpoint's trustworthiness — the execution-timing assumption that
-was inflating every trade's reported return no longer exists — but the
-output still isn't a complete picture: it tests a narrower strategy than
-the one actually running live (no Claude review, no regime/correlation/
-breadth/Kelly logic, documented in the file's own header comment now),
-and still has zero cost modeling despite this project having slippage
-and fee modeling built and ready to use elsewhere. Treat current output
-as "execution timing is now realistic, but costs are not modeled and
-this isn't the full live strategy" rather than either "still broken" or
-"fully trustworthy."
+**FIXED 2026-08-06.** `simulateBacktestDay` now applies
+`estimateSlippageBps`/`applySlippage` to both entry and exit, using a
+documented `ASSUMED_ORDER_NOTIONAL` constant ($10,000 — this backtest
+doesn't track real position sizing, so this is an explicit, reasonable
+default, not derived from any specific account) and `isCryptoSymbol`
+(reused from `indicators.ts`, not reinvented) to apply the correct
+crypto-vs-stock slippage tier. Average daily volume is passed as unknown
+for every symbol — this backtest doesn't fetch historical volume data,
+so it correctly lands in the conservative "unknown liquidity" tier
+rather than assuming best-case liquidity. Fees are deliberately still
+NOT modeled: `estimateFees()` only charges for options instruments, and
+this backtest's fixed 30-symbol universe never includes any — calling it
+would always return $0, so it's omitted with that reasoning documented
+directly in the code rather than called pointlessly. 2 new tests added
+(on top of updating the existing entry/exit test for the new
+slippage-adjusted values): one confirming slippage always makes the
+reported return worse than the raw return in both directions (a win
+gets smaller, a loss gets larger — never the reverse), and one
+confirming crypto symbols get a measurably wider slippage adjustment
+than stocks, reflecting the real formula's higher crypto base spread and
+liquidity multiplier.
+
+**Combined impact of Findings 11-13, updated 2026-08-06:** All three
+findings are now resolved except the strategy-scope limitation noted in
+Finding 12's fix (this backtest still only tests momentum-vs-SMA50, not
+the full live decision logic — documented directly in the file's own
+header comment, not something that needs "fixing" so much as
+understanding). Finding 11 (same-bar execution bias) and Finding 13 (no
+cost modeling) — the two findings that made the reported numbers
+systematically optimistic — are both fixed. `agent-backtest.ts`'s output
+is now a meaningfully more credible signal than it was, though it should
+still be read as "a realistic simulation of a narrower momentum rule,"
+not as evidence about the full live system's actual edge.
 
 ---
 

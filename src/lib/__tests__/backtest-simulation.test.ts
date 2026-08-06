@@ -12,7 +12,7 @@ function buildSymbol(symbol: string, close49: number, opens: number[], closesAft
 }
 
 describe("simulateBacktestDay", () => {
-  it("computes the correct hand-verified entry/exit using NEXT-bar open, not the signal bar's close — this is the core Finding 11 fix", () => {
+  it("computes the correct hand-verified entry/exit using NEXT-bar open (Finding 11) with slippage applied (Finding 13)", () => {
     // Symbol A: closes[0..48]=100 (49x), closes[49]=110.
     //   sma50 at day=49 = (49*100 + 110) / 50 = 5010/50 = 100.2
     //   momentum = (110 - 100.2) / 100.2 ≈ 0.09780
@@ -21,10 +21,18 @@ describe("simulateBacktestDay", () => {
     //   momentum = (90 - 99.8) / 99.8 ≈ -0.09820
     // A has higher momentum, so with picksPerDay=1, A is chosen, not B.
     //
-    // Entry (the fix): opens[day+1] = opens[50] = 100 (NOT closes[49]=110,
-    // which is what the OLD buggy code would have used as both signal AND entry).
-    // Exit: closes[day+1+holdDays] = closes[52] with holdDays=2 -> closes[52] = 110.
-    // r = (110 - 100) / 100 = 0.10 exactly (10%).
+    // Raw entry (before slippage): opens[day+1] = opens[50] = 100.
+    // Raw exit (before slippage): closes[day+1+holdDays] = closes[52] = 110 (holdDays=2).
+    // Symbol "A" is not a crypto symbol (isCryptoSymbol("A") is false) and
+    // avgDailyVolume is passed as unknown — this lands in
+    // estimateSlippageBps's "unknown liquidity, stock" tier: 5.5 bps,
+    // confirmed by reading the real implementation directly (not assumed)
+    // before writing this test.
+    // entry (buy, +5.5bps) = 100 * 1.00055 = 100.055
+    // exit (sell, -5.5bps) = 110 * 0.99945 = 109.9395
+    // r = (109.9395 - 100.055) / 100.055 ≈ 0.098791 -> 9.8791%, slightly
+    // BELOW the pre-slippage 10% — slippage should reduce reported
+    // returns, never increase them, which this also confirms.
     const symbolA = buildSymbol("A", 110, [100], [105, 108, 110]); // opens[50]=100, closes[50..52]=105,108,110
     const symbolB = buildSymbol("B", 90, [95], [95, 95, 95]);
     const universe = [symbolA, symbolB];
@@ -33,10 +41,38 @@ describe("simulateBacktestDay", () => {
     expect(result).not.toBeNull();
     expect(result!.trades).toHaveLength(1);
     expect(result!.trades[0].symbol).toBe("A"); // higher momentum, correctly chosen
-    expect(result!.trades[0].entry).toBeCloseTo(100, 4); // opens[50], NOT closes[49]=110
-    expect(result!.trades[0].exit).toBeCloseTo(110, 4); // closes[52]
-    expect(result!.trades[0].pnl_pct).toBeCloseTo(10, 2); // (110-100)/100 * 100
-    expect(result!.dayPnlPct).toBeCloseTo(0.10, 4);
+    expect(result!.trades[0].entry).toBeCloseTo(100.055, 3);
+    expect(result!.trades[0].exit).toBeCloseTo(109.9395, 3);
+    expect(result!.trades[0].pnl_pct).toBeCloseTo(9.8791, 2);
+    expect(result!.dayPnlPct).toBeCloseTo(0.098791, 4);
+  });
+
+  it("slippage always makes the reported return worse than the raw, pre-slippage return — never better, in either direction", () => {
+    const winningSymbol = buildSymbol("W", 110, [100], [105, 108, 120]); // raw return positive
+    const losingSymbol = buildSymbol("L", 90, [100], [95, 92, 80]); // raw return negative
+    const winResult = simulateBacktestDay([winningSymbol], 49, 1, 2)!;
+    const lossResult = simulateBacktestDay([losingSymbol], 49, 1, 2)!;
+
+    const rawWinReturn = ((120 - 100) / 100) * 100; // 20%
+    const rawLossReturn = ((80 - 100) / 100) * 100; // -20%
+
+    expect(winResult.trades[0].pnl_pct).toBeLessThan(rawWinReturn); // slippage eats into the win
+    expect(lossResult.trades[0].pnl_pct).toBeLessThan(rawLossReturn); // slippage makes the loss worse, not better
+  });
+
+  it("crypto symbols get a wider (higher-bps) slippage adjustment than stocks, reflected in a larger gap from the raw price", () => {
+    // Build two otherwise-identical fixtures, one crypto-named, one not,
+    // and confirm the crypto one's entry deviates further from the raw
+    // opens[50]=100 price — crypto's base spread (6bps) and liquidity
+    // multiplier (2.5x unknown) are both higher than stock's (2bps, 2.0x).
+    const stockSymbol = buildSymbol("XYZ", 110, [100], [105, 108, 110]);
+    const cryptoSymbol = buildSymbol("BTC-USD", 110, [100], [105, 108, 110]);
+    const stockResult = simulateBacktestDay([stockSymbol], 49, 1, 2)!;
+    const cryptoResult = simulateBacktestDay([cryptoSymbol], 49, 1, 2)!;
+
+    const stockEntryDeviation = Math.abs(stockResult.trades[0].entry - 100);
+    const cryptoEntryDeviation = Math.abs(cryptoResult.trades[0].entry - 100);
+    expect(cryptoEntryDeviation).toBeGreaterThan(stockEntryDeviation);
   });
 
   it("the entry price is NEVER equal to the price used for scoring — the exact bug this fix closes", () => {

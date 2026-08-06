@@ -7,13 +7,33 @@
 // hand-verified tests, consistent with this project's standard for any
 // change to trading-relevant calculations.
 
-import { sma } from "@/lib/indicators";
+import { sma, isCryptoSymbol } from "@/lib/indicators";
+import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 
 export type SymBars = { symbol: string; times: number[]; opens: number[]; closes: number[] };
 
 export type BacktestTrade = { day: number; symbol: string; entry: number; exit: number; pnl_pct: number };
 
 export type DaySimulationResult = { trades: BacktestTrade[]; dayPnlPct: number } | null;
+
+/**
+ * Assumed order notional for slippage estimation (Finding 13's fix). This
+ * backtest doesn't track real position sizing — it works in percentage
+ * returns, not dollar amounts with real quantities — so this is a
+ * reasonable, explicitly documented default representing a moderate
+ * retail order size, not derived from any specific account. Average
+ * daily volume is passed as unknown (null) for every symbol, since this
+ * backtest doesn't fetch historical volume data — this lands in
+ * estimateSlippageBps's conservative "unknown liquidity" tier rather than
+ * assuming best-case liquidity, which is the more honest default.
+ *
+ * Fees are NOT modeled here: estimateFees() (cost-reality.ts) only
+ * charges for options instruments, and this backtest's fixed 30-symbol
+ * universe never includes any (stocks, ETFs, and crypto only) — calling
+ * it would always return $0, so it's omitted rather than called
+ * pointlessly.
+ */
+const ASSUMED_ORDER_NOTIONAL = 10_000;
 
 /**
  * Simulates one day's picks and their outcomes.
@@ -54,9 +74,16 @@ export function simulateBacktestDay(
   const trades: BacktestTrade[] = [];
   let dayPnlPct = 0;
   for (const c of chosen) {
-    const entry = c.u.opens[day + 1];
-    const exit = c.u.closes[day + 1 + holdDays];
-    if (entry == null || exit == null || !Number.isFinite(entry) || entry <= 0) continue;
+    const rawEntry = c.u.opens[day + 1];
+    const rawExit = c.u.closes[day + 1 + holdDays];
+    if (rawEntry == null || rawExit == null || !Number.isFinite(rawEntry) || rawEntry <= 0) continue;
+
+    const isCrypto = isCryptoSymbol(c.u.symbol);
+    const entrySlip = estimateSlippageBps({ orderNotional: ASSUMED_ORDER_NOTIONAL, avgDailyVolume: null, price: rawEntry, isCrypto });
+    const entry = applySlippage(rawEntry, "buy", entrySlip.slippageBps);
+    const exitSlip = estimateSlippageBps({ orderNotional: ASSUMED_ORDER_NOTIONAL, avgDailyVolume: null, price: rawExit, isCrypto });
+    const exit = applySlippage(rawExit, "sell", exitSlip.slippageBps);
+
     const r = (exit - entry) / entry;
     dayPnlPct += r / chosen.length;
     trades.push({

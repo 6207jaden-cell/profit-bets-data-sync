@@ -129,12 +129,17 @@ once enough real trade volume exists, not more infrastructure work.
     2026-08-06.** Extracted to a pure, tested function
     (`simulateBacktestDay`, `src/lib/backtest-simulation.ts`, 7 tests).
     Entry now uses `opens[day+1]`. See `TRADING_ENGINE_REVIEW.md` Finding 11.
-6b. **Apply real cost modeling to `agent-backtest.ts`** (Finding 13,
+6b. ~~**Apply real cost modeling to `agent-backtest.ts`** (Finding 13,
     discovered 2026-08-06). Pipe `estimateSlippageBps`/`applySlippage`/
     `estimateFees` (already built, already applied to every real paper
     trade) through the backtest's trade loop so its reported returns
     aren't systematically more optimistic than what the same rule would
-    show under realistic costs.
+    show under realistic costs.~~ **DONE 2026-08-06.** Slippage applied
+    to entry/exit via a documented assumed order size; fees deliberately
+    not applied (this backtest's universe never includes options, the
+    only instrument type fees are charged for). See
+    `TRADING_ENGINE_REVIEW.md` Finding 13. The `agent-backtest.ts` review
+    itself (item 6) is now fully complete; items 10-12 below remain open.
 7. **Get an honest read on actual closed-trade count** and, if low, be
    explicit with the user that no statistical claims about edge are valid
    yet — set a real re-evaluation date once enough data exists.

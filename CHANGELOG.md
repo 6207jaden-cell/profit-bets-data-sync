@@ -1087,3 +1087,74 @@ still doesn't reflect real trading costs, and still tests a narrower
 strategy than the full live system (documented in the file's own header
 comment). Not a complete picture yet, meaningfully improved.
 
+---
+
+## 2026-08-06 — Fix Finding 13: `agent-backtest.ts` now applies realistic slippage
+
+**What changed:** `simulateBacktestDay` now applies
+`estimateSlippageBps`/`applySlippage` (`src/lib/slippage.ts`) to both
+entry and exit, using a documented assumed order size. This is the
+second and final fix from the `agent-backtest.ts` methodology review —
+both findings that made the endpoint's reported numbers systematically
+optimistic (Finding 11, same-bar execution; Finding 13, this one) are
+now resolved.
+
+**Why:** Returns were computed as raw `(exit - entry) / entry` with zero
+cost modeling, despite this project having slippage and fee modeling
+built and applied to every real paper trade elsewhere — a direct,
+avoidable inconsistency.
+
+**How it was built:** `ASSUMED_ORDER_NOTIONAL` ($10,000) is an explicit,
+documented default — this backtest doesn't track real position sizing,
+so there's no "real" account size to derive this from. Average daily
+volume is passed as unknown for every symbol (this backtest doesn't
+fetch historical volume data), correctly landing in
+`estimateSlippageBps`'s conservative "unknown liquidity" tier rather
+than assuming best-case liquidity. `isCryptoSymbol` (`indicators.ts`) is
+reused, not reinvented, to apply the correct crypto-vs-stock slippage
+tier. Fees are deliberately still NOT modeled: `estimateFees()` only
+charges for options instruments, and this backtest's fixed 30-symbol
+universe never includes any — documented directly in the code as the
+reason, rather than silently omitted.
+
+**Files changed:**
+- `src/lib/backtest-simulation.ts` (slippage applied to entry/exit)
+- `src/lib/__tests__/backtest-simulation.test.ts` (existing entry/exit
+  test updated for the new slippage-adjusted values, 2 new tests added)
+- `src/routes/api/public/agent-backtest.ts` (header comment updated —
+  Finding 13 marked fixed)
+- `project-audit/TRADING_ENGINE_REVIEW.md` (Finding 13 marked fixed,
+  combined-impact note updated — both severity-affecting findings are
+  now resolved)
+- `project-audit/ROADMAP.md` (item 6b marked done)
+
+**Tests added:** 2 new, plus 1 existing test updated with hand-computed
+slippage-adjusted values (verified the real `estimateSlippageBps`
+formula directly against source before computing expected numbers, not
+assumed from memory). New tests: slippage always makes the reported
+return worse than the raw return in both directions (a win shrinks, a
+loss grows — never the reverse), and crypto symbols get a measurably
+wider slippage adjustment than stocks, matching the real formula's
+higher crypto base spread and liquidity multiplier.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 207/207 passing (sandbox)
+- Independent fresh-clone + fresh-install verification to follow, since
+  this is a trading-calculation change.
+
+**Correction made during this same pass:** initially wrote "all Stage 2
+Medium items are now complete" in `ROADMAP.md` — checked the actual
+Medium section before leaving that claim in place and found it was
+wrong; items 10 (price staleness check), 11 (cron-overlap guard), and 12
+(Robinhood OAuth state hardening) remain open. Corrected immediately
+rather than left standing, consistent with this project's own standard
+that overclaims get fixed the moment they're found, not left for later.
+
+**Remaining risk:** `agent-backtest.ts`'s output is now a meaningfully
+more credible signal — both findings that made it systematically
+optimistic are fixed — but it still only tests a narrower momentum-only
+strategy than the full live system, which is now explicitly documented
+rather than implied otherwise.
+

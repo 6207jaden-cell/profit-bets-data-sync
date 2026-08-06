@@ -17,9 +17,12 @@
  *        independently tested function — see backtest-simulation.test.ts.
  *   (12) This comment previously (incorrectly) claimed regime alignment
  *        was simulated. It never was — corrected here.
- *   (13) No slippage or fee modeling, despite this project having both
- *        built and applied to every real paper trade elsewhere
- *        (src/lib/slippage.ts, src/lib/cost-reality.ts). Still open.
+ *   (13) FIXED 2026-08-06 — previously had zero slippage/fee modeling.
+ *        Now applies estimateSlippageBps/applySlippage (slippage.ts) to
+ *        both entry and exit, using a documented assumed order size
+ *        (real position sizing isn't tracked here). Fees are correctly
+ *        NOT modeled — this backtest's universe never includes options,
+ *        the only instrument type estimateFees() charges for.
  *
  * Public route: verifies caller by apikey header (verifyPublicApiKeyFromEnv)
  * + explicit user_id in body.
