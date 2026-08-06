@@ -686,3 +686,95 @@ asset-class grouping, and a null portfolio row handled gracefully.
   remain open — the last two items of the full Stage 3 list, tracked in
   `TECHNICAL_DEBT.md` TD-12.
 
+---
+
+## 2026-08-05 — Stage 3, ninth slice (FINAL): rolling Beta/Alpha/correlation and regime-conditional performance
+
+**What changed:** `computeRollingBenchmarkMetrics` and
+`computeRegimePerformance` (new, `performance-metrics.ts`), plus a new
+`src/lib/regime-performance.functions.ts`. Both wired into
+`PerformanceMetricsPanel`. **This completes the entire original Stage 3
+list** — all nine slices, all independently fresh-clone verified.
+
+**Why:** The last two items on the Stage 3 list. Rolling correlation/
+Beta/Alpha extends the existing rolling-metrics infrastructure to market
+exposure over time — a single aggregate Beta can hide exposure drifting
+over the account's lifetime. Regime-conditional performance answers
+whether this system actually performs differently in bull vs. bear vs.
+sideways markets, or whether the aggregate expectancy is hiding a
+strategy that only works in one regime.
+
+**How rolling benchmark metrics were built:** Reuses `computeBeta`,
+`computeAlpha`, `computeDailyReturns` (all already in this module) and
+`computeCorrelation` (`indicators.ts`) directly, applied to sliding
+windows of the aligned portfolio/SPY value series. Caught and documented
+a real constraint while testing: `computeCorrelation` has its own
+internal floor of ≥10 value points before it returns a non-null result
+— a rolling window smaller than that will compute valid Beta/Alpha (no
+such floor) but silently show null correlation for every point. Now
+stated directly in the function's own docstring. Wired into
+`benchmark-comparison.functions.ts` with a 20-day window (satisfies the
+floor, matches this project's established "20 observations" trust
+threshold) and shown as a rolling Beta line chart.
+
+**How regime-conditional performance was built — the real design
+decision:** Two genuine options existed here. (1) Only record regime
+going forward on new trades — simpler, but would produce zero usable
+results on all trade history that already exists, since nothing already
+in the database has a stored regime. (2) Reconstruct regime
+RETROACTIVELY from historical SPY data. Chose (2): one broad SPY history
+fetch, then for each trade, slice that history to end at the trade's
+entry date and re-run the exact same live `detectMarketRegime`
+(`indicators.ts`) algorithm the system actually uses — not a separately-
+invented classification scheme, the identical function, applied
+historically. This works on trade history that already exists today,
+at the cost of one broader fetch instead of a schema change. The
+tradeoff, stated directly in the code: this assumes `detectMarketRegime`
+hasn't changed its own definition of bull/bear/sideways since these
+trades happened — true as of this writing, worth re-checking if that
+function is ever revised.
+
+**Files changed:**
+- `src/lib/performance-metrics.ts` (added `computeRollingBenchmarkMetrics`,
+  `computeRegimePerformance`)
+- `src/lib/__tests__/performance-metrics.test.ts` (13 new tests, 60 total
+  in this file)
+- `src/lib/benchmark-comparison.functions.ts` (extended to also return
+  `rollingPoints`)
+- `src/lib/regime-performance.functions.ts` (new)
+- `src/features/trading/components/PerformanceMetricsPanel.tsx` (wired
+  in: rolling Beta chart, regime performance table)
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 marked RESOLVED — closed)
+- `project-audit/ROADMAP.md` (Stage 2 and Stage 3 completion noted)
+
+**Tests added:** 13 — rolling Beta/Alpha/correlation staying exactly
+constant across every window when portfolio returns are constructed as
+exactly K times the benchmark's throughout (a strong, hand-verifiable
+invariant: Beta=2, Alpha=0, correlation≈1 in every single window by
+construction), empty-array handling for undersized windows and inputs,
+truncation to the shorter of two mismatched series, near-(-1) correlation
+for an inversely-related series, regime performance's hand-computed
+per-regime stats across a known mixed set, sorting by trade count,
+zero-win-rate shown as exactly 0 not null, and only observed regimes
+appearing in output (no zero-filled rows for regimes never seen).
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 185/185 passing (13 new)
+- Independent fresh-clone + fresh-install verification to follow, per
+  the Release Verification Rule.
+
+**Remaining risk / honest limitations:**
+- Regime reconstruction does one SPY history fetch per panel load
+  (cached hourly client-side) — for accounts with a long trading history,
+  this fetch is broader and slightly more expensive than the other
+  panels' queries, a real but bounded cost.
+- The retroactive-regime assumption (that `detectMarketRegime`'s
+  definition hasn't changed) is stated directly in the code as the one
+  thing that would need re-checking if that function is ever revised.
+- **This closes out the entire original Stage 3 list.** Per the staged
+  protocol, Stage 3.5 (Statistical Validation) or Stage 4 (Optimization,
+  which requires evidence from Stage 3/3.5) are the natural next steps —
+  neither has been started, noted honestly rather than implied done.
+

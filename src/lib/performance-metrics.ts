@@ -13,6 +13,8 @@
 // categories (portfolio/signal/Claude/learning) are real, separate pieces
 // of work not yet started — see ROADMAP.md for how this is sequenced.
 
+import { computeCorrelation } from "@/lib/indicators";
+
 export type TradeReturn = {
   pnlPct: number; // percentage return for this trade, e.g. 2.5 means +2.5%
   closedAt: string; // ISO timestamp
@@ -437,4 +439,107 @@ export function computeHoldingTimeDistribution(trades: HoldingTimeInput[]): Dist
   return labels.map((label, i) => ({
     label, count: counts[i], pctOfTotal: Number(((counts[i] / trades.length) * 100).toFixed(1)),
   }));
+}
+
+// ── Rolling Benchmark Metrics (rolling Beta/Alpha/Correlation) ───────────
+// Extends the rolling-metrics infrastructure above to market exposure over
+// time — the last item on the original Stage 3 list besides regime-
+// conditional performance. A single aggregate Beta/Alpha (from
+// benchmark-comparison.functions.ts) can hide the fact that market
+// exposure has been drifting — a strategy that started market-neutral
+// could have crept toward a much higher Beta without any single aggregate
+// number showing it. Reuses computeBeta/computeAlpha/computeDailyReturns
+// (defined above) and computeCorrelation (indicators.ts) directly, applied
+// to sliding windows of the aligned portfolio/benchmark VALUE series
+// (equity or price, not pre-computed returns) — correlation specifically
+// needs the value series, not returns, since computeCorrelation derives
+// returns internally.
+
+export type RollingBenchmarkPoint = {
+  /** Index into the aligned value series of the last point in this window. */
+  index: number;
+  rollingBeta: number | null;
+  rollingAlpha: number | null;
+  rollingCorrelation: number | null;
+};
+
+/**
+ * Computes rolling Beta, Alpha, and correlation over a trailing window of
+ * `windowSize` aligned (portfolio, benchmark) value points — e.g. daily
+ * portfolio equity vs. daily SPY close, already date-aligned by the
+ * caller (see benchmark-comparison.functions.ts's alignByDate). windowSize
+ * counts VALUE points, not returns — a window of size N produces N-1
+ * returns for the Beta/Alpha calculation inside it.
+ *
+ * NOTE on windowSize: computeCorrelation (indicators.ts) has its own
+ * internal floor of >=10 value points before it will return a non-null
+ * result — a windowSize below that will compute valid Beta/Alpha (which
+ * have no such floor) but rollingCorrelation will silently be null for
+ * every point. Callers should use windowSize >= 10 (20-30 is the more
+ * typical convention for a rolling correlation window) to get all three
+ * metrics populated.
+ */
+export function computeRollingBenchmarkMetrics(
+  alignedPortfolioValues: number[],
+  alignedBenchmarkValues: number[],
+  windowSize: number,
+): RollingBenchmarkPoint[] {
+  const n = Math.min(alignedPortfolioValues.length, alignedBenchmarkValues.length);
+  if (windowSize < 3 || n < windowSize) return []; // need >=3 values per window: >=2 returns for a meaningful Beta
+
+  const points: RollingBenchmarkPoint[] = [];
+  for (let i = windowSize - 1; i < n; i++) {
+    const pValues = alignedPortfolioValues.slice(i - windowSize + 1, i + 1);
+    const bValues = alignedBenchmarkValues.slice(i - windowSize + 1, i + 1);
+    const pReturns = computeDailyReturns(pValues);
+    const bReturns = computeDailyReturns(bValues);
+    const beta = computeBeta(pReturns, bReturns);
+    const alpha = beta != null ? computeAlpha(pReturns, bReturns, beta, 0) : null;
+    const correlation = computeCorrelation(pValues, bValues, pValues.length);
+
+    points.push({ index: i, rollingBeta: beta, rollingAlpha: alpha, rollingCorrelation: correlation });
+  }
+
+  return points;
+}
+
+// ── Regime-Conditional Performance ────────────────────────────────────────
+// The last item of the original Stage 3 list. Answers: does this system
+// actually perform differently in bull vs. bear vs. sideways markets, or
+// is the aggregate expectancy hiding a strategy that only works in one
+// regime? This is a pure aggregation function — the harder, more
+// interesting part is retroactively reconstructing what the regime WAS at
+// each trade's entry date, which lives in regime-performance.functions.ts
+// since it requires fetching historical SPY data and re-running
+// detectMarketRegime (indicators.ts) against a date-sliced view of it, the
+// SAME live algorithm the system actually uses, applied retroactively —
+// not a new or different regime-classification scheme.
+
+export type TradeWithRegime = { pnlPct: number; regime: "bull" | "bear" | "sideways" };
+
+export type RegimePerformanceRow = {
+  regime: "bull" | "bear" | "sideways";
+  tradeCount: number;
+  avgReturnPct: number;
+  winRate: number;
+};
+
+export function computeRegimePerformance(trades: TradeWithRegime[]): RegimePerformanceRow[] {
+  if (trades.length === 0) return [];
+  const byRegime = new Map<string, { sum: number; count: number; wins: number }>();
+  for (const t of trades) {
+    const existing = byRegime.get(t.regime) ?? { sum: 0, count: 0, wins: 0 };
+    existing.sum += t.pnlPct;
+    existing.count += 1;
+    if (t.pnlPct > 0) existing.wins += 1;
+    byRegime.set(t.regime, existing);
+  }
+  return Array.from(byRegime.entries())
+    .map(([regime, stats]) => ({
+      regime: regime as "bull" | "bear" | "sideways",
+      tradeCount: stats.count,
+      avgReturnPct: Number((stats.sum / stats.count).toFixed(3)),
+      winRate: Number((stats.wins / stats.count).toFixed(4)),
+    }))
+    .sort((a, b) => b.tradeCount - a.tradeCount);
 }

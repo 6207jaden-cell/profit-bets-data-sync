@@ -15,6 +15,7 @@ import {
   type TradeReturn,
 } from "@/lib/performance-metrics";
 import { getBenchmarkComparison } from "@/lib/benchmark-comparison.functions";
+import { getRegimePerformance } from "@/lib/regime-performance.functions";
 
 type ClosedTrade = {
   side: string;
@@ -84,6 +85,13 @@ export function PerformanceMetricsPanel() {
     enabled: !!userId,
     staleTime: 3_600_000, // hourly — this doesn't change meaningfully faster than daily portfolio snapshots do
     queryFn: async () => getBenchmarkComparison(),
+  });
+
+  const { data: regimePerf, isLoading: regimeLoading } = useQuery({
+    queryKey: ["regime-performance", userId],
+    enabled: !!userId,
+    staleTime: 3_600_000, // regime reconstruction refetches SPY history — expensive enough to cache generously
+    queryFn: async () => getRegimePerformance(),
   });
 
   const metrics = useMemo(() => {
@@ -285,6 +293,29 @@ export function PerformanceMetricsPanel() {
                     tone="neutral"
                   />
                 </div>
+
+                {/* Rolling Beta — shows whether market exposure has been
+                    drifting, not just its current aggregate value. Only
+                    shown once at least 5 rolling points exist. */}
+                {benchmark.rollingPoints.length >= 5 && (
+                  <div className="mt-2">
+                    <h4 className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">Rolling Beta (20-day window)</h4>
+                    <Card className="p-2 border-border/60 bg-card">
+                      <ResponsiveContainer width="100%" height={80}>
+                        <LineChart data={benchmark.rollingPoints}>
+                          <XAxis dataKey="index" hide />
+                          <YAxis hide domain={["dataMin - 0.2", "dataMax + 0.2"]} />
+                          <ReferenceLine y={1} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" strokeOpacity={0.4} />
+                          <Tooltip
+                            formatter={(value: number) => [value.toFixed(2), "Beta"]}
+                            contentStyle={{ fontSize: 11, background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                          />
+                          <Line type="monotone" dataKey="rollingBeta" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} connectNulls />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </Card>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -336,6 +367,45 @@ export function PerformanceMetricsPanel() {
                 </Card>
               )}
             </div>
+          </div>
+
+          {/* Regime-Conditional Performance — regime reconstructed
+              retroactively from historical SPY data using the same live
+              detectMarketRegime algorithm, not a separately-invented
+              classification scheme. See regime-performance.functions.ts. */}
+          <div className="mt-3">
+            <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Performance by Market Regime</h3>
+            {regimeLoading ? (
+              <LoadingState message="Reconstructing historical market regime…" />
+            ) : !regimePerf || regimePerf.rows.length === 0 ? (
+              <Card className="p-4 border-border/60 bg-card text-xs text-muted-foreground text-center">
+                No closed trades with reconstructable regime data yet.
+              </Card>
+            ) : (
+              <Card className="border-border/60 bg-card overflow-hidden">
+                <div className="hidden sm:grid grid-cols-[1fr_80px_90px_70px] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 font-medium">
+                  <span>Regime</span>
+                  <span className="text-right">Trades</span>
+                  <span className="text-right">Avg Return</span>
+                  <span className="text-right">Win Rate</span>
+                </div>
+                <div className="divide-y divide-border/30">
+                  {regimePerf.rows.map((r) => (
+                    <div key={r.regime} className="grid grid-cols-2 sm:grid-cols-[1fr_80px_90px_70px] gap-1 px-4 py-2 items-center">
+                      <span className="text-sm font-medium capitalize col-span-2 sm:col-span-1">{r.regime}</span>
+                      <span className="text-right text-xs font-mono text-muted-foreground">{r.tradeCount}</span>
+                      <span className={cn("text-right text-xs font-mono", r.avgReturnPct >= 0 ? "text-emerald-400" : "text-red-400")}>
+                        {r.avgReturnPct >= 0 ? "+" : ""}{r.avgReturnPct.toFixed(2)}%
+                      </span>
+                      <span className="text-right text-xs font-mono text-muted-foreground">{(r.winRate * 100).toFixed(0)}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="px-4 py-2 border-t border-border/50 text-[9px] text-muted-foreground">
+                  Regime reconstructed retroactively from historical SPY data at each trade's entry date, using the same live regime-detection algorithm the system actually runs — not a separately-invented classification.
+                </div>
+              </Card>
+            )}
           </div>
 
           <p className="text-[9px] text-muted-foreground mt-3">

@@ -34,6 +34,35 @@ infrastructure only just started collecting data.
 
 ---
 
+## STAGE 2 AND STAGE 3 COMPLETE (2026-08-05)
+
+**Stage 2 (Foundation and Security Hardening)** — all four Critical
+priorities done and independently fresh-clone verified: `evaluate-alerts.ts`
+auth fix, `sync-crons.ts` auth fix, application-level rate limiting on
+all 15 `/api/public/*` endpoints, dependency vulnerability remediation
+(0 known CVEs). See `CHANGELOG.md`'s Stage 2 entries.
+
+**Stage 3 (Performance Analytics)** — the full original list is built:
+Sharpe, Sortino, Max Drawdown, Profit Factor, Expectancy, Average Win,
+Average Loss, Rolling Performance (win rate/Sharpe/Sortino AND
+correlation/Beta/Alpha), Alpha, Beta, Correlation to SPY, Exposure,
+Holding Time distribution, Win Rate (with a real Wilson-score confidence
+interval), Trade Distribution, Regime Performance, and all four
+attribution categories (Portfolio, Signal, Claude, Learning). Nine
+slices, each independently fresh-clone verified. See `TECHNICAL_DEBT.md`
+TD-12 (now marked RESOLVED) and `CHANGELOG.md`'s Stage 3 entries for full
+detail on each slice's design decisions and honest limitations.
+
+**Test suite status:** 185 tests across 19 files as of this writing, all
+passing, every one asserting a hand-computed expected value.
+
+**Next per the original staged protocol:** Stage 3.5 (Statistical
+Validation — skeptical review of the now-built analytics) or Stage 4
+(Optimization, which explicitly requires evidence from Stages 3/3.5
+before any change) are the natural next steps. Neither has been started.
+
+---
+
 ## CRITICAL (before any live-money connection, no exceptions)
 
 1. ~~**Fix BUG-001** — `evaluate-alerts.ts` has zero authorization.~~

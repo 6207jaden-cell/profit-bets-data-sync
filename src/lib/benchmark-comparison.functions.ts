@@ -10,7 +10,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { fetchBars, computeCorrelation } from "@/lib/indicators";
-import { computeBeta, computeAlpha, computeDailyReturns } from "@/lib/performance-metrics";
+import { computeBeta, computeAlpha, computeDailyReturns, computeRollingBenchmarkMetrics, type RollingBenchmarkPoint } from "@/lib/performance-metrics";
 
 export type BenchmarkComparisonResult = {
   beta: number | null;
@@ -18,6 +18,8 @@ export type BenchmarkComparisonResult = {
   correlationToSpy: number | null;
   sampleSize: number;
   insufficientData: boolean;
+  /** Rolling Beta/Alpha/Correlation over a trailing 20-day window — shows whether market exposure has been drifting, not just its current aggregate value. Empty until enough aligned days exist. */
+  rollingPoints: RollingBenchmarkPoint[];
 };
 
 /**
@@ -50,7 +52,7 @@ function alignByDate(
 export const getBenchmarkComparison = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<BenchmarkComparisonResult> => {
-    const empty: BenchmarkComparisonResult = { beta: null, alpha: null, correlationToSpy: null, sampleSize: 0, insufficientData: true };
+    const empty: BenchmarkComparisonResult = { beta: null, alpha: null, correlationToSpy: null, sampleSize: 0, insufficientData: true, rollingPoints: [] };
 
     const { data: snapshots, error } = await context.supabase
       .from("portfolio_snapshots")
@@ -86,11 +88,18 @@ export const getBenchmarkComparison = createServerFn({ method: "GET" })
     const alpha = beta != null ? computeAlpha(portfolioReturns, spyReturns, beta, 0) : null;
     const correlationToSpy = computeCorrelation(alignedPortfolio, alignedSpy, alignedPortfolio.length);
 
+    // Rolling window of 20 value-points — satisfies computeCorrelation's
+    // internal >=10-point floor (documented in computeRollingBenchmarkMetrics)
+    // and matches this project's established "20 observations" trust
+    // threshold used throughout the rest of this panel.
+    const rollingPoints = computeRollingBenchmarkMetrics(alignedPortfolio, alignedSpy, 20);
+
     return {
       beta,
       alpha,
       correlationToSpy,
       sampleSize: portfolioReturns.length,
       insufficientData: portfolioReturns.length < 20, // same 20-observation floor used elsewhere in this project for "don't trust this yet"
+      rollingPoints,
     };
   });

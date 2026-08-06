@@ -272,10 +272,43 @@ into historical performance. What remains of the full Stage 3 list:
 rolling correlation/Beta/Alpha and regime-conditional performance — the
 last two items.
 
-**Priority:** Was High — the foundational piece (can this system answer
-"is it better than random") is now answerable, and all four attribution
-categories exist. Remaining sub-items tracked separately as Stage 3
-continues.
+**Update 2026-08-05 (same day, ninth slice — FINAL):** Both remaining
+items are now built.
+
+*Rolling correlation/Beta/Alpha* (`computeRollingBenchmarkMetrics`,
+`performance-metrics.ts`): extends the rolling-metrics infrastructure to
+market exposure over time, reusing `computeBeta`/`computeAlpha`/
+`computeDailyReturns`/`computeCorrelation` directly rather than
+re-deriving any formula. Wired into `benchmark-comparison.functions.ts`
+(20-day window) and shown as a rolling Beta chart in
+`PerformanceMetricsPanel`. Caught a real, worth-documenting constraint
+while testing: `computeCorrelation` has its own internal floor of ≥10
+value points — a window smaller than that silently returns null
+correlation (Beta/Alpha still compute fine, since they have no such
+floor) — now documented directly in the function's own docstring rather
+than left as a surprise.
+
+*Regime-Conditional Performance* (`computeRegimePerformance`,
+`performance-metrics.ts`, new `src/lib/regime-performance.functions.ts`):
+a real design decision made and documented — regime is reconstructed
+RETROACTIVELY from historical SPY data by re-running the exact same live
+`detectMarketRegime` (indicators.ts) algorithm against a date-sliced view
+of one broad SPY history fetch, rather than only recording regime
+forward on new trades. The forward-only alternative would have been
+simpler but would produce zero results until a large volume of new
+trades accumulated; retroactive reconstruction works on trade history
+that already exists today, at the cost of one broad fetch instead of a
+new column. Surfaced as a new section in `PerformanceMetricsPanel`.
+
+**ALL NINE STAGE 3 SLICES ARE NOW COMPLETE — the full original Stage 3
+list (Sharpe, Sortino, Max Drawdown, Profit Factor, Expectancy, Average
+Win, Average Loss, Rolling Performance, Volatility, Alpha, Beta,
+Correlation to SPY, Rolling Correlation, Exposure, Holding Time, Win
+Rate, Trade Distribution, Session Performance, Regime Performance,
+Portfolio/Signal/Claude/Learning Attribution) is built, tested, and
+independently fresh-clone verified.** TD-12 is fully resolved.
+
+**Priority:** RESOLVED. This item is closed.
 
 ---
 

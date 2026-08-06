@@ -5,6 +5,8 @@ import {
   computeBeta, computeAlpha, computeDailyReturns,
   computeRollingMetrics, computeRollingTrend,
   computeReturnDistribution, computeHoldingTimeDistribution, type HoldingTimeInput,
+  computeRollingBenchmarkMetrics,
+  computeRegimePerformance, type TradeWithRegime,
   type TradeReturn,
 } from "@/lib/performance-metrics";
 
@@ -422,5 +424,123 @@ describe("computeHoldingTimeDistribution", () => {
     const result = computeHoldingTimeDistribution(trades);
     const sum = result.reduce((s, b) => s + b.pctOfTotal, 0);
     expect(sum).toBeCloseTo(100, 0);
+  });
+});
+
+describe("computeRollingBenchmarkMetrics", () => {
+  it("computes rolling Beta staying exactly constant across all windows when portfolio returns are exactly K times benchmark returns throughout", () => {
+    // 15 benchmark returns (%), portfolio returns constructed as EXACTLY 2x
+    // the benchmark's at every period, by compounding from the same
+    // starting value. Since portfolio = 2 * benchmark for every period,
+    // Beta = Cov(p,b)/Var(b) = 2 exactly, in EVERY window, regardless of
+    // window position — a strong, hand-verifiable invariant. Window size
+    // 12 (>=10) so computeCorrelation's internal floor is satisfied and
+    // rollingCorrelation actually computes rather than staying null.
+    const bReturns = [1, 1, -1, 2, -1, 2, 1, -1, 1, 2, -1, 1, -1, 2, 1];
+    const pReturns = bReturns.map((r) => r * 2);
+
+    const bValues = [100];
+    const pValues = [100];
+    for (let i = 0; i < bReturns.length; i++) {
+      bValues.push(bValues[i] * (1 + bReturns[i] / 100));
+      pValues.push(pValues[i] * (1 + pReturns[i] / 100));
+    }
+
+    const points = computeRollingBenchmarkMetrics(pValues, bValues, 12);
+    expect(points.length).toBeGreaterThan(0);
+    for (const point of points) {
+      expect(point.rollingBeta).toBeCloseTo(2, 2);
+      expect(point.rollingAlpha).toBeCloseTo(0, 2); // exact proportionality with rf=0 -> alpha=0 always
+      expect(point.rollingCorrelation).not.toBeNull();
+      expect(point.rollingCorrelation!).toBeCloseTo(1, 2); // perfect positive linear relationship
+    }
+  });
+
+  it("returns an empty array when there are fewer values than the window size", () => {
+    expect(computeRollingBenchmarkMetrics([100, 101], [100, 101], 5)).toEqual([]);
+  });
+
+  it("returns an empty array for an invalid (too small) window size", () => {
+    expect(computeRollingBenchmarkMetrics([100, 101, 102], [100, 101, 102], 2)).toEqual([]);
+  });
+
+  it("truncates to the shorter of the two input series", () => {
+    const portfolio = [100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122];
+    const benchmark = [100, 101, 102, 103, 104, 105, 106, 107, 108, 109]; // shorter, 10 points
+    const points = computeRollingBenchmarkMetrics(portfolio, benchmark, 10);
+    // Should only use the first 10 portfolio values to match the 10 benchmark values -> exactly 1 window
+    expect(points).toHaveLength(1);
+  });
+
+  it("rolling correlation is near -1 for an inversely-related series", () => {
+    const bValues = [100, 105, 103, 108, 104, 110, 106, 112, 108, 114, 109, 116];
+    // Portfolio moves in the OPPOSITE direction of the benchmark
+    const pValues: number[] = [100];
+    for (let i = 1; i < bValues.length; i++) {
+      const bRet = (bValues[i] - bValues[i - 1]) / bValues[i - 1];
+      pValues.push(pValues[i - 1] * (1 - bRet));
+    }
+    const points = computeRollingBenchmarkMetrics(pValues, bValues, 10);
+    expect(points.length).toBeGreaterThan(0);
+    for (const point of points) {
+      expect(point.rollingCorrelation).not.toBeNull();
+      expect(point.rollingCorrelation!).toBeLessThan(-0.9);
+    }
+  });
+});
+
+describe("computeRegimePerformance", () => {
+  it("computes the correct hand-verified per-regime stats for a known mixed set", () => {
+    // bull: [5, 10, -2] -> sum=13, avg=4.333, wins=2/3=0.6667
+    // bear: [-5, 3] -> sum=-2, avg=-1, wins=1/2=0.5
+    // sideways: [1] -> sum=1, avg=1, wins=1/1=1
+    const trades: TradeWithRegime[] = [
+      { pnlPct: 5, regime: "bull" }, { pnlPct: 10, regime: "bull" }, { pnlPct: -2, regime: "bull" },
+      { pnlPct: -5, regime: "bear" }, { pnlPct: 3, regime: "bear" },
+      { pnlPct: 1, regime: "sideways" },
+    ];
+    const result = computeRegimePerformance(trades);
+    const bull = result.find((r) => r.regime === "bull")!;
+    expect(bull.tradeCount).toBe(3);
+    expect(bull.avgReturnPct).toBeCloseTo(4.333, 2);
+    expect(bull.winRate).toBeCloseTo(0.6667, 3);
+
+    const bear = result.find((r) => r.regime === "bear")!;
+    expect(bear.tradeCount).toBe(2);
+    expect(bear.avgReturnPct).toBeCloseTo(-1, 2);
+    expect(bear.winRate).toBeCloseTo(0.5, 3);
+
+    const sideways = result.find((r) => r.regime === "sideways")!;
+    expect(sideways.tradeCount).toBe(1);
+    expect(sideways.avgReturnPct).toBeCloseTo(1, 2);
+  });
+
+  it("returns an empty array for no trades", () => {
+    expect(computeRegimePerformance([])).toEqual([]);
+  });
+
+  it("sorts regimes by trade count, most-observed first", () => {
+    const trades: TradeWithRegime[] = [
+      { pnlPct: 1, regime: "bear" },
+      { pnlPct: 1, regime: "bull" }, { pnlPct: 1, regime: "bull" }, { pnlPct: 1, regime: "bull" },
+      { pnlPct: 1, regime: "sideways" }, { pnlPct: 1, regime: "sideways" },
+    ];
+    const result = computeRegimePerformance(trades);
+    expect(result[0].regime).toBe("bull");
+    expect(result[1].regime).toBe("sideways");
+    expect(result[2].regime).toBe("bear");
+  });
+
+  it("a regime with zero winning trades shows winRate exactly 0, not null or undefined", () => {
+    const trades: TradeWithRegime[] = [{ pnlPct: -5, regime: "bear" }, { pnlPct: -3, regime: "bear" }];
+    const result = computeRegimePerformance(trades);
+    expect(result[0].winRate).toBe(0);
+  });
+
+  it("only regimes actually present in the input appear in the output — no zero-filled rows for unobserved regimes", () => {
+    const trades: TradeWithRegime[] = [{ pnlPct: 1, regime: "bull" }];
+    const result = computeRegimePerformance(trades);
+    expect(result).toHaveLength(1);
+    expect(result.find((r) => r.regime === "bear")).toBeUndefined();
   });
 });
