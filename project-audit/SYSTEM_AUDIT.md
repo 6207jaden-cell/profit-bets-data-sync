@@ -1,5 +1,5 @@
 # SYSTEM_AUDIT.md
-Last updated: 2026-08-04 (Pass 1)
+Last updated: 2026-08-06 (Pass 2 — see update below; Pass 1 content preserved as historical record)
 
 ## How to read this document
 This is the master tracker for an ongoing audit of PROFIT_BETS.AI. Every claim
@@ -11,6 +11,66 @@ doesn't exist yet (load testing, live P&L history, memory profiling), that
 is stated plainly instead of a fabricated number.
 
 ---
+
+## Pass 2 update (2026-08-06) — significant work completed since Pass 1
+
+Everything below Pass 1's original findings (still shown intact further
+down for the historical record) describes a state from before four major
+efforts landed: Stage 1.5 (test infrastructure), Stage 2 (security
+hardening), Stage 3 (performance analytics), and Stage 3.5 (skeptical
+review of Stage 3's own tooling). This update was itself triggered by a
+direct user question ("what else needs fixing") that prompted a real
+re-audit — several of these corrections (`BUG_TRACKER.md` BUG-001/002,
+`TECHNICAL_DEBT.md` TD-01 through TD-04) were found stale in that same
+pass, not caught by this project's own review discipline. Worth stating
+plainly rather than implying this document was kept current on its own.
+
+**What's now resolved, contradicting Pass 1's risk list below:**
+1. Zero test coverage → 186 tests across 19 files, every one asserting a
+   hand-computed expected value (Stage 1.5).
+2. Two endpoints with broken/missing authorization → both fixed via a
+   shared, tested utility (Stage 2, Priorities 1-2).
+3. No rate limiting anywhere → built, applied to all 15 endpoints
+   (Stage 2, Priority 3).
+4. 2 dependency CVEs → resolved, 0 vulnerabilities (Stage 2, Priority 4).
+
+**What's now built that didn't exist in Pass 1:** a full performance-
+analytics layer (Sharpe, Sortino, drawdown, profit factor, expectancy,
+Alpha/Beta/correlation to SPY, all four built attribution categories,
+rolling metrics, trade distribution, exposure, regime-conditional
+performance — Stage 3), plus a skeptical review of that layer's own
+methodology (Stage 3.5) that found and fixed one real gap (Regime
+Performance's missing evidence floor) and documented three real
+interpretive limitations.
+
+**What is genuinely still true, unchanged from Pass 1 — this is now the
+single most important open item:** Risk #4 below remains completely
+accurate. No statistical validation of the trading edge exists. Every
+tool needed to perform that validation now exists and is tested — but
+the actual evidence requires real accumulated trade data, and this
+review process has no live database access to check it. The "Unresolved
+questions" section's "what's the actual current closed-trade count?" is
+still exactly as unresolved as it was in Pass 1.
+
+**Corrected overall health assessment:** the codebase itself has moved
+from "functional but with known critical gaps" to "functional, security-
+hardened, and instrumented for measurement" — a real, meaningful
+improvement. It has NOT moved from "not yet live-money ready" — that
+verdict stands, but now for a single, specific reason (no evidence the
+trading edge is real) rather than the compound reasons Pass 1 listed.
+Still: **FUNCTIONAL, PAPER-TRADING READY, NOT YET LIVE-MONEY READY.**
+
+Remaining genuinely open items, unchanged from Pass 1 or newly found:
+`BUG_TRACKER.md` BUG-003 (iron_condor) and BUG-004 (.env in git, low
+severity), `TECHNICAL_DEBT.md` TD-13 (auth-pattern inconsistency, low
+severity) and the newly-tracked Stage 3 gaps (Average R, standalone
+Volatility, Risk Attribution — item 13b), the never-reviewed
+`agent-backtest` endpoint, and the news/sentiment classifier accuracy
+review. See `ROADMAP.md` for current sequencing.
+
+---
+
+## Pass 1 (2026-08-04) — original findings, preserved as historical record
 
 ## Overall health: FUNCTIONAL, PAPER-TRADING READY, NOT YET LIVE-MONEY READY
 

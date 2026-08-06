@@ -1,5 +1,5 @@
 # BUG_TRACKER.md
-Last updated: 2026-08-04 (Pass 1)
+Last updated: 2026-08-06 (Pass 2 — corrected BUG-001/BUG-002 status, left stale since their actual fixes in Stage 2; Pass 1 content otherwise unchanged)
 
 Format: severity, root cause, affected files, status, fix, verification steps.
 Every entry here was directly verified by reading code — none are
@@ -14,7 +14,11 @@ speculative.
 entirely, so the intended apikey check (documented in the file's own
 comment) was never implemented.
 **Affected files:** `src/routes/api/public/evaluate-alerts.ts`
-**Status:** Open
+**Status:** FIXED (Stage 2, Priority 1, 2026-08-05). This entry was left
+stale after the fix landed — corrected 2026-08-06 after a user question
+prompted a full re-audit of this document against `SECURITY_AUDIT.md`
+and the actual code, which had already been updated correctly. Fixed
+using a new shared, tested utility (`src/lib/api-auth.ts`).
 **Fix:** Add `{ request }: { request: Request }` to the handler signature
 and the standard `apikey !== process.env.SUPABASE_PUBLISHABLE_KEY` guard
 used by every sibling cron endpoint.
@@ -32,7 +36,10 @@ Full detail: see SECURITY_AUDIT.md Finding 1.
 **Severity:** High
 **Root cause:** `if (!apikey)` checks presence only, not correctness.
 **Affected files:** `src/routes/api/public/sync-crons.ts`
-**Status:** Open
+**Status:** FIXED (Stage 2, Priority 2, 2026-08-05). Same staleness as
+BUG-001 — corrected 2026-08-06. Fixed using the same shared utility as
+BUG-001, deliberately, since both bugs shared the same root cause
+(duplicated inline auth checks with no single source of truth).
 **Fix:** Change to `if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY)`.
 **Verification steps:** Same pattern as BUG-001 — confirm rejection with
 wrong/missing key, confirm the Settings → "Sync Cron Jobs" button in the

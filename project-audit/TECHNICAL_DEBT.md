@@ -26,7 +26,15 @@ asserting the math itself is correct.
 **Recommended solution:** Install Vitest (best fit given the existing
 Vite build). Start with the 7 pure functions listed in
 `ENGINEERING_CONSTITUTION.md` Section 8 as mandatory first targets.
-**Priority:** Critical / immediate — `ROADMAP.md` item 4.
+**Status:** RESOLVED (Stage 1.5, 2026-08-05). Vitest installed, all 7
+mandatory targets covered, later grew to 186 tests across 19 files as
+Stage 2/3 work added more. Every test asserts a hand-computed expected
+value, not just "does it run." Found and fixed 2 real bugs along the
+way (see `CHANGELOG.md`'s Stage 1.5 entry): a real 127-error TypeScript
+regression that had been silently accumulating, plus a genuine runtime
+bug (`updateSignalWeights` called but never imported in the
+circuit-breaker path).
+**Priority:** Was Critical / immediate. Resolved.
 
 ---
 
@@ -40,7 +48,11 @@ limit. See `SECURITY_AUDIT.md` Finding 1 and `BUG_TRACKER.md` BUG-001.
 **Recommended solution:** Add the standard
 `apikey !== process.env.SUPABASE_PUBLISHABLE_KEY` guard used by every
 sibling cron endpoint.
-**Priority:** Critical / immediate — `ROADMAP.md` item 1.
+**Status:** RESOLVED (Stage 2, Priority 1, 2026-08-05). Fixed using a
+new shared, tested utility (`src/lib/api-auth.ts`) rather than a one-off
+inline check — see `SECURITY_AUDIT.md` Finding 1 (also corrected to
+FIXED) and `CHANGELOG.md`.
+**Priority:** Was Critical / immediate. Resolved.
 
 ---
 
@@ -53,22 +65,34 @@ actual key is never compared. See `SECURITY_AUDIT.md` Finding 2 and
 **Workaround:** None.
 **Recommended solution:** Change `if (!apikey)` to
 `if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY)`.
-**Priority:** High — `ROADMAP.md` item 2.
+**Status:** RESOLVED (Stage 2, Priority 2, 2026-08-05). Fixed using the
+same shared utility as TD-02, deliberately — this bug and TD-02 shared
+the same root cause (inline, duplicated auth checks with no single
+source of truth). See `SECURITY_AUDIT.md` Finding 2 (also corrected to
+FIXED).
+**Priority:** Was High. Resolved.
 
 ---
 
 ## TD-04 — No application-level rate limiting anywhere
 
-**Severity:** Critical (given TD-02/TD-03 currently open; would be High
-in isolation)
+**Severity:** Was Critical while TD-02/TD-03 were open (now both
+resolved); High in isolation, as originally scoped.
 **Impact:** Every endpoint, correctly-authorized or not, can be called
-at unlimited frequency. Compounds directly with TD-02 and TD-03.
+at unlimited frequency. Compounded directly with TD-02 and TD-03 while
+those were open.
 **Workaround:** None.
 **Recommended solution:** Token-bucket or fixed-window rate limiting,
 either platform-level or a lightweight Postgres-table-backed
 implementation.
-**Priority:** Critical, specifically because of its interaction with
-TD-02/TD-03 — `ROADMAP.md` item 3.
+**Status:** RESOLVED (Stage 2, Priority 3, 2026-08-05). Built as shared,
+reusable, tested infrastructure (`src/lib/rate-limit.ts`) — Postgres-
+backed, atomic via row-locking to avoid a real race condition under
+concurrent cron overlaps — applied to all 15 `/api/public/*` endpoints,
+each with a limit reasoned from its actual cron cadence. See
+`SECURITY_AUDIT.md` Finding 4 (also corrected to FIXED) and
+`CHANGELOG.md`.
+**Priority:** Was Critical (given the TD-02/TD-03 interaction). Resolved.
 
 ---
 

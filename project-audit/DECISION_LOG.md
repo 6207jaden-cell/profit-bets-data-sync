@@ -313,3 +313,52 @@ determine its purpose.
 this split proves confusing in practice.
 
 **Related hypothesis:** None.
+
+---
+
+## D-10 — Experiment 2 (adaptive learning test) implemented as shadow logging, not a live weighting toggle
+
+**Date:** 2026-08-05
+**Decision:** Test whether adaptive per-signal weighting improves
+returns by computing candidate scores TWICE every scan — once with the
+real, learned weights, once with weights forced neutral (1.0x) — and
+logging both to `shadow_weighting_comparison` for later comparison,
+rather than actually toggling adaptive weighting off for some real
+trading period and comparing outcomes.
+
+**Alternatives considered:**
+- A live A/B toggle: run with adaptive weighting ON for some period,
+  OFF for another, compare real trading outcomes directly — rejected as
+  the higher-risk option. This would mean deliberately trading with a
+  system component disabled that's believed (though unproven) to help,
+  for the sake of measurement — a real cost if the hypothesis turns out
+  to be true, paid before there's any evidence either way.
+- A live toggle applied to only a FRACTION of scans (e.g. 50/50 split
+  per scan) — rejected as needlessly complex to implement safely
+  alongside the existing circuit-breaker and risk-control logic, for
+  a benefit (slightly faster data collection) that shadow logging
+  achieves anyway without touching real trading behavior at all.
+
+**Reason chosen:** Shadow logging achieves the same measurement goal —
+comparing adaptive vs. neutral weighting on the SAME candidates, same
+scan, same moment — without ever changing what's actually traded. This
+matches the general principle established early in this project's
+governance work (`ENGINEERING_CONSTITUTION.md`) of measuring before
+optimizing, applied here to mean measuring without risking real capital
+on the measurement itself.
+
+**Expected impact:** Zero effect on real trading behavior or P&L —
+purely additive logging. `EXPERIMENTS.md` E-02 and
+`EXPERIMENT_RESULTS.md` describe how to read the comparison once enough
+resolved data exists. Trade-off: results take longer to become
+meaningful than a live toggle would produce, since shadow logging must
+wait for the SAME resolution horizon as real trades rather than
+being read directly from real outcomes.
+
+**Future review criteria:** If shadow-logged results eventually show a
+strong, well-evidenced signal one way or the other, a live toggle test
+could still be run as a stronger confirmation — this decision defers
+that higher-cost option, it doesn't rule it out permanently.
+
+**Related hypothesis:** H3 (adaptive per-signal weighting improves
+returns).
