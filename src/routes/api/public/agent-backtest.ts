@@ -9,6 +9,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchBars, sma } from "@/lib/indicators";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 const UNIVERSE = [
   "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","V","XOM",
@@ -39,11 +40,7 @@ export const Route = createFileRoute("/api/public/agent-backtest")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const anonKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY;
-        const apikey = request.headers.get("apikey");
-        if (!anonKey || apikey !== anonKey) {
-          return new Response("Unauthorized", { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
         const body = (await request.json().catch(() => ({}))) as {
           user_id?: string; days_back?: number; hold_days?: number; picks_per_day?: number;
         };

@@ -910,3 +910,40 @@ facing endpoints whose error bodies get parsed — treated as a safe
 consistency improvement, not a risk, but noted explicitly rather than
 silently changed.
 
+---
+
+## 2026-08-06 — Correction + completion: TD-13 auth consolidation was actually incomplete
+
+**What happened:** The previous entry claimed "all 15 endpoints now use
+the same shared, tested utility." That was inaccurate — only 7 files
+literally called `verifyPublicApiKeyFromEnv()`. The other 8 had their
+own inline copy of the check: 7 correct (direct comparison, just not
+consolidated in code), and `agent-backtest.ts` had a genuinely different,
+previously-uncaught THIRD auth variant this document's own TD-13
+investigation missed. Found while doing an unrelated methodology review
+of `agent-backtest.ts` for the backtest-correctness item flagged since
+the original audit.
+
+**What changed:** All 8 remaining files migrated onto
+`verifyPublicApiKeyFromEnv()` — `autonomous-agent`, `autonomous-exit-check`,
+`autonomous-learning`, `emergency-exit`, `friday-review`,
+`resolve-shadow-experiments`, `sync-robinhood-balance`, and
+`agent-backtest`. A fresh sweep of every route file now confirms the
+shared utility is genuinely used everywhere the apikey-header auth model
+applies — the claim from the previous entry is accurate now.
+
+**Files changed:** the 8 route files above, `TECHNICAL_DEBT.md` (TD-13
+correction appended).
+
+**Tests added:** None new — same reasoning as the original TD-13 fix,
+this reuses already-tested shared functions.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 198/198 passing (sandbox)
+- A fresh, direct grep sweep of every route file (not a claim taken on
+  faith) confirming the shared utility is imported everywhere it should
+  be, and no `SUPABASE_ANON_KEY`/`"Apikey"` fallback references remain
+  anywhere.
+

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
 import { enforceRateLimit, endpointAndIpBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 /**
  * Emergency exit endpoint called by the client-side price watcher when a
@@ -15,10 +16,7 @@ export const Route = createFileRoute("/api/public/emergency-exit")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
-          return new Response("Unauthorized", { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Unlike the cron-only endpoints, this one is legitimately called
         // by browser-side price watchers for potentially many distinct

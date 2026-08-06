@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
 import { callGateway } from "./autonomous-agent";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 /**
  * Friday 3:45pm ET position review.
@@ -16,10 +17,7 @@ export const Route = createFileRoute("/api/public/friday-review")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
-          return new Response("Unauthorized", { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Weekly cron — very low legitimate frequency, tight limit.

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getValidToken } from "@/lib/robinhood-live";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 /**
  * Syncs the Robinhood Agentic account balance and open positions to the
@@ -77,10 +78,7 @@ export const Route = createFileRoute("/api/public/sync-robinhood-balance")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
-          return new Response("Unauthorized", { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Daily weekday cron — very low legitimate frequency, tight limit.

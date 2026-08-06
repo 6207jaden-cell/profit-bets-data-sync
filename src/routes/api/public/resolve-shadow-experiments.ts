@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
 import { isResolutionDue } from "@/lib/shadow-experiments";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 // Experiment 1 (Claude Value Test) resolution job. Finds shadow_candidate_log
 // rows past their session-appropriate horizon and resolves them:
@@ -23,10 +24,7 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
   server: {
     handlers: {
       POST: async ({ request }: { request: Request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
-          return new Response("Unauthorized", { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
         const { supabaseAdmin: typedSupabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Cast once here: this route reads/writes shadow_candidate_log and
         // shadow_weighting_comparison, tables ahead of the auto-generated

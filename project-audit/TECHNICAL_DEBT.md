@@ -414,5 +414,22 @@ Both are 401s. Checked whether anything parses the JSON body — these are
 pg_cron-triggered background jobs, not endpoints a UI calls and inspects
 error bodies from, so this is treated as a safe, minor consistency
 improvement (matching the other 10 endpoints) rather than a risk.
-**Priority:** Was Low. Resolved.
+
+**Correction (2026-08-06, same day):** the "Resolved" claim above was
+itself imprecise when first written. It said "all 15 endpoints now use
+the same shared utility" — actually true for only 7 (the 5 migrated here
+plus `evaluate-alerts`/`sync-crons` from Priorities 1-2). The other 8
+still had their own inline copy of the auth check: 7 used the correct,
+safe direct comparison (`apikey !== process.env.SUPABASE_PUBLISHABLE_KEY`)
+just not literally calling the shared function, and — this is the real
+find — `agent-backtest.ts` had a THIRD, previously-uncaught auth variant
+(`SUPABASE_PUBLISHABLE_KEY ?? SUPABASE_ANON_KEY` fallback, no `"Apikey"`
+capitalization check) that this document's own TD-13 investigation
+missed entirely. Found while doing an unrelated methodology review of
+`agent-backtest.ts`. All 8 now genuinely migrated onto
+`verifyPublicApiKeyFromEnv()` — the claim is accurate now, verified by a
+fresh sweep of every route file confirming the shared utility is
+imported everywhere the apikey-header auth model applies (the OAuth
+callback correctly remains excluded — different auth model entirely).
+**Priority:** Was Low. Genuinely resolved now.
 

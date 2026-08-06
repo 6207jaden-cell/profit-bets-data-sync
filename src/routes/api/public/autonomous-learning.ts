@@ -1,15 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { saveTradeOutcomeMemory } from "@/lib/agent-memory";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 export const Route = createFileRoute("/api/public/autonomous-learning")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
-          return new Response("Unauthorized", { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Weekly cron — very low legitimate frequency, tight limit.
         const rl = resolveRateLimit(3, 3600);

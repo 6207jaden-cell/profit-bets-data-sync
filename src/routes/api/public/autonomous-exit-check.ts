@@ -5,6 +5,7 @@ import { updateSignalWeights } from "@/lib/signal-learning";
 import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 import { estimateFees } from "@/lib/cost-reality";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 type ExitAction = { position_id: string; action: "hold" | "trim" | "exit"; reason: string };
 
@@ -12,10 +13,7 @@ export const Route = createFileRoute("/api/public/autonomous-exit-check")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
-          return new Response("Unauthorized", { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Rate limit: runs every 10 min via cron; generous headroom above that.
         const rl = resolveRateLimit(6, 300);

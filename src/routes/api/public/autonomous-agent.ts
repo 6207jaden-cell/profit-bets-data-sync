@@ -6,6 +6,7 @@ import {
   computeCorrelation,
 } from "@/lib/indicators";
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 import { ALL_PROPOSABLE_INSTRUMENT_TYPES, isOptionsInstrumentType } from "@/lib/instruments";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
@@ -173,10 +174,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apikey = request.headers.get("apikey");
-        if (!apikey || apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
-          return new Response("Unauthorized", { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Rate limit: this endpoint is legitimately called by up to a
         // dozen different cron schedules (scalp fires every 30 min,
