@@ -680,12 +680,40 @@ export function buildContext(closes: number[], entryPrice: number | null = null)
 }
 
 /** Fetch a live quote price for a symbol. Finnhub → Polygon → Alpha Vantage. */
+/**
+ * True if a quote's own reported timestamp indicates it's older than
+ * `maxAgeMinutes`. Pure, testable in isolation (TRADING_ENGINE_REVIEW.md
+ * Finding 6). A missing/invalid timestamp returns false — "cannot
+ * determine staleness" is treated as "don't reject," not "assume stale."
+ * This is a deliberate, defensive choice: not every price source in
+ * fetchQuotePrice below reliably provides a timestamp field this code
+ * can verify without live network access to those external APIs during
+ * development, so failing open on missing data is the safe default
+ * rather than breaking quote fetching entirely if an assumed field name
+ * turns out to be wrong or absent for a given response.
+ */
+export function isQuoteStale(quoteTimestampMs: number | null | undefined, nowMs: number, maxAgeMinutes: number): boolean {
+  if (quoteTimestampMs == null || !Number.isFinite(quoteTimestampMs) || quoteTimestampMs <= 0) return false;
+  const ageMinutes = (nowMs - quoteTimestampMs) / 60_000;
+  return ageMinutes > maxAgeMinutes;
+}
+
+const QUOTE_STALENESS_THRESHOLD_MINUTES = 30;
+
 export async function fetchQuotePrice(symbol: string): Promise<number | null> {
   const S = symbol.toUpperCase();
   const isCrypto = isCryptoSymbol(S);
   const fin = process.env.FINNHUB_API_KEY;
   const poly = process.env.POLYGON_API_KEY;
   const alpha = process.env.ALPHA_VANTAGE_API_KEY;
+  // Only enforce staleness during hours a "live" quote is actually
+  // expected — crypto trades 24/7, so always check; stocks only during
+  // regular market hours (a Friday-close price is correctly "old" all
+  // weekend, and rejecting it would break weekend/after-hours usage
+  // entirely, not catch a real staleness problem).
+  const shouldCheckStaleness = isCrypto || isMarketOpen();
+  const nowMs = Date.now();
+
   // Yahoo Finance (keyless) — works for both stocks and crypto pairs like ETH-USD.
   // Tried FIRST for crypto because Finnhub free tier does not return BINANCE quotes.
   try {
@@ -694,23 +722,68 @@ export async function fetchQuotePrice(symbol: string): Promise<number | null> {
       { headers: { "User-Agent": "Mozilla/5.0" } },
     );
     if (r.ok) {
-      const j = (await r.json()) as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> } };
-      const p = j.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (p && p > 0) return p;
+      const j = (await r.json()) as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; regularMarketTime?: number } }> } };
+      const meta = j.chart?.result?.[0]?.meta;
+      const p = meta?.regularMarketPrice;
+      // regularMarketTime is Yahoo's own documented Unix-seconds timestamp
+      // for when regularMarketPrice was last updated — undocumented API,
+      // not independently verifiable against live Yahoo responses in this
+      // environment (no network access to finance.yahoo.com here), so
+      // this is best-effort: if the field is absent or unexpected,
+      // isQuoteStale's missing-timestamp handling means this source is
+      // simply not staleness-checked, not broken.
+      const quoteTimestampMs = meta?.regularMarketTime != null ? meta.regularMarketTime * 1000 : null;
+      if (p && p > 0) {
+        if (shouldCheckStaleness && isQuoteStale(quoteTimestampMs, nowMs, QUOTE_STALENESS_THRESHOLD_MINUTES)) {
+          console.warn(`[fetchQuotePrice] Yahoo quote for ${S} is stale, trying next source`);
+        } else {
+          return p;
+        }
+      }
     }
   } catch { /* fall */ }
   try {
     if (fin && !isCrypto) {
       const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${S}&token=${fin}`);
-      if (r.ok) { const j = (await r.json()) as { c?: number }; if (j.c) return j.c; }
+      if (r.ok) {
+        const j = (await r.json()) as { c?: number; t?: number };
+        // Finnhub's documented quote-endpoint `t` field is a Unix-seconds
+        // timestamp — same best-effort caveat as Yahoo above applies.
+        const quoteTimestampMs = j.t != null ? j.t * 1000 : null;
+        if (j.c) {
+          if (shouldCheckStaleness && isQuoteStale(quoteTimestampMs, nowMs, QUOTE_STALENESS_THRESHOLD_MINUTES)) {
+            console.warn(`[fetchQuotePrice] Finnhub quote for ${S} is stale, trying next source`);
+          } else {
+            return j.c;
+          }
+        }
+      }
     }
     if (fin && isCrypto) {
       const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=BINANCE:${cryptoBase(S)}USDT&token=${fin}`);
-      if (r.ok) { const j = (await r.json()) as { c?: number }; if (j.c) return j.c; }
+      if (r.ok) {
+        const j = (await r.json()) as { c?: number; t?: number };
+        const quoteTimestampMs = j.t != null ? j.t * 1000 : null;
+        if (j.c) {
+          if (shouldCheckStaleness && isQuoteStale(quoteTimestampMs, nowMs, QUOTE_STALENESS_THRESHOLD_MINUTES)) {
+            console.warn(`[fetchQuotePrice] Finnhub crypto quote for ${S} is stale, trying next source`);
+          } else {
+            return j.c;
+          }
+        }
+      }
     }
   } catch { /* fall */ }
   try {
     if (poly) {
+      // Polygon's /prev endpoint is EXPLICITLY the previous trading day's
+      // close by design, not a live quote — it is used here specifically
+      // as a lower-priority fallback when live sources fail, and is
+      // therefore deliberately NOT staleness-checked against the same
+      // live-market threshold as the sources above: during live market
+      // hours this endpoint is correctly always "old" by design (up to
+      // ~24h), and rejecting it on that basis would defeat its entire
+      // purpose as a fallback. TRADING_ENGINE_REVIEW.md Finding 6.
       const polySym = isCrypto ? `X:${cryptoBase(S)}USD` : S;
       const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/prev?apiKey=${poly}`);
       if (r.ok) {
@@ -726,6 +799,11 @@ export async function fetchQuotePrice(symbol: string): Promise<number | null> {
       if (r.ok) {
         const j = (await r.json()) as { ["Global Quote"]?: Record<string, string> };
         const p = j["Global Quote"]?.["05. price"];
+        // Alpha Vantage's GLOBAL_QUOTE only provides "07. latest trading
+        // day" (a date, not a precise timestamp) — too coarse for the
+        // same minute-level staleness check used above, and this is
+        // already the last fallback in the chain, so no further check
+        // is applied here.
         if (p) return Number(p);
       }
     }

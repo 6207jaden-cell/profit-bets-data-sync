@@ -165,8 +165,15 @@ once enough real trade volume exists, not more infrastructure work.
    shared `src/lib/instruments.ts`. See `BUG_TRACKER.md` BUG-003.
 9. ~~**Fix BUG-004** — untrack `.env`, verify deploy still works.~~
    **DONE 2026-08-06.** See `BUG_TRACKER.md` BUG-004.
-10. **Add a staleness check** to price-fetch fallbacks (TRADING_ENGINE_REVIEW.md
-    Finding 6).
+10. ~~**Add a staleness check** to price-fetch fallbacks (TRADING_ENGINE_REVIEW.md
+    Finding 6).~~ **DONE 2026-08-06, partially — stated honestly.**
+    Fixed for the 2 sources with a verifiable timestamp (Yahoo, Finnhub);
+    Polygon's `/prev` and Alpha Vantage deliberately excluded (structural
+    reasons, not oversight — see Finding 6). One real caveat: the assumed
+    field names couldn't be confirmed against a live response, since this
+    environment has no network access to those APIs — designed to
+    degrade gracefully (not break) if either assumption is wrong. Worth a
+    real check against live traffic when convenient.
 11. **Add a cron-overlap guard** (TRADING_ENGINE_REVIEW.md Finding 5).
 12. **Harden the Robinhood OAuth `state` parameter** (SECURITY_AUDIT.md
     Finding 3) — low urgency given PKCE already protects the real attack

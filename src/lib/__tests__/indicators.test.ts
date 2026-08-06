@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { atr, computeCorrelation } from "@/lib/indicators";
+import { atr, computeCorrelation, isQuoteStale } from "@/lib/indicators";
 
 describe("atr", () => {
   it("computes the correct value for a constant-true-range series", () => {
@@ -77,5 +77,44 @@ describe("computeCorrelation", () => {
     const result = computeCorrelation(closesA, closesB, 10); // lookback shorter than the noisy prefix
     expect(result).not.toBeNull();
     expect(result!).toBeGreaterThan(0.99);
+  });
+});
+
+describe("isQuoteStale", () => {
+  it("returns false when the quote is within the max age", () => {
+    const now = 1_000_000_000_000;
+    const quoteTime = now - 10 * 60_000; // 10 minutes ago
+    expect(isQuoteStale(quoteTime, now, 30)).toBe(false);
+  });
+
+  it("returns true when the quote exceeds the max age", () => {
+    const now = 1_000_000_000_000;
+    const quoteTime = now - 45 * 60_000; // 45 minutes ago
+    expect(isQuoteStale(quoteTime, now, 30)).toBe(true);
+  });
+
+  it("returns false exactly at the boundary (age == maxAge is not yet stale, only age > maxAge is)", () => {
+    const now = 1_000_000_000_000;
+    const quoteTime = now - 30 * 60_000; // exactly 30 minutes ago
+    expect(isQuoteStale(quoteTime, now, 30)).toBe(false);
+  });
+
+  it("returns false for a missing timestamp — 'cannot determine staleness' is not the same as 'assume stale'", () => {
+    const now = 1_000_000_000_000;
+    expect(isQuoteStale(null, now, 30)).toBe(false);
+    expect(isQuoteStale(undefined, now, 30)).toBe(false);
+  });
+
+  it("returns false for an invalid (zero, negative, or non-finite) timestamp rather than throwing or misbehaving", () => {
+    const now = 1_000_000_000_000;
+    expect(isQuoteStale(0, now, 30)).toBe(false);
+    expect(isQuoteStale(-100, now, 30)).toBe(false);
+    expect(isQuoteStale(NaN, now, 30)).toBe(false);
+  });
+
+  it("a quote timestamp in the future (clock skew) is not treated as stale", () => {
+    const now = 1_000_000_000_000;
+    const futureQuoteTime = now + 5 * 60_000; // 5 minutes in the future
+    expect(isQuoteStale(futureQuoteTime, now, 30)).toBe(false);
   });
 });

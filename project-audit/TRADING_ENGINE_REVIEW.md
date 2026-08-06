@@ -118,6 +118,35 @@ market has already moved away from.
 
 **Not yet done:** no staleness validation exists on any price fetch path.
 
+**FIXED 2026-08-06, partially — stated honestly, not fully.** Added a
+pure, tested `isQuoteStale()` (`indicators.ts`) and wired it into the two
+sources that reliably expose a timestamp: Yahoo (`meta.regularMarketTime`)
+and Finnhub (`t`). A stale response from either is now skipped in favor
+of continuing down the fallback chain, rather than trusted immediately.
+Gated by `isMarketOpen()` for stocks (a Friday-close price is correctly
+"old" all weekend — checking staleness then would break weekend usage
+for no real benefit) and always-on for crypto (trades 24/7).
+
+**Explicitly NOT staleness-checked, by design, not oversight:**
+Polygon's `/prev` endpoint is structurally the previous trading day's
+close — during live market hours it is *always* "old" by design (up to
+~24h), so applying the same live-freshness threshold to it would defeat
+its entire purpose as a fallback source. Alpha Vantage's `GLOBAL_QUOTE`
+only exposes a trading *date*, not a timestamp — too coarse for a
+minute-level check, and it's already the last fallback in the chain.
+
+**Honest caveat on verification:** this sandbox's network access does
+not include `finance.yahoo.com` or `finnhub.io`, so the assumed field
+names (`regularMarketTime`, `t`) could not be confirmed against a live
+response while building this fix. Designed defensively for that reason:
+`isQuoteStale()` treats a missing/unparseable timestamp as "cannot
+determine staleness" (skip the check, trust the price as before), not
+as "assume stale" — if either field name turns out to be wrong, this
+degrades gracefully to the previous behavior for that source rather than
+breaking quote fetching. Worth a real check against live responses when
+convenient, to confirm the staleness check is actually firing as
+intended, not silently always no-op.
+
 ---
 
 ### 7. Signal Attribution's dollar-P&L figures are contaminated by the system's own sizing decisions (Stage 3.5 finding)

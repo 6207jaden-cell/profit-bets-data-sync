@@ -1158,3 +1158,72 @@ optimistic are fixed — but it still only tests a narrower momentum-only
 strategy than the full live system, which is now explicitly documented
 rather than implied otherwise.
 
+---
+
+## 2026-08-06 — Fix Finding 6: price-fetch staleness check (partial, stated honestly)
+
+**What changed:** `fetchQuotePrice` (`indicators.ts`) now checks quote
+freshness for the two fallback sources that reliably expose a timestamp
+— Yahoo (`meta.regularMarketTime`) and Finnhub (`t`) — and skips a stale
+response in favor of continuing down the fallback chain, rather than
+trusting it immediately. New pure, tested `isQuoteStale()` function.
+
+**Why:** None of the four price sources' responses were ever checked
+against a staleness threshold — a technically-valid but several-minutes-
+old quote was used exactly as if it were live, which matters for scalp
+entries and exit-check stop/target comparisons specifically.
+
+**How it was scoped, honestly:** Not all four sources get the same
+treatment, and that's deliberate, not an oversight. Polygon's `/prev`
+endpoint is structurally the previous trading day's close — during live
+market hours it's *always* "old" by design, so a live-freshness check
+would defeat its purpose as a fallback. Alpha Vantage's `GLOBAL_QUOTE`
+only exposes a trading date, too coarse for a minute-level check, and
+it's the last fallback anyway. The check is gated by `isMarketOpen()`
+for stocks (a Friday-close price is correctly old all weekend) and
+always-on for crypto (24/7 trading).
+
+**A real constraint stated directly, not glossed over:** this sandbox
+has no network access to `finance.yahoo.com` or `finnhub.io`, so the
+assumed field names (`regularMarketTime`, `t`) could not be confirmed
+against a live API response while building this. `isQuoteStale()` is
+designed defensively for exactly this reason — a missing or unparseable
+timestamp is treated as "cannot determine staleness, don't reject,"
+never as "assume stale." If either field name turns out to be wrong,
+this degrades gracefully to the previous (unchecked) behavior for that
+specific source rather than breaking quote fetching. This is flagged as
+worth a real check against live traffic when convenient — not claimed
+as fully verified, because it isn't.
+
+**Files changed:**
+- `src/lib/indicators.ts` (`isQuoteStale` added, `fetchQuotePrice`
+  updated for the 2 sources)
+- `src/lib/__tests__/indicators.test.ts` (6 new tests, 13 total in file)
+- `project-audit/TRADING_ENGINE_REVIEW.md` (Finding 6 updated with full
+  detail, including the verification caveat)
+- `project-audit/ROADMAP.md` (item 10 marked done, same caveat carried
+  through)
+
+**Tests added:** 6 for `isQuoteStale` — within-threshold, over-threshold,
+the exact boundary (age == maxAge is not yet stale), missing timestamp
+(null/undefined both return false, not stale), invalid timestamp
+(zero/negative/NaN), and future-timestamp clock skew not being treated
+as stale. `fetchQuotePrice` itself is not unit-tested (does real network
+fetches, consistent with this project's established pattern of not
+testing network-calling functions directly, only their pure logic).
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 213/213 passing (6 new)
+- Independent fresh-clone + fresh-install verification to follow.
+- **NOT performed, stated directly:** live verification against real
+  Yahoo/Finnhub API responses, since this environment's network access
+  doesn't reach those domains. This is a real, named gap, not silently
+  skipped.
+
+**Remaining risk:** the field-name assumptions this fix relies on are
+unverified against live traffic. Worth checking directly when there's
+network access to those APIs, to confirm the staleness check actually
+fires rather than silently always no-op due to a wrong field name.
+
