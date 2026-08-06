@@ -246,6 +246,16 @@ rolling correlation specifically (Beta/Alpha rolling over time, not yet
 built — only win-rate/Sharpe/Sortino roll so far), exposure,
 holding-time/trade distribution, and regime-conditional performance.
 
+**Update 2026-08-05 (same day, seventh slice):** Trade Distribution now
+exists — `computeReturnDistribution` and `computeHoldingTimeDistribution`
+(`performance-metrics.ts`), shown as two histograms in
+`PerformanceMetricsPanel`. Fixed, documented bucket boundaries (not
+data-dependent bins) so results are comparable across report runs. Both
+are true partitions — bucket percentages sum to exactly 100%. What
+remains of the full Stage 3 list: rolling correlation/Beta/Alpha,
+exposure (cash vs. deployed, concentration), and regime-conditional
+performance.
+
 **Priority:** Was High — the foundational piece (can this system answer
 "is it better than random") is now answerable, and all four attribution
 categories exist. Remaining sub-items tracked separately as Stage 3

@@ -574,3 +574,55 @@ window, and the trend delta correctly signed in both directions.
 - Exposure, holding-time/trade distribution, and regime-conditional
   performance remain open per `TECHNICAL_DEBT.md` TD-12.
 
+---
+
+## 2026-08-05 — Stage 3, seventh slice: trade distribution histograms
+
+**What changed:** `computeReturnDistribution` and
+`computeHoldingTimeDistribution` (new, `performance-metrics.ts`) — two
+histograms shown in `PerformanceMetricsPanel`: how trade returns are
+distributed across fixed ranges, and how long trades are actually held.
+
+**Why:** An aggregate expectancy or win-rate number can't show whether
+results cluster tightly or are driven by a few fat-tail outliers, and
+can't show whether this is genuinely a scalp-dominated system or
+positions are lingering far longer than intended.
+
+**How it was built:** Both use fixed, documented bucket boundaries
+(returns: <-10%, -10 to -5%, -5 to -2%, -2 to 0%, 0 to 2%, 2 to 5%, 5 to
+10%, >10%; holding time: <1hr, 1-4hr, 4-24hr, 1-3 days, 3-7 days, >7
+days) rather than dynamically-computed bins — a histogram with
+data-dependent bin edges can't be compared meaningfully across different
+report runs or different users. A boundary value itself (e.g. exactly
+-5% or exactly 24 hours) is documented to fall into the LOWER bucket,
+verified by a dedicated test for each function. Both are true partitions
+— bucket percentages sum to exactly 100%.
+
+**Files changed:**
+- `src/lib/performance-metrics.ts` (added `computeReturnDistribution`,
+  `computeHoldingTimeDistribution`)
+- `src/lib/__tests__/performance-metrics.test.ts` (8 new tests, 50 total)
+- `src/features/trading/components/PerformanceMetricsPanel.tsx` (wired
+  in as two bar-chart histograms, loss-side buckets colored distinctly
+  from win-side buckets in the return distribution)
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 updated)
+
+**Tests added:** 8 — every one of the 8 return buckets and all 6 holding-
+time buckets hand-verified with a value landing in each, the boundary-
+value-falls-in-lower-bucket rule explicitly tested for both functions,
+empty-input handling, and the exactly-100% partition check for both.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 169/169 passing (8 new)
+
+**Remaining risk / honest limitations:**
+- Bucket boundaries are reasonable defaults, not empirically tuned to
+  this system's actual typical trade sizes — worth revisiting once real
+  volume exists.
+- Rolling correlation/Beta/Alpha, exposure (cash vs. deployed,
+  concentration), and regime-conditional performance remain open per
+  `TECHNICAL_DEBT.md` TD-12 — the last three items of the full Stage 3
+  list.
+

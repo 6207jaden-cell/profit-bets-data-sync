@@ -366,3 +366,75 @@ export function computeRollingTrend(points: RollingMetricPoint[]): { sharpeDelta
       ? Number((latest.rollingWinRate - previous.rollingWinRate).toFixed(4)) : null,
   };
 }
+
+// ── Trade Distribution ────────────────────────────────────────────────────
+// Two histograms: how trade RETURNS are distributed (do results cluster in
+// a tight band, or are there fat tails driving the aggregate numbers?) and
+// how HOLDING TIME is distributed (is this actually a scalp-dominated
+// system, or do positions linger far longer than intended?). Both use
+// fixed, documented bucket boundaries rather than dynamically-computed
+// bins, specifically so results are comparable across different report
+// runs and different users — a histogram with data-dependent bin edges
+// can't be compared meaningfully over time.
+
+export type DistributionBucket = {
+  label: string;
+  count: number;
+  pctOfTotal: number;
+};
+
+const RETURN_BUCKET_BOUNDARIES = [-10, -5, -2, 0, 2, 5, 10]; // percent — defines 8 buckets total
+
+/**
+ * Buckets trade returns into fixed ranges: <-10%, -10 to -5%, -5 to -2%,
+ * -2 to 0%, 0 to 2%, 2 to 5%, 5 to 10%, >10%. A boundary value itself
+ * (e.g. exactly -5%) falls into the LOWER bucket (i.e. the "-10 to -5%"
+ * bucket, not "-5 to -2%") — buckets are defined as (lower, upper], using
+ * `<=` against each ascending boundary in turn.
+ */
+export function computeReturnDistribution(trades: TradeReturn[]): DistributionBucket[] {
+  if (trades.length === 0) return [];
+  const labels = ["< -10%", "-10% to -5%", "-5% to -2%", "-2% to 0%", "0% to 2%", "2% to 5%", "5% to 10%", "> 10%"];
+  const counts = new Array(labels.length).fill(0);
+
+  for (const t of trades) {
+    let bucketIndex = RETURN_BUCKET_BOUNDARIES.length; // default: last bucket (> largest boundary)
+    for (let i = 0; i < RETURN_BUCKET_BOUNDARIES.length; i++) {
+      if (t.pnlPct <= RETURN_BUCKET_BOUNDARIES[i]) { bucketIndex = i; break; }
+    }
+    counts[bucketIndex]++;
+  }
+
+  return labels.map((label, i) => ({
+    label, count: counts[i], pctOfTotal: Number(((counts[i] / trades.length) * 100).toFixed(1)),
+  }));
+}
+
+export type HoldingTimeInput = { createdAt: string; closedAt: string };
+
+const HOLDING_TIME_BUCKET_BOUNDARIES_HOURS = [1, 4, 24, 72, 168]; // 1hr, 4hr, 1 day, 3 days, 7 days
+
+/**
+ * Buckets holding time (closedAt - createdAt) into fixed ranges: <1hr,
+ * 1-4hr, 4-24hr, 1-3 days, 3-7 days, >7 days. Same boundary convention as
+ * computeReturnDistribution — a trade held for EXACTLY 24 hours falls into
+ * the "4-24hr" bucket, not "1-3 days".
+ */
+export function computeHoldingTimeDistribution(trades: HoldingTimeInput[]): DistributionBucket[] {
+  if (trades.length === 0) return [];
+  const labels = ["< 1 hour", "1-4 hours", "4-24 hours", "1-3 days", "3-7 days", "> 7 days"];
+  const counts = new Array(labels.length).fill(0);
+
+  for (const t of trades) {
+    const hours = (new Date(t.closedAt).getTime() - new Date(t.createdAt).getTime()) / 3_600_000;
+    let bucketIndex = HOLDING_TIME_BUCKET_BOUNDARIES_HOURS.length;
+    for (let i = 0; i < HOLDING_TIME_BUCKET_BOUNDARIES_HOURS.length; i++) {
+      if (hours <= HOLDING_TIME_BUCKET_BOUNDARIES_HOURS[i]) { bucketIndex = i; break; }
+    }
+    counts[bucketIndex]++;
+  }
+
+  return labels.map((label, i) => ({
+    label, count: counts[i], pctOfTotal: Number(((counts[i] / trades.length) * 100).toFixed(1)),
+  }));
+}

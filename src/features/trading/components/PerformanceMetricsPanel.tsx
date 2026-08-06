@@ -6,11 +6,12 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Activity, LineChart as LineChartIcon } from "lucide-react";
 import { LoadingState } from "@/components/StateViews";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell } from "recharts";
 import {
   computeSharpeRatio, computeSortinoRatio, computeMaxDrawdown, buildRealizedEquityCurve,
   computeProfitFactor, computeExpectancy, computeWinRateWithConfidenceInterval,
   computeRollingMetrics, computeRollingTrend,
+  computeReturnDistribution, computeHoldingTimeDistribution,
   type TradeReturn,
 } from "@/lib/performance-metrics";
 import { getBenchmarkComparison } from "@/lib/benchmark-comparison.functions";
@@ -103,6 +104,12 @@ export function PerformanceMetricsPanel() {
     const rollingPoints = computeRollingMetrics(tradeReturns, ROLLING_WINDOW);
     const rollingTrend = computeRollingTrend(rollingPoints);
 
+    const returnDistribution = computeReturnDistribution(tradeReturns);
+    const closedTradesWithDates = trades.filter((t) => t.closed_at != null);
+    const holdingTimeDistribution = computeHoldingTimeDistribution(
+      closedTradesWithDates.map((t) => ({ createdAt: t.created_at, closedAt: t.closed_at! })),
+    );
+
     return {
       sampleSize: tradeReturns.length,
       sharpe: computeSharpeRatio(tradeReturns),
@@ -113,6 +120,8 @@ export function PerformanceMetricsPanel() {
       winRate: computeWinRateWithConfidenceInterval(wins, tradeReturns.length),
       rollingPoints,
       rollingTrend,
+      returnDistribution,
+      holdingTimeDistribution,
     };
   }, [trades]);
 
@@ -278,6 +287,55 @@ export function PerformanceMetricsPanel() {
                 </div>
               </>
             )}
+          </div>
+
+          {/* Trade Distribution — return histogram and holding-time
+              histogram, both true partitions (percentages sum to exactly
+              100%). Fixed bucket boundaries, not data-dependent bins, so
+              results are comparable across different report runs. */}
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Return Distribution</h3>
+              <Card className="p-3 border-border/60 bg-card">
+                <ResponsiveContainer width="100%" height={120}>
+                  <BarChart data={metrics.returnDistribution} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                    <XAxis dataKey="label" tick={{ fontSize: 8 }} interval={0} angle={-35} textAnchor="end" height={50} />
+                    <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                    <Tooltip
+                      formatter={(value: number, _name, entry) => [`${value} trade${value !== 1 ? "s" : ""} (${entry.payload.pctOfTotal}%)`, "Count"]}
+                      contentStyle={{ fontSize: 11, background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                    />
+                    <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                      {metrics.returnDistribution.map((bucket, i) => (
+                        <Cell key={bucket.label} fill={i < 4 ? "hsl(0 70% 55%)" : "hsl(160 70% 45%)"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+            </div>
+            <div>
+              <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Holding Time Distribution</h3>
+              {metrics.holdingTimeDistribution.length === 0 ? (
+                <Card className="p-3 border-border/60 bg-card text-xs text-muted-foreground text-center h-[120px] flex items-center justify-center">
+                  No closed trades with timing data yet.
+                </Card>
+              ) : (
+                <Card className="p-3 border-border/60 bg-card">
+                  <ResponsiveContainer width="100%" height={120}>
+                    <BarChart data={metrics.holdingTimeDistribution} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="label" tick={{ fontSize: 8 }} interval={0} angle={-35} textAnchor="end" height={50} />
+                      <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+                      <Tooltip
+                        formatter={(value: number, _name, entry) => [`${value} trade${value !== 1 ? "s" : ""} (${entry.payload.pctOfTotal}%)`, "Count"]}
+                        contentStyle={{ fontSize: 11, background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                      />
+                      <Bar dataKey="count" fill="hsl(var(--primary))" radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Card>
+              )}
+            </div>
           </div>
 
           <p className="text-[9px] text-muted-foreground mt-3">

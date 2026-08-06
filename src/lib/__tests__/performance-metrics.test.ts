@@ -4,6 +4,7 @@ import {
   computeProfitFactor, computeExpectancy, computeWinRateWithConfidenceInterval,
   computeBeta, computeAlpha, computeDailyReturns,
   computeRollingMetrics, computeRollingTrend,
+  computeReturnDistribution, computeHoldingTimeDistribution, type HoldingTimeInput,
   type TradeReturn,
 } from "@/lib/performance-metrics";
 
@@ -351,5 +352,75 @@ describe("computeRollingTrend", () => {
     const trend = computeRollingTrend(points)!;
     expect(trend.sharpeDelta).toBeLessThan(0);
     expect(trend.winRateDelta).toBeLessThan(0);
+  });
+});
+
+describe("computeReturnDistribution", () => {
+  it("buckets a known set of returns correctly across all 8 buckets", () => {
+    // One return in each of the 8 buckets, exactly as designed
+    const trades: TradeReturn[] = [-15, -7, -3, -1, 1, 3, 7, 15].map((pnlPct, i) => ({ pnlPct, closedAt: `t${i}` }));
+    const result = computeReturnDistribution(trades);
+    expect(result).toHaveLength(8);
+    expect(result.every((b) => b.count === 1)).toBe(true);
+    expect(result.every((b) => b.pctOfTotal === 12.5)).toBe(true);
+    expect(result[0].label).toBe("< -10%");
+    expect(result[7].label).toBe("> 10%");
+  });
+
+  it("a boundary value falls into the LOWER bucket, not the upper one", () => {
+    // Exactly -5% should land in "-10% to -5%", not "-5% to -2%"
+    const trades: TradeReturn[] = [{ pnlPct: -5, closedAt: "t0" }];
+    const result = computeReturnDistribution(trades);
+    expect(result.find((b) => b.label === "-10% to -5%")!.count).toBe(1);
+    expect(result.find((b) => b.label === "-5% to -2%")!.count).toBe(0);
+  });
+
+  it("returns an empty array for no trades", () => {
+    expect(computeReturnDistribution([])).toEqual([]);
+  });
+
+  it("bucket percentages sum to exactly 100% (a true partition, like Portfolio Attribution)", () => {
+    const trades: TradeReturn[] = [1, 2, 3, -1, -2, 8].map((pnlPct, i) => ({ pnlPct, closedAt: `t${i}` }));
+    const result = computeReturnDistribution(trades);
+    const sum = result.reduce((s, b) => s + b.pctOfTotal, 0);
+    expect(sum).toBeCloseTo(100, 0);
+  });
+});
+
+describe("computeHoldingTimeDistribution", () => {
+  it("buckets a known set of holding times correctly across all 6 buckets", () => {
+    const base = new Date("2026-01-01T00:00:00Z").getTime();
+    const holdingHours = [0.5, 2, 12, 48, 120, 200]; // 30min, 2hr, 12hr, 2days, 5days, ~8.3days
+    const trades = holdingHours.map((h) => ({
+      createdAt: new Date(base).toISOString(),
+      closedAt: new Date(base + h * 3_600_000).toISOString(),
+    }));
+    const result = computeHoldingTimeDistribution(trades);
+    expect(result).toHaveLength(6);
+    expect(result.every((b) => b.count === 1)).toBe(true);
+    expect(result[0].label).toBe("< 1 hour");
+    expect(result[5].label).toBe("> 7 days");
+  });
+
+  it("a boundary value (exactly 24 hours) falls into the LOWER bucket", () => {
+    const trades: HoldingTimeInput[] = [{ createdAt: "2026-01-01T00:00:00Z", closedAt: "2026-01-02T00:00:00Z" }]; // exactly 24hr
+    const result = computeHoldingTimeDistribution(trades);
+    expect(result.find((b) => b.label === "4-24 hours")!.count).toBe(1);
+    expect(result.find((b) => b.label === "1-3 days")!.count).toBe(0);
+  });
+
+  it("returns an empty array for no trades", () => {
+    expect(computeHoldingTimeDistribution([])).toEqual([]);
+  });
+
+  it("bucket percentages sum to exactly 100%", () => {
+    const trades: HoldingTimeInput[] = [
+      { createdAt: "2026-01-01T00:00:00Z", closedAt: "2026-01-01T00:30:00Z" },
+      { createdAt: "2026-01-01T00:00:00Z", closedAt: "2026-01-01T02:00:00Z" },
+      { createdAt: "2026-01-01T00:00:00Z", closedAt: "2026-01-05T00:00:00Z" },
+    ];
+    const result = computeHoldingTimeDistribution(trades);
+    const sum = result.reduce((s, b) => s + b.pctOfTotal, 0);
+    expect(sum).toBeCloseTo(100, 0);
   });
 });
