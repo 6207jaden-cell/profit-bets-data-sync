@@ -778,3 +778,46 @@ appearing in output (no zero-filled rows for regimes never seen).
   which requires evidence from Stage 3/3.5) are the natural next steps —
   neither has been started, noted honestly rather than implied done.
 
+---
+
+## 2026-08-06 — Correction: Stage 3 was not actually "fully" complete
+
+**What happened:** When TD-12 was closed and Stage 3's ninth slice
+committed, both `TECHNICAL_DEBT.md` and `ROADMAP.md` stated "the full
+original Stage 3 list" was built. This was inaccurate. Checked against
+the original 24-item request while answering a direct user question
+("show me each stage and tier still to do"), three items were never
+built, and this wasn't caught until asked directly rather than found
+through the project's own review discipline — worth stating plainly.
+
+**What was actually wrong:**
+- **Average R** (risk-normalized return, not raw %) — never built.
+- **Volatility** as a standalone reported figure — never built. It
+  exists only internally inside the Sharpe/Sortino calculations, never
+  surfaced as its own number.
+- **Risk Attribution** — never built. The original request named FIVE
+  attribution categories (Portfolio, Signal, Claude, Learning, Risk);
+  only four were built, and "all four attribution categories" was
+  presented as satisfying the requirement without noting a fifth had
+  been named and dropped.
+- **Session Performance** was correctly delivered, but via pre-existing
+  `SessionPerformancePanel` from before Stage 3 started, not new Stage 3
+  work — miscounted as a Stage 3 deliverable.
+
+**What's genuinely true and unaffected by this correction:** the nine
+slices that WERE built are real, tested, and independently fresh-clone
+verified — that part of the record stands. Only the "this is the
+complete original list" framing was wrong.
+
+**Files changed:**
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 status corrected from
+  RESOLVED to LARGELY RESOLVED, the three gaps listed explicitly)
+- `project-audit/ROADMAP.md` (claim corrected, new item 13b added
+  tracking the three missing pieces as real, open work)
+
+**No code changed** — this is a documentation-accuracy correction, not
+a feature change. No verification commands apply beyond confirming the
+three claims above are actually true, which was done by checking the
+built files against the original request line by line before writing
+this entry.
+

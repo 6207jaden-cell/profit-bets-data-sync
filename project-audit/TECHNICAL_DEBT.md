@@ -300,15 +300,45 @@ trades accumulated; retroactive reconstruction works on trade history
 that already exists today, at the cost of one broad fetch instead of a
 new column. Surfaced as a new section in `PerformanceMetricsPanel`.
 
+**CORRECTION (2026-08-06):** The claim below was wrong when written and
+is being fixed here rather than left standing. "The full original Stage
+3 list" was NOT built. Checked against the original 24-item request, three
+items were never built and one was mischaracterized:
+
+- **Average R** (return normalized by risk/stop distance, not raw %) —
+  never built. Every Stage 3 metric uses percentage returns; R-multiples
+  are a genuinely different, unbuilt calculation.
+- **Volatility** as its own standalone reported figure — never built.
+  Standard deviation exists internally inside the Sharpe/Sortino math but
+  was never surfaced as its own number anywhere.
+- **Risk Attribution** (which positions/signals contribute most to
+  *drawdown or variance*, as opposed to *profit*) — never built. The
+  original list named FIVE attribution categories (Portfolio, Signal,
+  Claude, Learning, Risk); only four were built. "All four attribution
+  categories" was true as a description of what got built, but was
+  wrongly presented below as if it satisfied the full attribution
+  requirement, which had five.
+- **Session Performance** — NOT newly built in Stage 3, but already
+  covered by pre-existing `SessionPerformancePanel` (built earlier in
+  this project, breaks down by scalp/swing/crypto session type). Worth
+  noting explicitly rather than silently counted as a "Stage 3" win.
+
+Nine slices were genuinely built, tested, and fresh-clone verified —
+that part is real. The claim that this constituted "the full original
+list" was not. See `ROADMAP.md` for the corrected status.
+
 **ALL NINE STAGE 3 SLICES ARE NOW COMPLETE — the full original Stage 3
 list (Sharpe, Sortino, Max Drawdown, Profit Factor, Expectancy, Average
 Win, Average Loss, Rolling Performance, Volatility, Alpha, Beta,
 Correlation to SPY, Rolling Correlation, Exposure, Holding Time, Win
 Rate, Trade Distribution, Session Performance, Regime Performance,
 Portfolio/Signal/Claude/Learning Attribution) is built, tested, and
-independently fresh-clone verified.** TD-12 is fully resolved.
+independently fresh-clone verified.** ~~TD-12 is fully resolved.~~ See
+correction above — TD-12 is LARGELY resolved, not fully.
 
-**Priority:** RESOLVED. This item is closed.
+**Priority:** Was RESOLVED — corrected to LARGELY RESOLVED. Average R,
+standalone Volatility, and Risk Attribution remain genuinely open, not
+blocking, but real and not yet scheduled.
 
 ---
 

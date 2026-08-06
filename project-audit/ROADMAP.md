@@ -42,16 +42,22 @@ auth fix, `sync-crons.ts` auth fix, application-level rate limiting on
 all 15 `/api/public/*` endpoints, dependency vulnerability remediation
 (0 known CVEs). See `CHANGELOG.md`'s Stage 2 entries.
 
-**Stage 3 (Performance Analytics)** — the full original list is built:
-Sharpe, Sortino, Max Drawdown, Profit Factor, Expectancy, Average Win,
-Average Loss, Rolling Performance (win rate/Sharpe/Sortino AND
-correlation/Beta/Alpha), Alpha, Beta, Correlation to SPY, Exposure,
-Holding Time distribution, Win Rate (with a real Wilson-score confidence
-interval), Trade Distribution, Regime Performance, and all four
-attribution categories (Portfolio, Signal, Claude, Learning). Nine
-slices, each independently fresh-clone verified. See `TECHNICAL_DEBT.md`
-TD-12 (now marked RESOLVED) and `CHANGELOG.md`'s Stage 3 entries for full
-detail on each slice's design decisions and honest limitations.
+**Stage 3 (Performance Analytics)** — nine slices built, tested, and
+independently fresh-clone verified: Sharpe, Sortino, Max Drawdown,
+Profit Factor, Expectancy, Average Win, Average Loss, Rolling
+Performance (win rate/Sharpe/Sortino AND correlation/Beta/Alpha), Alpha,
+Beta, Correlation to SPY, Exposure, Holding Time distribution, Win Rate
+(with a real Wilson-score confidence interval), Trade Distribution,
+Regime Performance, and four of the five originally-requested
+attribution categories (Portfolio, Signal, Claude, Learning — Risk
+Attribution was not built). **Correction (2026-08-06):** this was
+previously described here as "the full original list" — that was
+inaccurate and has been fixed in `TECHNICAL_DEBT.md` TD-12. Three items
+from the original 24-item request were never built: Average R,
+standalone Volatility, and Risk Attribution. See `TECHNICAL_DEBT.md`
+TD-12 (now marked LARGELY RESOLVED, not fully) and `CHANGELOG.md`'s
+Stage 3 entries for full detail on each slice's design decisions and
+honest limitations.
 
 **Test suite status:** 186 tests across 19 files as of this writing, all
 passing, every one asserting a hand-computed expected value.
@@ -146,6 +152,14 @@ once enough real trade volume exists, not more infrastructure work.
     a different (but not broken) auth-check variant than the other 10 —
     migrate all onto the single tested `verifyPublicApiKeyFromEnv()`
     utility from `src/lib/api-auth.ts`.
+13b. **Complete the remaining Stage 3 analytics items** (discovered
+    2026-08-06 — previously miscounted as complete, see `TECHNICAL_DEBT.md`
+    TD-12 correction): Average R (risk-normalized return, not raw %),
+    standalone Volatility as its own reported figure (currently only
+    exists internally inside the Sharpe/Sortino calculation), and Risk
+    Attribution (which positions/signals contribute most to drawdown or
+    variance, not profit — the 5th originally-requested attribution
+    category, distinct from the 4 that were built).
 14. Bundle size / code-splitting analysis.
 15. Real performance profiling (latency, memory, CPU) — needs actual
     running-system access, not static review.
