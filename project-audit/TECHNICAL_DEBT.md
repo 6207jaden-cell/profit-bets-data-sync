@@ -256,6 +256,22 @@ remains of the full Stage 3 list: rolling correlation/Beta/Alpha,
 exposure (cash vs. deployed, concentration), and regime-conditional
 performance.
 
+**Update 2026-08-05 (same day, eighth slice):** Exposure now exists
+(`computeExposure`, new `src/lib/exposure.ts`) — a genuinely different
+data shape than everything else built in Stage 3: reads CURRENT open
+positions and current portfolio balance, not historical closed trades.
+Shows cash vs. deployed capital and concentration via the
+Herfindahl-Hirschman Index (standard concentration measure, same formula
+used in antitrust economics for market concentration, applied here to
+position sizing). Uses entry value as the position-size basis
+(quantity × entry_price), not live mark-to-market — documented as a
+deliberate tradeoff avoiding a live-quote fetch on every panel load.
+New `ExposurePanel`, placed at the top of the History tab since "how am
+I positioned right now" is naturally the first question before diving
+into historical performance. What remains of the full Stage 3 list:
+rolling correlation/Beta/Alpha and regime-conditional performance — the
+last two items.
+
 **Priority:** Was High — the foundational piece (can this system answer
 "is it better than random") is now answerable, and all four attribution
 categories exist. Remaining sub-items tracked separately as Stage 3

@@ -36,7 +36,7 @@ export type PortfolioAttributionResult = {
   tradeCount: number;
 };
 
-function classifyAssetClass(instrument: string | null | undefined): AssetClass {
+export function classifyAssetClass(instrument: string | null | undefined): AssetClass {
   const i = String(instrument ?? "stock").toLowerCase();
   if (i === "stock") return "stock";
   if (i === "etf") return "etf";

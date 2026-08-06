@@ -626,3 +626,63 @@ empty-input handling, and the exactly-100% partition check for both.
   `TECHNICAL_DEBT.md` TD-12 — the last three items of the full Stage 3
   list.
 
+---
+
+## 2026-08-05 — Stage 3, eighth slice: Exposure
+
+**What changed:** `computeExposure` (new, `src/lib/exposure.ts`) — cash
+vs. deployed capital, position concentration via the Herfindahl-Hirschman
+Index, and exposure by asset class. New `ExposurePanel`, placed at the
+top of the History tab.
+
+**Why:** A genuinely different question than everything else built in
+Stage 3 so far: not "how did past trades perform" but "how much capital
+is actually at risk right now, and how concentrated is it." Reads
+CURRENT open positions and current portfolio balance — a different data
+shape than the historical closed-trade analysis every other Stage 3
+piece has used.
+
+**How it was built:** Concentration uses the Herfindahl-Hirschman Index
+— sum of each position's squared percentage share of deployed capital,
+the same standard formula used in antitrust economics for market
+concentration, applied here to position sizing (0 = infinitely
+diversified, 10000 = a single position holding everything). Position
+size uses ENTRY VALUE (quantity × entry_price), not live mark-to-market
+value — a deliberate, documented tradeoff: computing live value would
+require a quote fetch for every open position on every panel load, and
+entry-basis sizing more directly reflects the actual risk-allocation
+decision made at entry rather than day-to-day price noise. Reuses
+`classifyAssetClass` from Portfolio Attribution (now exported) rather
+than duplicating the instrument-classification logic.
+
+**Files changed:**
+- `src/lib/exposure.ts` (new)
+- `src/lib/exposure.functions.ts` (new, server function)
+- `src/lib/portfolio-attribution.ts` (exported `classifyAssetClass` for reuse)
+- `src/lib/__tests__/exposure.test.ts` (new, 6 tests)
+- `src/features/trading/components/ExposurePanel.tsx` (new)
+- `src/features/trading/TradingDashboard.tsx` (wired in at the top of the History tab)
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 updated)
+
+**Tests added:** 6 — the full hand-computed cash/deployed/HHI/largest-
+position example, HHI=10000 exactly for maximum concentration (single
+position), HHI=1000 for 10 equally-sized positions (diversified case),
+null concentration fields (not zero) when there are no open positions,
+asset-class grouping, and a null portfolio row handled gracefully.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 175/175 passing (6 new)
+
+**Remaining risk / honest limitations:**
+- Entry-value position sizing means this can drift from true current
+  exposure as prices move — stated directly in the code and the panel's
+  own subtitle text, not hidden.
+- The HHI concentration thresholds shown (unconcentrated/moderate/
+  concentrated) are borrowed from antitrust economics as a reference
+  point, not empirically validated for this system specifically.
+- Rolling correlation/Beta/Alpha and regime-conditional performance
+  remain open — the last two items of the full Stage 3 list, tracked in
+  `TECHNICAL_DEBT.md` TD-12.
+
