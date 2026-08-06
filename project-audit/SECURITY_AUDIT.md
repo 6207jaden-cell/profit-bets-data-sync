@@ -236,7 +236,19 @@ this `.env`).
 and untrack it, to prevent a future genuinely-secret value from being
 added to this same file and committed by habit/muscle-memory.
 
-**Status:** Open, low priority given verified contents.
+**Status:** FIXED 2026-08-06. `.env`/`.env.local`/`.env.*.local` added to
+`.gitignore`; `.env` untracked from git (`git rm --cached`) while the
+file itself remains present on disk, unchanged, so local development
+isn't disrupted. Verified locally: `tsc --noEmit` (0 errors), `npm run
+build` (clean), and the full test suite (186/186) all still succeed with
+the file present-but-untracked. **One thing NOT independently verified
+from this environment:** whether Lovable Cloud's actual deploy pipeline
+behaves as expected once this file is no longer tracked in git — the
+original finding's assumption ("Lovable Cloud likely injects these as
+real environment variables at deploy time regardless of the tracked
+file") was never confirmed against a real deploy, only reasoned about.
+Worth an actual deploy-and-check before considering this fully closed
+in production, not just in this sandbox.
 
 ---
 

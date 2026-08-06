@@ -821,3 +821,39 @@ three claims above are actually true, which was done by checking the
 built files against the original request line by line before writing
 this entry.
 
+---
+
+## 2026-08-06 — Fixed BUG-004: `.env` untracked from git
+
+**What changed:** `.env`/`.env.local`/`.env.*.local` added to
+`.gitignore`; `.env` removed from git tracking (`git rm --cached`) while
+the file itself remains present, unchanged, on disk.
+
+**Why:** `SECURITY_AUDIT.md` Finding 5 / `BUG_TRACKER.md` BUG-004 —
+`.env` was committed with no gitignore exclusion. Verified low severity
+at the time of the original finding (contents are the Supabase
+publishable/anon key and public project ID/URL only — not the
+service-role key, not any of the genuinely secret API keys, which are
+set as Lovable environment secrets server-side and never appear in this
+file) — but hygiene worth fixing regardless, to prevent a future
+genuinely-secret value being added to this same file and committed by
+habit.
+
+**Files changed:**
+- `.gitignore`
+- `.env` (untracked, not deleted from disk)
+- `project-audit/SECURITY_AUDIT.md` (Finding 5 marked fixed)
+- `project-audit/BUG_TRACKER.md` (BUG-004 marked fixed)
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 186/186 passing (sandbox)
+
+**Remaining risk, stated honestly:** this sandbox cannot verify actual
+Lovable Cloud deploy behavior once `.env` is untracked. The assumption
+(Lovable injects real environment variables at deploy time independent
+of this file) comes from the original security audit's reasoning, not
+a confirmed real deploy. Worth an actual deploy-and-check in production
+before treating this as fully closed end-to-end, not just in-sandbox.
+

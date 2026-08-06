@@ -85,7 +85,9 @@ those trades' recorded P&L should be treated as unreliable.
 **Severity:** Low (verified contents are publishable-safe, not secret)
 **Root cause:** No `.env` pattern in `.gitignore`.
 **Affected files:** `.env`, `.gitignore`
-**Status:** Open
+**Status:** FIXED 2026-08-06. See `SECURITY_AUDIT.md` Finding 5 for full
+verification detail, including the one thing NOT independently
+confirmable from this sandbox (actual Lovable deploy behavior).
 **Fix:** Add `.env` to `.gitignore`, then `git rm --cached .env`.
 **Verification steps:** Confirm the app still builds/runs after untracking
 (Lovable Cloud likely injects these as real environment variables at

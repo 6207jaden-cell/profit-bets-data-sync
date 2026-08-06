@@ -20,6 +20,17 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Environment variables (BUG-004 / SECURITY_AUDIT.md Finding 5: this file
+# was tracked in git with no gitignore exclusion. Contents were verified
+# safe — Supabase publishable/anon key and public project ID/URL only,
+# never a secret — but excluding it going forward is correct hygiene
+# regardless, so a future genuinely-secret value never gets committed by
+# habit. Lovable Cloud injects real environment variables at deploy time
+# independent of this file.
+.env
+.env.local
+.env.*.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
