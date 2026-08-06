@@ -46,6 +46,18 @@ is already collecting. This hypothesis becomes testable "for free" once
 enough trades close; no new infrastructure is required, only time and
 volume.
 
+**Reporting layer added (2026-08-05, Stage 3 attribution work):**
+`computeSignalContribution()` (present-vs-absent average-return
+comparison) is the right tool for this specific hypothesis.
+`computeSignalAttribution()` (dollar-P&L totals) exists too but answers
+a different question — see `TRADING_ENGINE_REVIEW.md` Finding 7 (added
+2026-08-06, Stage 3.5): Signal Attribution's dollar totals are
+contaminated by Kelly sizing's own allocation decisions (a signal Kelly
+already favors gets more capital, inflating its dollar total for reasons
+unrelated to its actual predictive quality), so `computeSignalContribution`
+— not `computeSignalAttribution` — is the correct tool for testing H1
+specifically, once enough data exists.
+
 **Confidence:** Low
 **Conclusion:** Unresolved.
 
@@ -389,10 +401,49 @@ together rather than in isolation once both have enough data.
 
 ---
 
+## H10 — This system's expectancy varies meaningfully by market regime
+
+**Hypothesis:** Added 2026-08-06 (Stage 3.5). This system's average
+trade return differs meaningfully between bull, bear, and sideways
+market regimes — i.e., it is not equally (in)effective regardless of
+market conditions.
+
+**Why we believe it might be true either way:** Most systematic trading
+approaches have some regime dependence — momentum-following logic
+(a real component of this system's scoring) is textbook-expected to
+underperform in choppy/sideways markets and outperform in trending
+(bull or bear) ones. Equally plausible: if the system's real edge (if
+any) comes from execution/risk-management discipline rather than
+direction-calling, regime might matter far less than expected.
+
+**Evidence supporting it:** None yet.
+**Evidence against it:** None yet.
+
+**Experiment needed:** Already built — `computeRegimePerformance`
+(`performance-metrics.ts`) plus retroactive regime reconstruction
+(`regime-performance.functions.ts`), surfaced in `PerformanceMetricsPanel`.
+See `TRADING_ENGINE_REVIEW.md` Finding 9 for two things worth reading
+before trusting a result here: the 10-trade evidence floor is a "don't
+over-read below this" gate, not a "trust it at this level" green light,
+and regime labels are systematically lagging (SMA-crossover-based), so
+trades near a genuine regime turning point get blurred toward the OLD
+regime's label for a while after the market has actually turned.
+
+**Infrastructure status:** Live since commit `5895424`. Zero results
+exist yet — needs real closed-trade history across multiple regimes,
+which by definition takes real calendar time (a single account is
+unlikely to experience all three regimes without observing the market
+over a meaningfully long period).
+
+**Confidence:** Untested
+**Conclusion:** Unresolved.
+
+---
+
 ## Cross-reference discipline
 
 Per `ENGINEERING_CONSTITUTION.md` Section 17, any `DECISION_LOG.md` entry
-that rests on one of these hypotheses should cite it by ID (H1–H9). Any
+that rests on one of these hypotheses should cite it by ID (H1–H10). Any
 new hypothesis identified in future work should be added here before the
 corresponding feature ships, not after — see Section 13's feature
 development rules ("what evidence suggests this will help?").

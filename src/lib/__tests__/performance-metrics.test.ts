@@ -543,4 +543,12 @@ describe("computeRegimePerformance", () => {
     expect(result).toHaveLength(1);
     expect(result.find((r) => r.regime === "bear")).toBeUndefined();
   });
+
+  it("hasMinimumEvidence is false below the 10-trade floor and true at or above it — found and fixed during the Stage 3.5 skeptical review, since this function originally had no such gate unlike every other Stage 3 panel", () => {
+    const belowFloor: TradeWithRegime[] = Array.from({ length: 5 }, () => ({ pnlPct: 1, regime: "bull" as const }));
+    const atFloor: TradeWithRegime[] = Array.from({ length: 10 }, () => ({ pnlPct: 1, regime: "bear" as const }));
+    const result = computeRegimePerformance([...belowFloor, ...atFloor]);
+    expect(result.find((r) => r.regime === "bull")!.hasMinimumEvidence).toBe(false);
+    expect(result.find((r) => r.regime === "bear")!.hasMinimumEvidence).toBe(true);
+  });
 });

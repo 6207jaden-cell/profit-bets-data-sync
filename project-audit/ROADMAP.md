@@ -53,13 +53,31 @@ slices, each independently fresh-clone verified. See `TECHNICAL_DEBT.md`
 TD-12 (now marked RESOLVED) and `CHANGELOG.md`'s Stage 3 entries for full
 detail on each slice's design decisions and honest limitations.
 
-**Test suite status:** 185 tests across 19 files as of this writing, all
+**Test suite status:** 186 tests across 19 files as of this writing, all
 passing, every one asserting a hand-computed expected value.
 
-**Next per the original staged protocol:** Stage 3.5 (Statistical
-Validation — skeptical review of the now-built analytics) or Stage 4
-(Optimization, which explicitly requires evidence from Stages 3/3.5
-before any change) are the natural next steps. Neither has been started.
+**Stage 3.5 (Statistical Validation) — methodological review complete,
+2026-08-06.** A skeptical review of the Stage 3 analytics infrastructure
+itself found and fixed one real gap (Regime Performance's missing
+evidence floor) and documented three real interpretive limitations
+(Signal Attribution/Kelly-sizing circularity, an expanded multiple-
+comparisons surface across every Stage 3 grouped breakdown, and the
+SPY-only benchmark not cleanly separating equity skill from crypto
+movement). See `TRADING_ENGINE_REVIEW.md` Findings 7-10. **What Stage
+3.5 could NOT do:** answer any of its own named empirical questions
+(does Claude/adaptive learning/each signal add value, which regimes
+generate positive expectancy) — that requires querying the live
+database for real accumulated trade results, which this process has no
+access to. The tools to answer them are built and tested; the answers
+themselves remain genuinely unknown. See `EXPERIMENT_RESULTS.md`'s
+Stage 3.5 addendum and `HYPOTHESIS_LOG.md` H1/H10 for the specific
+cross-references.
+
+**Next per the original staged protocol:** Stage 4 (Optimization)
+explicitly requires evidence from Stage 3/3.5 before any change — since
+that evidence doesn't exist yet (no live data access), Stage 4 cannot
+responsibly begin. The actual next step is querying the live database
+once enough real trade volume exists, not more infrastructure work.
 
 ---
 

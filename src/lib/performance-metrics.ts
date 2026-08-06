@@ -522,7 +522,20 @@ export type RegimePerformanceRow = {
   tradeCount: number;
   avgReturnPct: number;
   winRate: number;
+  /**
+   * True once this regime has at least MIN_REGIME_SAMPLE trades. Found
+   * during the Stage 3.5 skeptical review: unlike every other Stage 3
+   * panel (Claude/Learning Attribution gate at 30, Signal Contribution
+   * gates at 10), this function originally had NO minimum-evidence flag —
+   * a regime bucket with 2 trades was displayed with the same visual
+   * weight as one with 200. Fixed here rather than just noted, consistent
+   * with "never present a metric with more confidence than its sample
+   * size supports" (see PerformanceMetricsPanel's MetricCard).
+   */
+  hasMinimumEvidence: boolean;
 };
+
+const MIN_REGIME_SAMPLE = 10;
 
 export function computeRegimePerformance(trades: TradeWithRegime[]): RegimePerformanceRow[] {
   if (trades.length === 0) return [];
@@ -540,6 +553,7 @@ export function computeRegimePerformance(trades: TradeWithRegime[]): RegimePerfo
       tradeCount: stats.count,
       avgReturnPct: Number((stats.sum / stats.count).toFixed(3)),
       winRate: Number((stats.wins / stats.count).toFixed(4)),
+      hasMinimumEvidence: stats.count >= MIN_REGIME_SAMPLE,
     }))
     .sort((a, b) => b.tradeCount - a.tradeCount);
 }

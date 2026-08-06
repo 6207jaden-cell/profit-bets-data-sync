@@ -392,7 +392,12 @@ export function PerformanceMetricsPanel() {
                 <div className="divide-y divide-border/30">
                   {regimePerf.rows.map((r) => (
                     <div key={r.regime} className="grid grid-cols-2 sm:grid-cols-[1fr_80px_90px_70px] gap-1 px-4 py-2 items-center">
-                      <span className="text-sm font-medium capitalize col-span-2 sm:col-span-1">{r.regime}</span>
+                      <span className="text-sm font-medium capitalize col-span-2 sm:col-span-1 flex items-center gap-1">
+                        {r.regime}
+                        {!r.hasMinimumEvidence && (
+                          <span className="text-[8px] font-normal normal-case text-amber-400 border border-amber-500/30 rounded px-1">low n</span>
+                        )}
+                      </span>
                       <span className="text-right text-xs font-mono text-muted-foreground">{r.tradeCount}</span>
                       <span className={cn("text-right text-xs font-mono", r.avgReturnPct >= 0 ? "text-emerald-400" : "text-red-400")}>
                         {r.avgReturnPct >= 0 ? "+" : ""}{r.avgReturnPct.toFixed(2)}%

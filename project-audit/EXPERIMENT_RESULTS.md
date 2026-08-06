@@ -145,6 +145,32 @@ contribution with sufficient evidence is real evidence it isn't.
 
 ---
 
+## Stage 3.5 addendum (2026-08-06) — measurement tools reviewed, results still pending
+
+A skeptical methodological review of the Stage 3 analytics infrastructure
+itself (not just the trading logic) was performed — see
+`TRADING_ENGINE_REVIEW.md` Findings 7-10. One real gap was found and
+fixed (Regime Performance lacked a minimum-evidence floor other Stage 3
+panels already had). Three real interpretive limitations were found and
+documented, not fixed (fixing them would require new work beyond this
+review): Signal Attribution's dollar totals are contaminated by Kelly
+sizing's own past allocation decisions (use `computeSignalContribution`,
+not `computeSignalAttribution`, to actually test H1's "do indicators have
+predictive value" question); the multiple-comparisons risk already
+documented for the 18 signal weights now applies to every Stage 3 grouped
+breakdown (per-signal, per-symbol, per-regime); and Beta/Alpha/Correlation
+are computed against SPY alone, which doesn't cleanly separate equity
+market-timing skill from independent crypto-market movement for a
+portfolio that trades both.
+
+**None of this changes any experiment's result, because none has a
+result yet.** This addendum exists to record that the MEASUREMENT TOOLS
+were checked for soundness before any result is trusted, not to report a
+finding about Claude, adaptive learning, or any signal — those remain
+exactly as unresolved as the rest of this document states.
+
+---
+
 ## What NOT to do with this document
 
 Per the explicit instruction for this phase: **do not use any result

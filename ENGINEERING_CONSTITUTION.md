@@ -706,7 +706,7 @@ numbers meaningful.
 - `/project-audit/ROADMAP.md` — prioritized, sequenced work, updated as
   items complete or new findings emerge
 - `/project-audit/HYPOTHESIS_LOG.md` — every major unproven assumption
-  the trading system operates on (9 entries as of this writing: H1–H9),
+  the trading system operates on (10 entries as of this writing: H1–H10),
   each with why-we-believe-it, evidence for, evidence against, the
   experiment needed to resolve it, a confidence level, and a conclusion.
   This is where the founder constitution's "Evidence-Based Development"

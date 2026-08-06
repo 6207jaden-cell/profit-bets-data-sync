@@ -1,5 +1,5 @@
 # TRADING_ENGINE_REVIEW.md
-Last updated: 2026-08-04 (Pass 1)
+Last updated: 2026-08-06 (Pass 2 — Stage 3.5 skeptical review of the Stage 3 analytics infrastructure added; Pass 1's trading-logic findings below unchanged)
 
 This review actively tries to disprove the trading system's soundness
 rather than describe its features. Findings are split into: genuine
@@ -120,12 +120,110 @@ market has already moved away from.
 
 ---
 
+### 7. Signal Attribution's dollar-P&L figures are contaminated by the system's own sizing decisions (Stage 3.5 finding)
+
+Signal Attribution (`computeSignalAttribution`) sums realized dollar P&L
+per signal to show which signals the money actually came from. But Kelly
+sizing already allocates MORE capital to signals with a stronger observed
+track record. This creates a real circularity: a signal that Kelly
+favored will show a larger dollar-P&L total partly *because* more capital
+was put behind it, not purely because it's a better signal. A signal with
+genuinely identical per-trade edge but a shorter track record (and
+therefore smaller Kelly allocation) will show smaller total dollar
+attribution for reasons that have nothing to do with its actual quality.
+
+This is a different, more subtle issue than the already-documented
+"credit sharing" caveat (percentages summing to >100% for co-occurring
+signals) — that caveat is about attribution being non-exclusive; this one
+is about attribution being non-independent of the system's own past
+decisions. `computeSignalContribution` (Experiment 4, present-vs-absent
+AVERAGE return comparison, not dollar totals) is NOT subject to this same
+confound, since it compares average returns rather than summing dollars —
+that function remains the better tool for asking "does this signal have
+real edge," with Signal Attribution better suited to "where did the
+actual money come from," a genuinely different, sizing-inclusive
+question. Not fixed — a modeling choice worth being explicit about rather
+than a bug, but one that should not be silently conflated with a clean
+per-signal-quality measure.
+
+### 8. Multiple-comparisons risk now spans every Stage 3 grouping dimension, not just the original 18 signal weights
+
+Finding 1 above (multiple-comparisons in the per-signal learning system)
+was written before Stage 3 existed. The same statistical risk now applies
+to every "find the best X" grouping Stage 3 added: Signal Attribution's
+per-signal dollar totals (~18 signals), Portfolio Attribution's per-symbol
+totals (as many symbols as have been traded), and Regime Performance's 3
+buckets. None of these apply a multiple-comparisons correction — they
+report raw per-group figures for direct comparison. Looking across any of
+these tables for "the standout performer" carries the same risk already
+documented for the signal-weights case: with enough categories, at least
+one will look spuriously good by chance even if nothing has real edge.
+This is not a flaw unique to Stage 3 — it's the same underlying issue
+appearing in more places now that more grouped breakdowns exist. Every
+grouped Stage 3 view shows sample size directly (trade count per row) as
+partial mitigation, but sample size alone does not correct for testing
+many groups simultaneously.
+
+### 9. Regime Performance had no minimum-evidence gate — found and fixed during this review
+
+Unlike Claude Attribution and Learning Attribution (which both gate at 30
+resolved rows per side) and Signal Contribution (which gates at 10),
+`computeRegimePerformance` originally reported every regime bucket with
+equal visual weight regardless of sample size — a regime with 2 trades
+displayed identically to one with 200. This directly violated the
+project's own stated standard ("never present a metric with more
+confidence than its sample size supports," `PerformanceMetricsPanel`'s
+`MetricCard` docstring). **Fixed as part of this review**, not just
+noted: `hasMinimumEvidence` (10-trade floor, matching Signal
+Contribution's threshold for consistency) added to
+`RegimePerformanceRow`, with a visible "low n" badge in the UI for any
+regime below it. Worth being honest that a 10-trade floor is itself loose
+— the Wilson-interval work in H4 already demonstrated that even 24
+observations leaves a ~35-percentage-point confidence interval on a win
+rate. The floor prevents the most misleading cases (2-3 trade "regimes"
+presented as if meaningful) but a regime bucket sitting just above 10
+should still be read with real caution, not treated as settled.
+
+**Related, not separately fixed:** regime labels come from
+`detectMarketRegime`'s SMA50/SMA200 crossover logic, which is a lagging
+indicator by construction — this is inherent to the live regime-detection
+function itself (unchanged by the retroactive-reconstruction work), not
+a new flaw. It means trades made right at a genuine regime turning point
+will likely be labeled with the OLD regime for some time after the
+market has actually turned, systematically blurring the boundary between
+regime buckets rather than randomly misclassifying trades.
+
+### 10. Beta/Alpha/Correlation use SPY as the sole benchmark for a portfolio that also trades crypto
+
+The benchmark comparison (`benchmark-comparison.functions.ts`) computes
+Beta, Alpha, and correlation entirely against SPY, a US equity index. For
+a portfolio that's purely stocks/ETFs, this is the standard, correct
+choice. But this system also trades crypto, which has a fundamentally
+different risk/return profile than US equities and is not well-explained
+by SPY's movements. A portfolio with meaningful crypto exposure could
+show a Beta/Alpha relative to SPY that doesn't cleanly separate "market-
+timing skill in equities" from "crypto happened to move independently of
+stocks during this period" — the single-benchmark figure conflates both
+into one number. Not fixed — would require either a blended benchmark
+(weighted by the portfolio's actual stock/crypto split) or reporting
+Beta/Alpha separately per asset class, both real, non-trivial pieces of
+work beyond this review's scope. Flagged as a genuine interpretive
+limitation on the existing figures, not a bug in their calculation.
+
+---
+
 ## Sound, but worth documenting why
 
 - **No look-ahead bias found in the live decision path.** Every fetch
   (`fetchBars`, `fetchQuotePrice`, `fetchVwapBars`) requests data up to
   "now" — there's no code path that could see future bars during live
   scanning, since this is genuinely live, not simulated-over-history.
+- **No look-ahead bias found in retroactive regime reconstruction either
+  (Stage 3.5 check).** `findRegimeAtDate` (`regime-performance.functions.ts`)
+  explicitly slices the fetched SPY history to end AT each trade's own
+  entry date before calling `detectMarketRegime` — it structurally cannot
+  see bars after that date, since the slice never includes them. Verified
+  by reading the slicing logic directly, not assumed.
 - **ATR, RSI, MACD, Bollinger Band, Stochastic RSI formulas** were
   re-checked against their standard textbook definitions during this
   pass — all textbook-correct as implemented in `indicators.ts`. This is
@@ -161,6 +259,25 @@ market has already moved away from.
   classifier in `market.functions.ts` was not re-audited for accuracy in
   this pass.
 
+### Stage 3.5's named empirical questions — genuinely unanswered, not silently skipped
+
+The Stage 3.5 protocol asks specific questions: does Claude outperform
+deterministic rules, does adaptive weighting improve returns, does Kelly
+improve risk-adjusted performance, does each signal add predictive value,
+which regimes generate positive expectancy. **None of these can be
+honestly answered right now.** The infrastructure to answer every one of
+them exists and is tested (`computeClaudeAttribution`,
+`computeLearningAttribution`, `computeSignalContribution`,
+`computeRegimePerformance` — all built across Stage 3) — but answering
+them requires querying the live database for real accumulated results,
+which this review process has no access to. Fabricating a plausible-
+sounding answer here would be worse than stating the gap plainly: this
+review confirms the MEASUREMENT TOOLS are sound (see Findings 7-10 above
+for where they aren't yet, now fixed or documented), not that a
+particular conclusion about Claude, adaptive learning, or any signal is
+true. `EXPERIMENT_RESULTS.md` remains the authoritative "how to actually
+check once data exists" reference for each of these questions.
+
 ---
 
 ## Bottom line
@@ -172,3 +289,15 @@ has been shown, with evidence, to work" — that gap can only be closed
 with real trade history and time, not more code review. Recommend
 treating every stage built this project as **hypotheses under test**,
 not **proven improvements**, until enough closed trades exist to check.
+
+**Updated 2026-08-06 (Stage 3.5 pass):** the same principle now applies
+to the Stage 3 analytics infrastructure itself, not just the trading
+logic — the measurement TOOLS have been reviewed and are sound (one real
+gap found and fixed: Regime Performance's missing evidence floor; three
+real interpretive limitations documented: Signal Attribution's sizing
+circularity, the expanded multiple-comparisons surface, and the
+single-benchmark crypto limitation). What the tools will eventually SHOW
+about Claude, adaptive learning, and individual signals remains, as of
+this writing, completely unknown — and should stay described as unknown
+rather than implied by the sheer amount of infrastructure built around
+measuring it.
