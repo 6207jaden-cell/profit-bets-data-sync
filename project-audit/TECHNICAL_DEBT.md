@@ -98,7 +98,7 @@ each with a limit reasoned from its actual cron cadence. See
 
 ## TD-05 — `iron_condor` is AI-selectable but not executable
 
-**Severity:** Medium
+**Severity:** Was Medium.
 **Impact:** If Claude proposes `instrument: "iron_condor"` outside the
 earnings-strategy module's control, the trade silently falls through to
 incorrect stock-style position math instead of real 4-leg options
@@ -110,7 +110,19 @@ the underlying gap for any other path.
 **Recommended solution:** Either remove `"iron_condor"` from the AI's
 JSON schema until real multi-leg execution exists, or build that
 execution properly.
-**Priority:** Medium — `ROADMAP.md` item 8.
+**Status:** RESOLVED (2026-08-06). Removed from the schema — real 4-leg
+execution was out of scope and remains genuinely unbuilt if ever wanted
+as a feature. Also fixed the root cause: the schema enum and the
+execution math's options-check were two independently-maintained lists
+that had drifted, which is what let this exist. Consolidated into a
+single shared source of truth (`src/lib/instruments.ts`), closing the
+drift risk generally, not just this one instance — a third duplicate
+list was found and fixed along the way in `snapshot-portfolio.ts`. See
+`BUG_TRACKER.md` BUG-003 for full detail, including one verification
+step NOT performed (checking historical `paper_trades` for any
+`iron_condor` rows that may have already fired) since it requires live
+database access this process doesn't have.
+**Priority:** Was Medium. Resolved.
 
 ---
 

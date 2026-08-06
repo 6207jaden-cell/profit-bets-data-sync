@@ -60,23 +60,33 @@ proposed `instrument: "iron_condor"`, it would silently fall through to
 stock-style position math (buying "shares" of a nonexistent 4-leg spread
 "stock"), producing a nonsensical position and incorrect P&L.
 **Affected files:** `src/routes/api/public/autonomous-agent.ts`
-**Status:** Worked around, not fixed. The earnings-strategy module
-(`src/lib/earnings-strategy.ts`, built in a prior session) was
-deliberately designed to never recommend `iron_condor` — it maps
-"sell premium" strategies to `call_spread`/`put_spread` instead, which
-DO execute correctly. This means the workaround prevents OUR OWN new
-code from hitting the bug, but does not prevent Claude from
-independently proposing `iron_condor` on its own initiative in a normal
-scan, since it's still listed in the schema as a choosable option.
+**Status:** FIXED (2026-08-06). Removed `"iron_condor"` from the JSON
+schema (option (a) from the fix below — building real 4-leg execution
+was out of scope for this fix and remains genuinely unbuilt). Also
+fixed the ROOT CAUSE, not just this one symptom: the schema enum and
+`isOptionsInstrument`'s check array were two independently-maintained
+lists that had drifted apart — that's specifically what let this bug
+exist. Extracted a single shared source of truth
+(`src/lib/instruments.ts`, `ALL_PROPOSABLE_INSTRUMENT_TYPES` /
+`isOptionsInstrumentType`) used to build BOTH the schema string and the
+execution check, plus a third duplicate list found and consolidated in
+`snapshot-portfolio.ts` along the way. 12 tests, including two
+regression guards that read the actual route files' source text and
+assert neither the string `"iron_condor"` nor a new hardcoded duplicate
+list can silently reappear.
 **Fix (not yet done):** Either (a) remove `"iron_condor"` from the JSON
 schema entirely until real 4-leg spread execution is built, or (b)
 build actual iron condor execution (multi-leg order construction, net
 credit tracking, defined max-loss/max-gain P&L math instead of simple
-quantity × price).
+quantity × price). ~~Not yet done~~ — (a) done, see Status above. (b)
+remains open if 4-leg execution is ever wanted as a real feature.
 **Verification steps:** Grep `agent_decisions.payload` / closed
 `paper_trades.instrument` for any historical `iron_condor` entries to
 confirm whether this has actually fired in production yet. If it has,
-those trades' recorded P&L should be treated as unreliable.
+those trades' recorded P&L should be treated as unreliable. **This step
+was NOT performed** — it requires live database access this review
+process doesn't have (same constraint noted throughout Stage 3.5).
+Worth checking directly against the live database when convenient.
 
 ---
 

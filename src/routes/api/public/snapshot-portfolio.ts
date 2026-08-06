@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { estimateOptionValue, fetchQuotePrice } from "@/lib/indicators";
+import { isOptionsInstrumentType } from "@/lib/instruments";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 
 export const Route = createFileRoute("/api/public/snapshot-portfolio")({
@@ -33,10 +34,7 @@ export const Route = createFileRoute("/api/public/snapshot-portfolio")({
             .eq("is_open", true);
 
           let adjustedEquity = Number(p.equity ?? 0);
-          const optionsTrades = (openTrades ?? []).filter((t) => {
-            const instr = String(t.instrument ?? "stock").toLowerCase();
-            return ["call", "put", "call_spread", "put_spread"].includes(instr);
-          });
+          const optionsTrades = (openTrades ?? []).filter((t) => isOptionsInstrumentType(t.instrument as string | null));
 
           if (optionsTrades.length > 0) {
             let equityAdjustment = 0;

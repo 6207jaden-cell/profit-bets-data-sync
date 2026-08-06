@@ -131,11 +131,13 @@ once enough real trade volume exists, not more infrastructure work.
 
 ## MEDIUM
 
-8. **Fix BUG-003** (`iron_condor`) — either remove it from the AI's
-   schema or build real multi-leg execution. Given it's already worked
-   around for the earnings-strategy module, removing it from the general
-   schema is the faster, lower-risk fix.
-9. **Fix BUG-004** — untrack `.env`, verify deploy still works.
+8. ~~**Fix BUG-003** (`iron_condor`) — either remove it from the AI's
+   schema or build real multi-leg execution.~~ **DONE 2026-08-06.**
+   Removed from the schema; also fixed the root cause (schema and
+   execution-check were two independently-maintained lists) via a new
+   shared `src/lib/instruments.ts`. See `BUG_TRACKER.md` BUG-003.
+9. ~~**Fix BUG-004** — untrack `.env`, verify deploy still works.~~
+   **DONE 2026-08-06.** See `BUG_TRACKER.md` BUG-004.
 10. **Add a staleness check** to price-fetch fallbacks (TRADING_ENGINE_REVIEW.md
     Finding 6).
 11. **Add a cron-overlap guard** (TRADING_ENGINE_REVIEW.md Finding 5).
