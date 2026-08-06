@@ -60,13 +60,16 @@ verdict stands, but now for a single, specific reason (no evidence the
 trading edge is real) rather than the compound reasons Pass 1 listed.
 Still: **FUNCTIONAL, PAPER-TRADING READY, NOT YET LIVE-MONEY READY.**
 
-Remaining genuinely open items, unchanged from Pass 1 or newly found:
-`BUG_TRACKER.md` BUG-003 (iron_condor) and BUG-004 (.env in git, low
-severity), `TECHNICAL_DEBT.md` TD-13 (auth-pattern inconsistency, low
-severity) and the newly-tracked Stage 3 gaps (Average R, standalone
-Volatility, Risk Attribution — item 13b), the never-reviewed
-`agent-backtest` endpoint, and the news/sentiment classifier accuracy
-review. See `ROADMAP.md` for current sequencing.
+Remaining genuinely open items, updated 2026-08-06: `TECHNICAL_DEBT.md`
+TD-12's residual gaps (Average R, standalone Volatility, Risk
+Attribution — `ROADMAP.md` item 13b), the `agent-backtest` endpoint's
+two flagged-but-unfixed methodology issues (same-bar execution bias and
+missing cost modeling — `ROADMAP.md` items 6a/6b,
+`TRADING_ENGINE_REVIEW.md` Findings 11 and 13), and the news/sentiment
+classifier accuracy review. BUG-003, BUG-004, TD-13, and the
+agent-backtest endpoint's basic correctness review are now all resolved
+— see `BUG_TRACKER.md` and `TECHNICAL_DEBT.md` for current status. See
+`ROADMAP.md` for current sequencing.
 
 ---
 

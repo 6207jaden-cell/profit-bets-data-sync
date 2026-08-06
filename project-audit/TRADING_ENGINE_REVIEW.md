@@ -212,6 +212,90 @@ limitation on the existing figures, not a bug in their calculation.
 
 ---
 
+### 11. `agent-backtest.ts` has a real same-bar execution bias — its results are systematically optimistic
+
+The single most important finding from finally reviewing this endpoint
+(flagged as deferred since the original Pass 1 audit). The scoring and
+the trade entry use the SAME index into the same price array:
+
+```ts
+const price = u.closes[day];              // used to compute the momentum score
+...
+const entry = c.u.closes[day];             // used as the trade's entry price
+```
+
+Both read `u.closes[day]` — the identical bar. This means the backtest
+computes a signal FROM a closing price and then assumes it can enter
+the trade AT that exact same closing price, with zero latency. In live
+trading this isn't achievable: a closing price isn't known until the
+bar closes, and any real reaction — human or automated — happens after
+that moment, not at it. The live `autonomous-agent.ts` system has this
+same structural gap in spirit (it scores candidates using the most
+recent available bar and then executes near-immediately), but the
+backtest makes the assumption absolute and unhedged: no execution delay,
+no next-bar entry, no slippage to account for the gap between "signal
+generated" and "order filled." This systematically flatters the
+backtest's reported returns relative to what a live version of the same
+rule would actually achieve, in a way that compounds over every single
+trade in the simulation.
+
+**Fix (not done — flagging for a dedicated pass, not attempting inline):**
+Enter at `u.closes[day + 1]` (next bar's close) or, more realistically,
+next bar's open, rather than the same bar used to generate the score.
+This is a real methodology change to the backtest's core loop, not a
+one-line fix — it changes every subsequent index calculation in the
+function and deserves its own careful review and testing, not a rushed
+edit alongside finding it.
+
+### 12. `agent-backtest.ts`'s own header comment overclaims what it simulates — "regime alignment" is not implemented
+
+The file's top comment states it "Simulates the autonomous agent's core
+rule (momentum + regime alignment)." Grepped the entire file for
+"regime" — it appears exactly once, in that comment. There is no regime
+detection, no regime-conditional filtering, and no regime-alignment
+bonus anywhere in the actual scoring loop; the backtest is pure
+momentum-vs-SMA50 ranking with equal-weight sizing. This means the
+backtest doesn't actually simulate the live system's core rule as
+documented — it simulates a simpler, narrower strategy, and its results
+say nothing about the value (or cost) of the regime-alignment logic the
+live system actually runs. Not a code bug — the code does exactly what
+it does correctly — but a real documentation-vs-implementation mismatch
+that could mislead anyone reading the comment and trusting it describes
+the simulation's actual scope. Fixed by rewriting the comment to
+describe what the function genuinely does, rather than building out
+full regime simulation to match the comment's original claim (a much
+larger undertaking, and not requested).
+
+### 13. `agent-backtest.ts` has zero slippage or fee modeling — a real inconsistency with the rest of this project's own cost work
+
+Returns are computed as raw `(exit - entry) / entry` — no slippage
+(`src/lib/slippage.ts`, built and applied to every real paper trade),
+no fees (`src/lib/cost-reality.ts`, same), no bid/ask spread. This means
+the backtest's reported win rate, average return, and Sharpe are
+systematically more optimistic than what the SAME rule would show once
+run through this project's own cost model — a real, direct
+inconsistency, since realistic cost modeling for exactly this kind of
+analysis already exists elsewhere in the codebase and simply isn't
+applied here. Not fixed in this pass — would require piping
+`estimateSlippageBps`/`applySlippage`/`estimateFees` through the
+backtest's trade loop, a moderate, well-scoped follow-up rather than a
+quick inline change.
+
+**Combined impact of Findings 11-13:** `agent-backtest.ts`'s reported
+numbers should not be treated as a credible estimate of the live
+system's actual edge, for three independent, compounding reasons: it
+assumes impossible zero-latency same-bar execution (11), it tests a
+narrower strategy than the one actually running live despite its own
+comment claiming otherwise (12), and it has no cost model applied where
+this project already has one built and ready to use (13). Any of these
+alone would already caution against treating a backtest run as strong
+evidence; together, they mean this endpoint's current output is not a
+reliable signal of edge one way or the other, and using it to justify
+a live-money decision would be a mistake until at least Finding 11 is
+addressed.
+
+---
+
 ## Sound, but worth documenting why
 
 - **No look-ahead bias found in the live decision path.** Every fetch
@@ -242,13 +326,15 @@ limitation on the existing figures, not a bug in their calculation.
 
 ## Not yet reviewed (explicitly deferred, not silently skipped)
 
-- **`agent-backtest` endpoint correctness** — this project has a backtest
-  engine referenced throughout its history but this specific audit pass
-  has not read it line-by-line for look-ahead bias, incorrect date
-  handling, or optimistic fill assumptions. Given Finding 4 above
-  (survivorship bias) already applies to whatever it measures, this
-  needs its own dedicated review before its output is treated as
-  meaningful evidence of edge.
+- ~~**`agent-backtest` endpoint correctness**~~ — **REVIEWED 2026-08-06.**
+  See Findings 11-13 above: a real same-bar execution bias, a header
+  comment that overclaimed regime-alignment simulation (corrected), and
+  no slippage/fee modeling despite this project having both built
+  elsewhere. Finding 4's survivorship-bias concern also applies to this
+  endpoint's fixed 30-symbol universe, as originally suspected. None of
+  Findings 11-13 were fixed in this pass except the comment (11 and 13
+  are real methodology changes flagged for dedicated follow-up work, not
+  quick inline fixes) — but the endpoint is now understood, not unknown.
 - **Statistical confidence review of live/paper performance** — cannot
   be done without knowing the actual current closed-trade count. If it's
   in the single or low double digits, no statistical claim of any kind

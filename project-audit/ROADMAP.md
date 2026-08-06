@@ -110,9 +110,28 @@ once enough real trade volume exists, not more infrastructure work.
    See `src/lib/__tests__/`.
 5. ~~**Fix BUG-005** — apply `npm audit fix` for the 2 dependency CVEs, then
    re-verify build.~~ **DONE 2026-08-05** (Stage 2, Priority 4).
-6. **Review the `agent-backtest` endpoint** for the same rigor applied to
+6. ~~**Review the `agent-backtest` endpoint** for the same rigor applied to
    the live trading path in this pass (look-ahead bias, fill assumptions,
-   the survivorship-bias caveat from TRADING_ENGINE_REVIEW.md Finding 4).
+   the survivorship-bias caveat from TRADING_ENGINE_REVIEW.md Finding 4).~~
+   **DONE 2026-08-06.** Found 3 real methodology issues — see
+   `TRADING_ENGINE_REVIEW.md` Findings 11-13: a same-bar execution bias
+   (fix flagged, not yet applied — real methodology change), a header
+   comment overclaiming regime-alignment simulation (corrected), and no
+   slippage/fee modeling (fix flagged, not yet applied). This endpoint's
+   output should not be treated as credible evidence of edge until at
+   least the execution-bias finding is addressed.
+6a. **Fix `agent-backtest.ts`'s same-bar execution bias** (Finding 11,
+    discovered 2026-08-06). Entry currently uses the identical price
+    index that generated the momentum score — change to enter at the
+    NEXT bar (close or open) after the signal, not the same bar. Touches
+    every subsequent index calculation in the backtest loop; needs its
+    own careful review and tests, not a quick inline edit.
+6b. **Apply real cost modeling to `agent-backtest.ts`** (Finding 13,
+    discovered 2026-08-06). Pipe `estimateSlippageBps`/`applySlippage`/
+    `estimateFees` (already built, already applied to every real paper
+    trade) through the backtest's trade loop so its reported returns
+    aren't systematically more optimistic than what the same rule would
+    show under realistic costs.
 7. **Get an honest read on actual closed-trade count** and, if low, be
    explicit with the user that no statistical claims about edge are valid
    yet — set a real re-evaluation date once enough data exists.

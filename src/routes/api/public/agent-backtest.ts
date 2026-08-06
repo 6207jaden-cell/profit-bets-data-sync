@@ -1,10 +1,26 @@
 /**
  * Agent backtest endpoint.
- * Simulates the autonomous agent's core rule (momentum + regime alignment)
- * against N days of historical bars across the standard universe, holding
- * each pick for `hold_days` bars. Persists result to `agent_backtest_results`.
+ * Simulates a momentum-vs-SMA50 ranking rule (NOT the live system's full
+ * decision logic — no Claude review, no regime detection, no correlation/
+ * breadth/Kelly sizing, equal-weight only) against N days of historical
+ * bars across a fixed 30-symbol universe, holding each pick for
+ * `hold_days` bars. Persists result to `agent_backtest_results`.
  *
- * Public route: verifies caller by anon apikey header + explicit user_id in body.
+ * KNOWN METHODOLOGY LIMITATIONS — see TRADING_ENGINE_REVIEW.md Findings
+ * 11-13 for full detail. Do not treat this endpoint's output as a
+ * credible estimate of the live system's actual edge without reading
+ * those findings first:
+ *   (11) Same-bar execution bias — scores and enters at the identical
+ *        close price, assuming impossible zero-latency execution. This
+ *        systematically inflates every trade's reported return.
+ *   (12) This comment previously (incorrectly) claimed regime alignment
+ *        was simulated. It never was — corrected here.
+ *   (13) No slippage or fee modeling, despite this project having both
+ *        built and applied to every real paper trade elsewhere
+ *        (src/lib/slippage.ts, src/lib/cost-reality.ts).
+ *
+ * Public route: verifies caller by apikey header (verifyPublicApiKeyFromEnv)
+ * + explicit user_id in body.
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchBars, sma } from "@/lib/indicators";

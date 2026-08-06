@@ -947,3 +947,79 @@ this reuses already-tested shared functions.
   be, and no `SUPABASE_ANON_KEY`/`"Apikey"` fallback references remain
   anywhere.
 
+---
+
+## 2026-08-06 — Review: `agent-backtest.ts` methodology (3 real findings)
+
+**What changed:** Reviewed `agent-backtest.ts` line-by-line for the
+correctness issues flagged as deferred since the original Pass 1 audit
+(look-ahead bias, incorrect date handling, optimistic fill assumptions).
+Found three real issues, fixed one, flagged two for dedicated follow-up
+work rather than rushed inline fixes.
+
+**Finding 11 — same-bar execution bias (not fixed, flagged):** The
+backtest's scoring and trade-entry logic read the identical array index:
+`price = u.closes[day]` computes the momentum score, `entry =
+c.u.closes[day]` is the trade's entry price — the SAME bar. This assumes
+the backtest can transact at the exact closing price used to generate
+the signal, with zero latency, which isn't achievable in live trading.
+This systematically inflates every trade's reported return, compounding
+across the whole simulation. Not fixed inline — changes every subsequent
+index calculation in the loop and deserves its own careful review and
+tests (`ROADMAP.md` item 6a).
+
+**Finding 12 — misleading header comment (fixed):** The file's own
+top comment claimed it "Simulates the autonomous agent's core rule
+(momentum + regime alignment)." Grepped the file — "regime" appears
+exactly once, in that comment. There is no regime detection or
+regime-conditional logic anywhere in the actual code; the backtest is
+pure momentum-vs-SMA50 ranking with equal-weight sizing, no Claude
+review, no correlation/breadth/Kelly adjustments. Rewrote the comment to
+accurately describe what the code does, and added an explicit pointer to
+`TRADING_ENGINE_REVIEW.md` Findings 11-13 so a future reader hits the
+caveats before trusting the endpoint's output.
+
+**Finding 13 — no slippage or fee modeling (not fixed, flagged):**
+Returns are raw `(exit - entry) / entry` — no cost model applied at all,
+despite this project having both slippage (`src/lib/slippage.ts`) and
+fees (`src/lib/cost-reality.ts`) built and already applied to every real
+paper trade elsewhere. A direct, real inconsistency: the tooling to fix
+this already exists, it's just never piped through this specific
+endpoint. Not fixed inline — moderate, well-scoped follow-up
+(`ROADMAP.md` item 6b).
+
+**Combined assessment, stated directly:** these three findings compound.
+`agent-backtest.ts`'s current output should not be treated as credible
+evidence of the live system's actual edge — not because any individual
+finding is severe, but because all three point the same direction
+(systematically optimistic results) and none has been corrected except
+the documentation. This is now stated explicitly in the code's own
+header comment, not just in this changelog.
+
+**Files changed:**
+- `src/routes/api/public/agent-backtest.ts` (header comment corrected)
+- `project-audit/TRADING_ENGINE_REVIEW.md` (Findings 11-13 added,
+  "Not yet reviewed" section updated — this item is no longer deferred)
+- `project-audit/ROADMAP.md` (item 6 marked done, new items 6a/6b
+  tracking the two real unfixed issues)
+- `project-audit/SYSTEM_AUDIT.md` (Pass 2 summary updated)
+
+**Tests added:** None — this pass was a methodology review, not a code
+change beyond the one-line comment correction. Findings 11 and 13 will
+need real tests once actually fixed (item 6a/6b), consistent with this
+project's standard for any change to trading-relevant calculations.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 198/198 passing (sandbox) — unchanged, since no
+  testable logic changed
+- Independent fresh-clone + fresh-install verification to follow.
+
+**Remaining risk, stated plainly:** Findings 11 and 13 remain unfixed.
+Anyone using `agent-backtest.ts`'s output to evaluate whether the
+trading strategy has real edge should read `TRADING_ENGINE_REVIEW.md`
+Findings 11-13 first — the numbers it currently produces are
+systematically more favorable than a live version of the same rule
+would actually achieve.
+
