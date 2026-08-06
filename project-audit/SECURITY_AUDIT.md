@@ -241,14 +241,25 @@ added to this same file and committed by habit/muscle-memory.
 file itself remains present on disk, unchanged, so local development
 isn't disrupted. Verified locally: `tsc --noEmit` (0 errors), `npm run
 build` (clean), and the full test suite (186/186) all still succeed with
-the file present-but-untracked. **One thing NOT independently verified
-from this environment:** whether Lovable Cloud's actual deploy pipeline
-behaves as expected once this file is no longer tracked in git — the
-original finding's assumption ("Lovable Cloud likely injects these as
-real environment variables at deploy time regardless of the tracked
-file") was never confirmed against a real deploy, only reasoned about.
-Worth an actual deploy-and-check before considering this fully closed
-in production, not just in this sandbox.
+the file present-but-untracked.
+
+**Stronger verification, added same day:** an independent fresh clone
+of the post-fix commit genuinely has NO `.env` file at all (untracked
+files aren't part of a clone) — this is a real test of whether the
+static build toolchain itself depends on this file, not just a
+"nothing broke" check. Result: `tsc --noEmit` (0 errors), `npm run
+build` (clean, full production build completes), and the full test
+suite (186/186) all succeed with zero `.env` present anywhere. This is
+real evidence the build process has no hard dependency on this file.
+
+**One thing still NOT independently verifiable from this environment:**
+Lovable Cloud's actual DEPLOY pipeline (as opposed to the static build
+toolchain just tested) — whether it injects these values at deploy time
+the same way this sandbox's build tooling apparently doesn't need them.
+The build succeeding without the file is meaningful evidence toward the
+original assumption, but isn't the same as confirming a real Lovable
+deploy still works end-to-end. Worth an actual deploy-and-check before
+considering this fully closed in production, not just verified here.
 
 ---
 
