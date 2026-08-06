@@ -397,6 +397,22 @@ bugs in the first place.
 **Recommended solution:** Consolidate all 15 endpoints onto the single
 `verifyPublicApiKeyFromEnv()` utility already built and tested for
 Priorities 1–2 (`src/lib/api-auth.ts`), retiring both inline variants.
-**Priority:** Low — not blocking, add to `ROADMAP.md` as a follow-up
-cleanup item once Stage 2's Critical items are otherwise complete.
+**Status:** RESOLVED (2026-08-06). All 5 endpoints migrated onto the
+shared utility. Two things confirmed directly, not assumed, before
+making the change: (1) the `"Apikey"` capitalized-header fallback was
+genuinely dead code — verified with a real `Headers` object that
+`.get("apikey")` and `.get("Apikey")` return identically, since the
+Fetch API spec treats header names case-insensitively; (2)
+`evaluate-strategies.ts` reused its `anon` variable downstream as an
+outbound header value (calling `generate-strategies.ts` after retiring
+a strategy) — preserved as its own variable rather than only inlined
+into the auth check, so that usage kept working.
+**Known, accepted behavior change:** the 5 migrated endpoints previously
+returned a JSON body (`{ ok: false, error: "unauthorized" }`) on auth
+failure; `unauthorizedResponse()` returns plain text ("Unauthorized").
+Both are 401s. Checked whether anything parses the JSON body — these are
+pg_cron-triggered background jobs, not endpoints a UI calls and inspects
+error bodies from, so this is treated as a safe, minor consistency
+improvement (matching the other 10 endpoints) rather than a risk.
+**Priority:** Was Low. Resolved.
 

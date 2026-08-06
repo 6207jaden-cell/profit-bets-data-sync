@@ -149,11 +149,13 @@ once enough real trade volume exists, not more infrastructure work.
 ## LOW / deferred, needs more foundational work first
 
 13. Full OWASP Top 10 pass, SSRF review of the many external fetch() calls.
-13a. **Consolidate auth-check implementations** (TD-13, discovered
+13a. ~~**Consolidate auth-check implementations** (TD-13, discovered
     2026-08-05 during Priority 3). 5 of 15 `/api/public/*` endpoints use
     a different (but not broken) auth-check variant than the other 10 —
     migrate all onto the single tested `verifyPublicApiKeyFromEnv()`
-    utility from `src/lib/api-auth.ts`.
+    utility from `src/lib/api-auth.ts`.~~ **DONE 2026-08-06.** All 15
+    endpoints now use the same shared, tested utility. See
+    `TECHNICAL_DEBT.md` TD-13.
 13b. **Complete the remaining Stage 3 analytics items** (discovered
     2026-08-06 — previously miscounted as complete, see `TECHNICAL_DEBT.md`
     TD-12 correction): Average R (risk-normalized return, not raw %),

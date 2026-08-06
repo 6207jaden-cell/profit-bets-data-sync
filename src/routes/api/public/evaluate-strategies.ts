@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, fetchQuotePrice, type Bars } from "@/lib/indicators";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 
 
@@ -151,9 +152,12 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const anon = process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY;
-        const apikey = request.headers.get("apikey") ?? request.headers.get("Apikey");
-        if (!anon || apikey !== anon) return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
+        // Kept as its own variable (not just inlined into the auth check)
+        // because it's reused below as the outbound apikey header when
+        // this endpoint calls generate-strategies.ts after retiring a
+        // strategy — same value, different purpose.
+        const anon = process.env.SUPABASE_PUBLISHABLE_KEY ?? "";
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Runs every 5 min — generous headroom above that.

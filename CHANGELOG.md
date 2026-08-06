@@ -857,3 +857,56 @@ of this file) comes from the original security audit's reasoning, not
 a confirmed real deploy. Worth an actual deploy-and-check in production
 before treating this as fully closed end-to-end, not just in-sandbox.
 
+---
+
+## 2026-08-06 — Fix TD-13: consolidate auth-check implementations
+
+**What changed:** All 15 `/api/public/*` endpoints now use the same
+shared, tested `verifyPublicApiKeyFromEnv()` utility. The 5 that
+previously used a different (but not broken) variant — `daily-digest`,
+`evaluate-strategies`, `generate-strategies`, `resolve-signals`,
+`snapshot-portfolio` — are now migrated.
+
+**Why:** Real, undocumented drift flagged during Priority 3 (rate
+limiting): 10 endpoints checked `apikey !== SUPABASE_PUBLISHABLE_KEY`
+directly; 5 also fell back to `SUPABASE_ANON_KEY` and checked an
+alternate `"Apikey"` header capitalization. Both worked correctly —
+this was never a BUG-001/002-style hole — but it's exactly the kind of
+inconsistency that let BUG-001/002 exist as two separate bugs in the
+first place, left deliberately unfixed at the time to avoid scope creep.
+
+**How it was verified before changing anything:** Two things checked
+directly rather than assumed. (1) Whether the `"Apikey"` capitalized
+fallback did anything — confirmed with a real `Headers` object that
+`.get("apikey")` and `.get("Apikey")` return identically, since the
+Fetch API spec normalizes header name lookups case-insensitively. It
+was dead code. (2) Whether the `anon` variable was used anywhere besides
+the auth check — found `evaluate-strategies.ts` reuses it as an outbound
+header value when calling `generate-strategies.ts` after retiring a
+strategy. Preserved as its own variable there rather than only inlined
+into the auth check, so that call kept working.
+
+**Files changed:** `daily-digest.ts`, `evaluate-strategies.ts`,
+`generate-strategies.ts`, `resolve-signals.ts`, `snapshot-portfolio.ts`,
+`TECHNICAL_DEBT.md` (TD-13 resolved), `SECURITY_AUDIT.md` (Finding 4's
+sub-note resolved), `ROADMAP.md` (item 13a marked done).
+
+**Tests added:** None new — this reuses `verifyPublicApiKeyFromEnv()`
+and `unauthorizedResponse()`, both already covered by the 9 tests in
+`api-auth.test.ts` from Priority 1.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 198/198 passing (sandbox)
+- Independent fresh-clone + fresh-install verification, since this
+  touches authentication.
+
+**Known, accepted behavior change:** the 5 migrated endpoints previously
+returned `{ ok: false, error: "unauthorized" }` (JSON) on auth failure;
+now return plain text "Unauthorized", matching the other 10 endpoints.
+Both are 401s. These are pg_cron-triggered background jobs, not UI-
+facing endpoints whose error bodies get parsed — treated as a safe
+consistency improvement, not a risk, but noted explicitly rather than
+silently changed.
+

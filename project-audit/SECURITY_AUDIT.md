@@ -205,10 +205,18 @@ against. Left alone in this pass specifically to avoid scope creep
 (Priority 3's job was rate limiting, not further auth consolidation);
 candidate for `TECHNICAL_DEBT.md`.
 
+**Update 2026-08-06 — fixed:** all 5 endpoints migrated onto
+`verifyPublicApiKeyFromEnv()`. See `TECHNICAL_DEBT.md` TD-13 for full
+detail, including why the `"Apikey"` fallback was confirmed genuinely
+dead code (Fetch API header lookups are case-insensitive) before being
+removed, and the one downstream reuse (`evaluate-strategies.ts` reusing
+the key value for an outbound call) that was preserved rather than
+dropped.
+
 Verified on an independent fresh clone + fresh install per the Release
 Verification Rule.
 
-**Status:** Open.
+**Status:** FIXED 2026-08-06.
 
 ---
 

@@ -2,16 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { estimateOptionValue, fetchQuotePrice } from "@/lib/indicators";
 import { isOptionsInstrumentType } from "@/lib/instruments";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 export const Route = createFileRoute("/api/public/snapshot-portfolio")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const anon = process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY;
-        const apikey = request.headers.get("apikey") ?? request.headers.get("Apikey");
-        if (!anon || apikey !== anon) {
-          return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Daily cron — very low legitimate frequency, tight limit.
         const rl = resolveRateLimit(3, 3600);

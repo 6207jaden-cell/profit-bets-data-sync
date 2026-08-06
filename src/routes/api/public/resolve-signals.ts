@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 /**
  * Resolve open market_signals against current market prices.
@@ -48,11 +49,7 @@ export const Route = createFileRoute("/api/public/resolve-signals")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const anon = process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY;
-        const apikey = request.headers.get("apikey") ?? request.headers.get("Apikey");
-        if (!anon || apikey !== anon) {
-          return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // Cadence uncertain (not currently in the registered cron list —
         // possibly manually triggered or, like evaluate-alerts was found to

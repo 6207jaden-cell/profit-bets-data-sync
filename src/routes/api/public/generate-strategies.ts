@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { sma, ema, rsi, evalGroup, fetchBars, type IndicatorContext } from "@/lib/indicators";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 /**
  * AI Strategy Lab. Called hourly by pg_cron.
@@ -140,11 +141,7 @@ export const Route = createFileRoute("/api/public/generate-strategies")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const anon = process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY;
-        const apikey = request.headers.get("apikey") ?? request.headers.get("Apikey");
-        if (!anon || apikey !== anon) {
-          return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
-        }
+        if (!verifyPublicApiKeyFromEnv(request)) return unauthorizedResponse();
 
         const apiKey = process.env.LOVABLE_API_KEY;
         if (!apiKey) return Response.json({ ok: false, error: "missing_lovable_api_key" }, { status: 500 });
