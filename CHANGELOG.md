@@ -1306,3 +1306,84 @@ real, bounded, and accepted — not eliminated. Items 12 (OAuth state
 hardening) and 13b (Average R, Volatility, Risk Attribution) remain the
 last tracked items from this audit pass.
 
+---
+
+## 2026-08-06 — Fix Finding 3: Robinhood OAuth `state` hardening
+
+**What changed:** New `generateOAuthState()`/`verifyOAuthState()`
+(`mcp-oauth.server.ts`) — a genuine random anti-CSRF nonce, replacing the
+previous use of the user's own ID as the OAuth `state` parameter. Stored
+in a new `mcp_connections.oauth_state` column.
+
+**Why:** OAuth's `state` parameter exists specifically as an
+unguessable, random anti-CSRF nonce. Using `user_id` directly isn't
+textbook-correct, even though real-world exploitability was already low
+— PKCE (`code_verifier`/`code_challenge`) independently prevents the
+actual token-exchange attack this would otherwise enable. This closes
+the defense-in-depth gap, not an actively exploitable hole.
+
+**A real architectural discovery made while fixing this, worth
+recording plainly:** this codebase has TWO separate OAuth completion
+paths for Robinhood, not one. `completeRobinhoodConnection`
+(`mcp-client.functions.ts`) is the genuinely live flow — the UI has the
+user paste a full callback URL after Robinhood redirects to a loopback
+address, confirmed directly by `AgentPanel.tsx`'s own placeholder text.
+`callback.ts` (`src/routes/api/public/mcp/robinhood/callback.ts`, the
+file the original finding named) is a registered, still-reachable route
+that the current initiation flow never generates a URL pointing to — it
+may be legacy or unused, but "probably unreachable" isn't a reason to
+leave a real gap unfixed, so both paths were updated, not just the
+confirmed-live one.
+
+**How it was built:** The new `oauth_state` column deliberately doesn't
+reuse the table's existing column simply named `state` — that one
+tracks connection lifecycle status (`authenticating`/`ready`/`failed`),
+a completely different concept from OAuth's `state` parameter, and
+reusing the name would have been a real, confusing collision, caught
+before writing any code by reading the existing schema first.
+`callback.ts` was additionally changed to look up its connection row BY
+the nonce value directly (`eq("oauth_state", state)`) rather than by a
+caller-claimed `user_id` — the more correct pattern regardless, since
+the caller should never need to assert whose connection this is; only
+possessing the exact nonce from the original redirect should prove that.
+
+**Files changed:**
+- `src/lib/mcp-oauth.server.ts` (`generateOAuthState`, `verifyOAuthState`)
+- `src/lib/__tests__/mcp-oauth.test.ts` (new, 10 tests)
+- `supabase/migrations/20260806001000_oauth_state_nonce.sql` (new)
+- `src/lib/mcp-client.functions.ts` (both `initiateRobinhoodConnection`
+  and `completeRobinhoodConnection` updated)
+- `src/routes/api/public/mcp/robinhood/callback.ts` (lookup changed from
+  `user_id` to `oauth_state`, verification added)
+- `project-audit/SECURITY_AUDIT.md` (Finding 3 marked fixed, including
+  the two-paths discovery)
+- `project-audit/ROADMAP.md` (item 12 marked done)
+
+**Tests added:** 10 — non-empty output, uniqueness across calls (a real
+nonce must never repeat), URL-safe character set, an entropy sanity
+floor, exact-match verification, mismatch rejection, missing-state
+handling checked independently on BOTH sides (a callback with no state
+must never match a row with no stored state, and vice versa — two
+absent values are not a match), and case sensitivity.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 231/231 passing (10 new)
+- Independent fresh-clone + fresh-install verification to follow, since
+  this touches authentication.
+
+**A correction made during this same pass, worth recording:** while
+writing this entry's ROADMAP.md update, an early draft claimed this
+"closes the last remaining item from this audit pass except item 13b
+and the classifier review" — checked the actual LOW section before
+leaving that in place and found it was wrong (items 13, 14, 15, and 16
+are also still open). Corrected before finalizing, the same discipline
+applied consistently since the cron-lock fix caught a similar overclaim
+about "all Stage 2 Medium items."
+
+**Remaining risk:** none specific to this fix — genuinely resolved, not
+a partial mitigation like Findings 5/6 were. All of `ROADMAP.md`
+MEDIUM (items 8-12) is now complete. LOW items 13/13b/14/15/16 and the
+classifier review remain open.
+

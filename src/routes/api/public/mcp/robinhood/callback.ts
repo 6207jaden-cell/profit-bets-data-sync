@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { verifyOAuthState } from "@/lib/mcp-oauth.server";
 
 const ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading";
 
@@ -8,7 +9,19 @@ export const Route = createFileRoute("/api/public/mcp/robinhood/callback")({
       GET: async ({ request }) => {
         const url = new URL(request.url);
         const code = url.searchParams.get("code");
-        const state = url.searchParams.get("state"); // = user_id
+        // SECURITY_AUDIT.md Finding 3 fix: this used to be the raw
+        // user_id, used directly to look up the pending connection row —
+        // meaning anyone who knew (or guessed) a user's ID could probe
+        // for a matching row. Now it's the random nonce generated at flow
+        // initiation (mcp-client.functions.ts's initiateRobinhoodConnection),
+        // and the row is found BY that nonce rather than by a claimed
+        // user_id — the caller never needs to (and no longer can) assert
+        // whose connection this is; only possessing the exact nonce from
+        // the original redirect proves that. Defense in depth: PKCE
+        // (code_verifier/code_challenge) already prevented the actual
+        // token-exchange attack this enables, but this closes the
+        // textbook-correctness gap regardless.
+        const state = url.searchParams.get("state");
         const errQ = url.searchParams.get("error");
 
         function html(msg: string, ok: boolean) {
@@ -27,14 +40,19 @@ export const Route = createFileRoute("/api/public/mcp/robinhood/callback")({
         if (!code || !state) return html("Missing code or state", false);
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { data: row, error } = await supabaseAdmin
+        const { data: row, error } = await (supabaseAdmin as any)
           .from("mcp_connections")
           .select("*")
-          .eq("user_id", state)
+          .eq("oauth_state", state)
           .eq("server_url", ROBINHOOD_MCP_URL)
           .maybeSingle();
         if (error || !row) return html("Connection not found. Please retry.", false);
         if (!row.client_id || !row.code_verifier) return html("Missing OAuth state", false);
+        // Belt-and-suspenders: the lookup above already only matches on
+        // an exact oauth_state value, but re-verify explicitly with the
+        // same helper used in mcp-client.functions.ts rather than relying
+        // solely on the query's own equality filter.
+        if (!verifyOAuthState(state, row.oauth_state)) return html("Session mismatch. Please retry.", false);
 
         const { discoverAuthServer, exchangeCode } = await import("@/lib/mcp-oauth.server");
 
@@ -54,7 +72,7 @@ export const Route = createFileRoute("/api/public/mcp/robinhood/callback")({
             ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
             : null;
 
-          await supabaseAdmin
+          await (supabaseAdmin as any)
             .from("mcp_connections")
             .update({
               state: "ready",
@@ -63,6 +81,7 @@ export const Route = createFileRoute("/api/public/mcp/robinhood/callback")({
               expires_at,
               auth_url: null,
               code_verifier: null,
+              oauth_state: null,
             })
             .eq("id", row.id);
 

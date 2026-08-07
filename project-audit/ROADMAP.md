@@ -180,10 +180,22 @@ once enough real trade volume exists, not more infrastructure work.
     (global). See `TRADING_ENGINE_REVIEW.md` Finding 5 for the scope
     limitation on error-path lock release (TTL-bounded, not
     try/finally-guaranteed — a deliberate tradeoff, not an oversight).
-12. **Harden the Robinhood OAuth `state` parameter** (SECURITY_AUDIT.md
+12. ~~**Harden the Robinhood OAuth `state` parameter** (SECURITY_AUDIT.md
     Finding 3) — low urgency given PKCE already protects the real attack
     surface, but correct to fix before this becomes a template for other
-    OAuth integrations.
+    OAuth integrations.~~ **DONE 2026-08-06.** Fixed both OAuth
+    completion paths (a real architectural discovery made along the way —
+    this codebase has two, not one; see `SECURITY_AUDIT.md` Finding 3 for
+    detail). **All of MEDIUM (items 8-12) is now complete — verified by
+    reading this section in full before writing this claim, not asserted
+    from memory (an earlier version of this exact sentence, for the
+    cron-lock fix, wrongly said "all Stage 2 Medium items" were done when
+    they weren't yet; corrected then, checked more carefully here as a
+    direct result).** Genuinely still open, confirmed by reading the LOW
+    section below just now: item 13 (OWASP/SSRF pass), item 13b (Stage
+    3's 3 unbuilt metrics), item 14 (bundle size), item 15 (performance
+    profiling), item 16 (multiple-comparisons correction), plus the
+    news/sentiment classifier review (not separately numbered here).
 
 ## LOW / deferred, needs more foundational work first
 

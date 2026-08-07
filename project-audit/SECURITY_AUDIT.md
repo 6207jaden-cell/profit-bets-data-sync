@@ -125,7 +125,42 @@ guessable), the real-world exploitability here is low. This is a
 at flow initiation, store it alongside `code_verifier`, and verify it
 matches on callback — independent of PKCE, as defense in depth.
 
-**Status:** Open, low priority.
+**FIXED 2026-08-06.** New `generateOAuthState()`/`verifyOAuthState()`
+(`mcp-oauth.server.ts`), a genuine random nonce stored in a new
+`mcp_connections.oauth_state` column (deliberately not reusing the
+existing `state` column on that table, which tracks connection lifecycle
+status — a different concept, would have been a real, confusing
+collision).
+
+**A real architectural discovery made while fixing this, worth
+recording:** this codebase has TWO separate OAuth completion paths for
+Robinhood, not one. `completeRobinhoodConnection`
+(`mcp-client.functions.ts`) is the genuinely live flow — the UI has the
+user paste a full callback URL after Robinhood redirects to a loopback
+address (`http://localhost:1455/callback`), confirmed by
+`AgentPanel.tsx`'s own placeholder text. `callback.ts`
+(`src/routes/api/public/mcp/robinhood/callback.ts`, the file this
+finding originally named) is a registered, still-reachable route that
+the CURRENT initiation flow never generates a URL pointing to — it may
+be legacy/unused, but "probably unreachable" isn't a reason to leave a
+real gap unfixed, so both paths were updated with the same nonce
+generation/verification, not just the confirmed-live one. `callback.ts`
+was additionally changed to look up its connection row BY the nonce
+value directly (`eq("oauth_state", state)`) rather than by a
+caller-claimed `user_id` — the more correct pattern regardless, since
+the caller should never need to assert whose connection this is; only
+possessing the exact nonce from the original redirect should prove that.
+
+10 new tests for `generateOAuthState`/`verifyOAuthState`: non-empty
+output, uniqueness across calls, URL-safe characters, a sanity floor on
+entropy, exact-match verification, mismatch rejection, missing-state
+handling on both sides independently (receiving nothing must never
+match storing nothing), and case sensitivity.
+
+**Status:** FIXED. Real-world exploitability was already low (PKCE
+prevented the attack), so this closes a defense-in-depth gap rather than
+an actively exploitable hole — consistent with this finding's original
+severity assessment.
 
 ---
 

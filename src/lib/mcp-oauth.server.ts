@@ -26,6 +26,30 @@ export function makePkce() {
   return { verifier, challenge };
 }
 
+/**
+ * Generates a genuine random OAuth `state` anti-CSRF nonce (SECURITY_AUDIT.md
+ * Finding 3 fix). Previously this codebase used the authenticated user's ID
+ * directly as `state`, which isn't a real nonce — PKCE already prevented
+ * the attack this would otherwise enable, so this is defense in depth, not
+ * closing an exploitable hole. Same randomness pattern as makePkce's
+ * verifier, above.
+ */
+export function generateOAuthState(): string {
+  return base64url(randomBytes(24));
+}
+
+/**
+ * Verifies a received OAuth `state` against the one stored at flow
+ * initiation. Pure, trivial, but still real logic worth a real test —
+ * specifically the null/undefined handling, since a callback with a
+ * missing state must never be treated as matching a missing stored
+ * state (both being "absent" is not the same as them matching).
+ */
+export function verifyOAuthState(receivedState: string | null | undefined, storedState: string | null | undefined): boolean {
+  if (!receivedState || !storedState) return false;
+  return receivedState === storedState;
+}
+
 /** Probes MCP server for `WWW-Authenticate` and its OAuth resource metadata. */
 export async function discoverAuthServer(mcpUrl: string): Promise<OAuthServerMetadata> {
   // 1. Try RFC9728 protected resource metadata via well-known path.

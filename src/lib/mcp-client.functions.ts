@@ -24,6 +24,7 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
       registerClient,
       makePkce,
       buildAuthorizeUrl,
+      generateOAuthState,
     } = await import("@/lib/mcp-oauth.server");
 
     const meta = await discoverAuthServer(robinhoodMcpUrl);
@@ -46,14 +47,17 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
     }
 
     const pkce = makePkce();
-    const state = context.userId; // scoped; verified against DB row on callback
+    // SECURITY_AUDIT.md Finding 3 fix: a genuine random anti-CSRF nonce,
+    // not the user_id directly (defense in depth — PKCE already prevented
+    // the actual attack, but this closes the textbook-correctness gap).
+    const oauthState = generateOAuthState();
 
     const auth_url = buildAuthorizeUrl({
       authorization_endpoint: meta.authorization_endpoint,
       client_id: client_id!,
       redirect_uri,
       code_challenge: pkce.challenge,
-      state,
+      state: oauthState,
       scope: "internal",
       resource: robinhoodMcpUrl,
     });
@@ -70,6 +74,10 @@ export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
           client_id,
           client_secret,
           code_verifier: pkce.verifier,
+          // oauth_state is ahead of the auto-generated Database type
+          // (migration applied, codegen not re-run) — same documented
+          // pattern as elsewhere in this project (e.g. shadow-experiments.ts).
+          oauth_state: oauthState as never,
           dcr_metadata: dcr as never,
           access_token: null,
           refresh_token: null,
@@ -103,17 +111,21 @@ export const completeRobinhoodConnection = createServerFn({ method: "POST" })
     const error = callback.searchParams.get("error");
     if (error) throw new Error(`Robinhood returned an error: ${error}`);
     if (!code || !state) throw new Error("The callback URL is missing Robinhood's code or state.");
-    if (state !== context.userId) throw new Error("This Robinhood callback belongs to a different session.");
 
-    const { data: row, error: rowError } = await context.supabase
+    const { data: row, error: rowError } = await (context.supabase as any)
       .from("mcp_connections")
-      .select("id, client_id, client_secret, code_verifier")
+      .select("id, client_id, client_secret, code_verifier, oauth_state")
       .eq("server_url", robinhoodMcpUrl)
       .maybeSingle();
     if (rowError) throw new Error(rowError.message);
     if (!row?.client_id || !row.code_verifier) throw new Error("Connection state expired. Start over and reconnect Robinhood.");
 
-    const { discoverAuthServer, exchangeCode } = await import("@/lib/mcp-oauth.server");
+    // SECURITY_AUDIT.md Finding 3 fix: verify against the random nonce
+    // generated at flow initiation, not context.userId directly.
+    const { verifyOAuthState, discoverAuthServer, exchangeCode } = await import("@/lib/mcp-oauth.server");
+    if (!verifyOAuthState(state, row.oauth_state)) {
+      throw new Error("This Robinhood callback belongs to a different session.");
+    }
     const meta = await discoverAuthServer(robinhoodMcpUrl);
     const tokens = await exchangeCode({
       token_endpoint: meta.token_endpoint,
@@ -138,6 +150,7 @@ export const completeRobinhoodConnection = createServerFn({ method: "POST" })
         expires_at,
         auth_url: null,
         code_verifier: null,
+        oauth_state: null as never,
       })
       .eq("id", row.id);
     if (updateError) throw new Error(updateError.message);
