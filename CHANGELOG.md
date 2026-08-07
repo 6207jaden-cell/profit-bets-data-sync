@@ -1227,3 +1227,82 @@ unverified against live traffic. Worth checking directly when there's
 network access to those APIs, to confirm the staleness check actually
 fires rather than silently always no-op due to a wrong field name.
 
+---
+
+## 2026-08-06 — Fix Finding 5: cron-overlap guard
+
+**What changed:** New shared, reusable `src/lib/cron-lock.ts`
+(`tryAcquireCronLock`/`releaseCronLock`), applied to `autonomous-agent.ts`
+(locked per session type) and `autonomous-exit-check.ts` (a single
+global lock). A slow-running invocation can no longer overlap with the
+next scheduled one for the same session type.
+
+**Why:** Crypto and scalp scans both fire every 30 minutes, exit-checks
+every 10 minutes — if any single invocation ran long, nothing prevented
+the next scheduled one from starting before it finished. This was an
+unverified architectural gap, not a confirmed-safe pattern.
+
+**How it was built:** Same atomic pattern already established for rate
+limiting — a row-locked SECURITY DEFINER function
+(`try_acquire_cron_lock`) rather than a naive TypeScript-side
+select-then-write, which would have the exact same race condition this
+table exists to close. `autonomous-agent.ts` locks per session type
+(`scalp_scan`, `crypto_scan`, etc.) since different session types
+running concurrently is legitimate — only the same type overlapping
+with itself is the problem. `autonomous-exit-check.ts` uses one global
+lock since it has only a single schedule. TTLs (10 min / 5 min) are
+comfortably under each endpoint's cron interval while generous for
+normal completion.
+
+**A real scope limitation, stated directly, not glossed over:** these
+are large, pre-existing route handlers (`autonomous-agent.ts` alone is
+over 1600 lines) with multiple exit points. Wrapping the entire function
+body in a new `try/finally` to guarantee lock release under every
+possible code path would have been a much larger, riskier structural
+change than this fix warranted. Instead, the lock is explicitly released
+at each of the function's existing return points — verified by grepping
+for every actual return statement in each file before writing the fix,
+not assumed to be a fixed small number. An uncaught exception in code
+that runs outside the per-user loop (which already has its own internal
+error handling) before reaching one of these explicit release points
+would leave the lock held until its TTL expires rather than released
+immediately. Accepted as a bounded tradeoff — worst case, the next
+scheduled invocation for that session type is skipped once, not
+indefinitely — rather than pretending a full try/finally rewrite of a
+1600-line function was consequence-free.
+
+**Files changed:**
+- `src/lib/cron-lock.ts` (new)
+- `src/lib/__tests__/cron-lock.test.ts` (new, 8 tests)
+- `supabase/migrations/20260806000000_cron_locks.sql` (new — table +
+  atomic acquire/release functions + cleanup function)
+- `supabase/migrations/20260806000500_cron_lock_cleanup_cron.sql` (new
+  — registers the cleanup cron)
+- `src/routes/api/public/autonomous-agent.ts` (lock acquired after
+  `sessionType` is determined, released at all 3 return points)
+- `src/routes/api/public/autonomous-exit-check.ts` (lock acquired after
+  rate limiting, released at both return points)
+- `project-audit/TRADING_ENGINE_REVIEW.md` (Finding 5 marked fixed,
+  including the scope-limitation caveat)
+- `project-audit/ROADMAP.md` (item 11 marked done)
+
+**Tests added:** 8 — successful acquire, blocked acquire (the actual
+overlap-prevention behavior), exact lock key/TTL passed through to the
+RPC, 2 distinct fail-open scenarios (RPC throws, RPC returns an error
+field — a lock-check outage must not block a scheduled trading scan),
+different lock keys being independent (bypass prevention — one session
+type's lock doesn't block another), and release being best-effort
+(never throws, since the TTL is the real safety net regardless).
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 221/221 passing (8 new)
+- Independent fresh-clone + fresh-install verification to follow, since
+  this touches database access and cron-triggered trading endpoints.
+
+**Remaining risk:** the error-path lock-release gap described above is
+real, bounded, and accepted — not eliminated. Items 12 (OAuth state
+hardening) and 13b (Average R, Volatility, Risk Attribution) remain the
+last tracked items from this audit pass.
+

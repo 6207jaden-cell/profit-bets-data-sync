@@ -6,6 +6,7 @@ import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 import { estimateFees } from "@/lib/cost-reality";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
+import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
 
 type ExitAction = { position_id: string; action: "hold" | "trim" | "exit"; reason: string };
 
@@ -22,9 +23,24 @@ export const Route = createFileRoute("/api/public/autonomous-exit-check")({
         });
         if (rateLimited) return rateLimited;
 
+        // Cron-overlap guard (TRADING_ENGINE_REVIEW.md Finding 5): this
+        // runs every 10 minutes — a single global lock (not per-session,
+        // since this endpoint has only one schedule) prevents a
+        // slow-running invocation from overlapping with the next one.
+        // 5-minute TTL: generous for normal completion, well under the
+        // 10-minute cron interval.
+        const lockKey = "autonomous-exit-check";
+        const lock = await tryAcquireCronLock(supabaseAdmin, lockKey, 300);
+        if (!lock.acquired) {
+          return Response.json({ ok: true, skipped: "overlap_guard" });
+        }
+
         const { data: users } = await supabaseAdmin
           .from("user_settings").select("user_id").eq("autonomous_mode", true);
-        if (!users || users.length === 0) return Response.json({ ok: true, reason: "no_users" });
+        if (!users || users.length === 0) {
+          await releaseCronLock(supabaseAdmin, lockKey);
+          return Response.json({ ok: true, reason: "no_users" });
+        }
 
         // ET hour approximation for intraday EOD
         const etHourMin = (() => {
@@ -40,6 +56,7 @@ export const Route = createFileRoute("/api/public/autonomous-exit-check")({
           const closed = await runExitForUser(u.user_id, supabaseAdmin, afterEod);
           totalClosed += closed;
         }
+        await releaseCronLock(supabaseAdmin, lockKey);
         return Response.json({ ok: true, users: users.length, closed: totalClosed });
       },
     },

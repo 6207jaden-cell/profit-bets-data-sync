@@ -174,7 +174,12 @@ once enough real trade volume exists, not more infrastructure work.
     environment has no network access to those APIs — designed to
     degrade gracefully (not break) if either assumption is wrong. Worth a
     real check against live traffic when convenient.
-11. **Add a cron-overlap guard** (TRADING_ENGINE_REVIEW.md Finding 5).
+11. ~~**Add a cron-overlap guard** (TRADING_ENGINE_REVIEW.md Finding 5).~~
+    **DONE 2026-08-06.** Shared `src/lib/cron-lock.ts`, applied to
+    `autonomous-agent.ts` (per session type) and `autonomous-exit-check.ts`
+    (global). See `TRADING_ENGINE_REVIEW.md` Finding 5 for the scope
+    limitation on error-path lock release (TTL-bounded, not
+    try/finally-guaranteed — a deliberate tradeoff, not an oversight).
 12. **Harden the Robinhood OAuth `state` parameter** (SECURITY_AUDIT.md
     Finding 3) — low urgency given PKCE already protects the real attack
     surface, but correct to fix before this becomes a template for other

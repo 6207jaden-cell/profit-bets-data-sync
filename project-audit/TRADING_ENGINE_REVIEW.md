@@ -105,6 +105,37 @@ is an unverified architectural gap rather than a confirmed-safe pattern.
 small `cron_locks` table with a TTL) so a slow-running scan can't overlap
 with the next scheduled one for the same session type.
 
+**FIXED 2026-08-06.** Shared, reusable `src/lib/cron-lock.ts`
+(`tryAcquireCronLock`/`releaseCronLock`), same atomic pattern already
+used for rate limiting — a row-locked SECURITY DEFINER function
+(`try_acquire_cron_lock`) rather than a naive select-then-write, which
+would have the exact same race condition this table exists to close.
+Applied to both endpoints named in this finding: `autonomous-agent.ts`
+(locked per session type — `scalp_scan`, `crypto_scan`, etc. — since
+different session types running concurrently is legitimate and not the
+problem, only the SAME type overlapping with itself is) and
+`autonomous-exit-check.ts` (a single global lock, since it has only one
+schedule). 10-minute TTL for the agent, 5-minute for exit-check — both
+comfortably under their respective cron intervals (30 min, 10 min) while
+generous enough for normal completion.
+
+**A real, deliberate scope limitation, stated directly:** these are
+large, pre-existing functions (`autonomous-agent.ts`'s handler alone is
+over 1600 lines) with multiple exit points. Wrapping the entire function
+body in a new `try/finally` to guarantee lock release under every
+possible code path would have been a much larger, riskier structural
+change than this fix warranted. Instead, the lock is explicitly released
+at each of the function's existing return points (3 in
+`autonomous-agent.ts`, 2 in `autonomous-exit-check.ts` — verified by
+grepping for every `return Response.json` in each file before writing
+the fix, not assumed). An uncaught exception in code that runs OUTSIDE
+the per-user loop (which already has its own internal try/catch) before
+reaching any of these explicit release points would leave the lock held
+until its TTL expires rather than released immediately — an accepted,
+bounded tradeoff (worst case: the next scheduled invocation for that
+session type is skipped once, not indefinitely), not a silently-ignored
+gap.
+
 ### 6. No staleness check on price data across fallback sources
 
 `fetchQuotePrice` tries Yahoo Finance, then Finnhub, then Polygon, then

@@ -21,6 +21,7 @@ import {
 import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 import { estimateFees } from "@/lib/cost-reality";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
 
@@ -201,6 +202,22 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           : session === "crypto" ? "crypto_scan"
           : "morning_scan";
 
+        // Cron-overlap guard (TRADING_ENGINE_REVIEW.md Finding 5): scalp
+        // and crypto scans both fire every 30 min — if one invocation
+        // runs long, the next scheduled one for the SAME session type
+        // could start before it finishes. Locked per sessionType, not
+        // globally, since different session types running concurrently
+        // (e.g. a scalp scan and a crypto scan at the same moment) is
+        // legitimate and not the problem this guards against. 10-minute
+        // TTL: generous for normal completion, well under the 30-minute
+        // cron interval, and self-clears if this invocation crashes
+        // before reaching an explicit release below.
+        const lockKey = `autonomous-agent:${sessionType}`;
+        const lock = await tryAcquireCronLock(supabaseAdmin, lockKey, 600);
+        if (!lock.acquired) {
+          return Response.json({ ok: true, skipped: "overlap_guard", session_type: sessionType });
+        }
+
         // Auto-clear expired pauses so they take effect on next run.
         await supabaseAdmin
           .from("user_settings")
@@ -219,6 +236,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           return new Date(u.autonomous_paused_until).getTime() <= Date.now();
         });
         if (eligibleUsers.length === 0) {
+          await releaseCronLock(supabaseAdmin, lockKey);
           return Response.json({ ok: true, reason: "no_eligible_users", paused: activeUsers.length - eligibleUsers.length });
         }
 
@@ -355,6 +373,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
               payload: { catalysts: catalysts.slice(0, 15), vix: vixLevel } as never,
             });
           }
+          await releaseCronLock(supabaseAdmin, lockKey);
           return Response.json({
             ok: true, session, regime, vix: vixLevel,
             users: eligibleUsers.length, trades_opened: 0,
@@ -635,6 +654,7 @@ export const Route = createFileRoute("/api/public/autonomous-agent")({
           }
         }
 
+        await releaseCronLock(supabaseAdmin, lockKey);
         return Response.json({
           ok: true, session, regime, vix: vixLevel,
           users: eligibleUsers.length, trades_opened: totalOpened, skipped,
