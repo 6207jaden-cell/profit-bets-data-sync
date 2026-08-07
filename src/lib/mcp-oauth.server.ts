@@ -50,6 +50,26 @@ export function verifyOAuthState(receivedState: string | null | undefined, store
   return receivedState === storedState;
 }
 
+/**
+ * True if a URL string is well-formed AND uses HTTPS. Used to reject any
+ * dynamically-discovered OAuth endpoint URL that isn't HTTPS — closing
+ * the simplest sub-case of a real, honestly-scoped finding: discoverAuthServer
+ * below follows URLs extracted from a remote server's OWN response
+ * (resource_metadata, authorization_servers) with no domain allowlisting.
+ * Requiring HTTPS prevents a trivial downgrade-to-plaintext redirect. It
+ * does NOT close the full concern — a compromised or malicious HTTPS
+ * endpoint on a completely different domain than expected would still
+ * pass this check. Full domain allowlisting is real, separate, more
+ * involved follow-up work, not silently claimed as done here.
+ */
+export function isHttpsUrl(urlString: string): boolean {
+  try {
+    return new URL(urlString).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** Probes MCP server for `WWW-Authenticate` and its OAuth resource metadata. */
 export async function discoverAuthServer(mcpUrl: string): Promise<OAuthServerMetadata> {
   // 1. Try RFC9728 protected resource metadata via well-known path.
@@ -61,7 +81,12 @@ export async function discoverAuthServer(mcpUrl: string): Promise<OAuthServerMet
     const r = await fetch(prmUrl);
     if (r.ok) {
       const prm = (await r.json()) as ProtectedResourceMetadata;
-      if (prm.authorization_servers?.[0]) authServerBase = prm.authorization_servers[0];
+      // Guard against a compromised/malicious response redirecting this
+      // flow to an unexpected, non-HTTPS destination — see isHttpsUrl's
+      // own docstring for what this does and doesn't close.
+      if (prm.authorization_servers?.[0] && isHttpsUrl(prm.authorization_servers[0])) {
+        authServerBase = prm.authorization_servers[0];
+      }
     }
   } catch {
     /* ignore */
@@ -76,10 +101,11 @@ export async function discoverAuthServer(mcpUrl: string): Promise<OAuthServerMet
     });
     const www = probe.headers.get("www-authenticate") ?? "";
     const m = www.match(/resource_metadata="([^"]+)"/);
-    if (m) {
+    if (m && isHttpsUrl(m[1])) {
       const r = await fetch(m[1]);
       const prm = (await r.json()) as ProtectedResourceMetadata;
-      authServerBase = prm.authorization_servers?.[0] ?? null;
+      const candidate = prm.authorization_servers?.[0] ?? null;
+      authServerBase = candidate && isHttpsUrl(candidate) ? candidate : null;
     }
   }
 

@@ -1387,3 +1387,72 @@ a partial mitigation like Findings 5/6 were. All of `ROADMAP.md`
 MEDIUM (items 8-12) is now complete. LOW items 13/13b/14/15/16 and the
 classifier review remain open.
 
+---
+
+## 2026-08-06 — Item 13 (partial): SSRF review finds and partially fixes a real OAuth discovery gap
+
+**What changed:** New `isHttpsUrl()` (`mcp-oauth.server.ts`), applied at
+every hop of both OAuth-server-discovery implementations
+(`mcp-oauth.server.ts` and `robinhood-live.ts`, which turned out to have
+their own separate copies of the same discovery logic). Rejects any
+discovered URL that isn't HTTPS before fetching it.
+
+**Why:** A full SSRF review of the ~30 dynamic `fetch()` calls across
+this codebase found that nearly all of them use hardcoded hostnames with
+only query-parameter values varying — not the SSRF pattern. But both
+OAuth discovery chains follow a multi-hop sequence where each URL is
+extracted from the PREVIOUS response (`resource_metadata` from a header,
+then `authorization_servers[0]` from a JSON body) with no validation at
+all — not even a scheme check. The final discovered endpoints are later
+used for real OAuth token exchanges.
+
+**Honest severity assessment:** confirmed by grepping every call site
+before writing this up — both implementations are currently only ever
+invoked with a single hardcoded Robinhood URL. Exploiting this today
+requires compromising Robinhood's own infrastructure or breaking TLS,
+both a high bar. The architectural concern is that
+`mcp-oauth.server.ts`'s version takes the MCP URL as a generic
+parameter — clearly designed for future multi-server support — and that
+generality is exactly what makes domain validation matter once/if a
+less-trusted server is ever added.
+
+**What this fix does and does NOT do, stated directly:** HTTPS
+enforcement closes the simplest sub-case — a network-level attacker
+downgrading a redirect to plaintext HTTP without needing to defeat TLS
+at all. It does NOT close the full concern: a compromised or malicious
+response pointing to a different HTTPS domain than expected would still
+pass. Full domain allowlisting is real, separate follow-up work, tracked
+as `ROADMAP.md` item 13c, not silently claimed as done here.
+
+**Files changed:**
+- `src/lib/mcp-oauth.server.ts` (`isHttpsUrl` added, applied to
+  `discoverAuthServer`'s discovery chain)
+- `src/lib/robinhood-live.ts` (its separate `discoverAuthServer` updated
+  with the same guard, importing the shared `isHttpsUrl`)
+- `src/lib/__tests__/mcp-oauth.test.ts` (5 new tests, 15 total in file)
+- `project-audit/SECURITY_AUDIT.md` (new Finding 7; "Not yet reviewed"
+  section updated to reflect the real, precise scope of what was and
+  wasn't covered by this pass — not claimed as an exhaustive OWASP sweep)
+- `project-audit/ROADMAP.md` (item 13 marked partially done, new item
+  13c added for the remaining domain-allowlisting work)
+
+**Tests added:** 5 — accepts well-formed HTTPS, rejects plain HTTP (the
+exact downgrade case), rejects other schemes (`ftp:`, `file:`,
+`javascript:`) that could redirect a fetch somewhere unexpected, handles
+malformed/unparseable URL strings without throwing, and confirms only
+the scheme is checked, not path/query/fragment.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 236/236 passing (5 new)
+- Independent fresh-clone + fresh-install verification to follow, since
+  this touches authentication-adjacent request handling.
+
+**Remaining risk, stated plainly:** full domain allowlisting for the
+OAuth discovery chain remains open (item 13c). The broader "full OWASP
+Top 10 pass" this was scoped from is genuinely NOT complete — this was
+a targeted SSRF review, not an exhaustive 10-category sweep. XSS,
+insecure deserialization, and other categories remain unreviewed, stated
+directly rather than implied covered.
+

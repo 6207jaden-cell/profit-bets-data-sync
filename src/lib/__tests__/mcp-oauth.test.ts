@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateOAuthState, verifyOAuthState } from "@/lib/mcp-oauth.server";
+import { generateOAuthState, verifyOAuthState, isHttpsUrl } from "@/lib/mcp-oauth.server";
 
 describe("generateOAuthState", () => {
   it("generates a non-empty string", () => {
@@ -57,5 +57,31 @@ describe("verifyOAuthState", () => {
 
   it("is case-sensitive — a state differing only in case must not verify", () => {
     expect(verifyOAuthState("AbC123", "abc123")).toBe(false);
+  });
+});
+
+describe("isHttpsUrl", () => {
+  it("returns true for a well-formed HTTPS URL", () => {
+    expect(isHttpsUrl("https://auth.robinhood.com/oauth")).toBe(true);
+  });
+
+  it("returns false for a plain HTTP URL — the exact downgrade attack this exists to catch", () => {
+    expect(isHttpsUrl("http://auth.robinhood.com/oauth")).toBe(false);
+  });
+
+  it("returns false for other schemes that could be used to redirect a fetch unexpectedly", () => {
+    expect(isHttpsUrl("ftp://example.com")).toBe(false);
+    expect(isHttpsUrl("file:///etc/passwd")).toBe(false);
+    expect(isHttpsUrl("javascript:alert(1)")).toBe(false);
+  });
+
+  it("returns false for a malformed/unparseable URL string rather than throwing", () => {
+    expect(isHttpsUrl("not a url at all")).toBe(false);
+    expect(isHttpsUrl("")).toBe(false);
+    expect(isHttpsUrl("://missing-scheme")).toBe(false);
+  });
+
+  it("returns true regardless of path/query/fragment, only the scheme matters", () => {
+    expect(isHttpsUrl("https://example.com/deep/path?query=1#fragment")).toBe(true);
   });
 });

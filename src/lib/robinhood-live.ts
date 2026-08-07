@@ -11,6 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { isHttpsUrl } from "@/lib/mcp-oauth.server";
 
 const ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading";
 
@@ -163,11 +164,17 @@ async function discoverAuthServer() {
   });
   const wwwAuth = protectedRes.headers.get("www-authenticate") ?? "";
   const resourceMatch = wwwAuth.match(/resource_metadata="([^"]+)"/);
-  if (resourceMatch) {
+  // SECURITY_AUDIT.md Finding 7: this discovery chain follows URLs
+  // extracted from the remote server's OWN response with no domain
+  // allowlisting — requiring HTTPS at each hop closes the simplest
+  // downgrade-to-plaintext sub-case. Same fix, same honest scope
+  // limitation, as the equivalent chain in mcp-oauth.server.ts.
+  if (resourceMatch && isHttpsUrl(resourceMatch[1])) {
     const r = await fetch(resourceMatch[1]);
     const rm = (await r.json()) as { authorization_servers?: string[] };
-    if (rm.authorization_servers?.[0]) {
-      const asUrl = rm.authorization_servers[0].replace(/\/$/, "");
+    const candidate = rm.authorization_servers?.[0];
+    if (candidate && isHttpsUrl(candidate)) {
+      const asUrl = candidate.replace(/\/$/, "");
       const asMeta = await fetch(`${asUrl}/.well-known/oauth-authorization-server`);
       _meta = (await asMeta.json()) as typeof _meta;
       return _meta!;

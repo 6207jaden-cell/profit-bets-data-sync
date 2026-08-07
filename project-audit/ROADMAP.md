@@ -199,7 +199,24 @@ once enough real trade volume exists, not more infrastructure work.
 
 ## LOW / deferred, needs more foundational work first
 
-13. Full OWASP Top 10 pass, SSRF review of the many external fetch() calls.
+13. ~~Full OWASP Top 10 pass, SSRF review of the many external fetch()
+    calls.~~ **PARTIALLY DONE 2026-08-06, stated honestly.** SSRF
+    specifically reviewed: ~30 dynamic fetch calls checked, all but one
+    pattern use hardcoded hostnames (not the SSRF risk); found and
+    partially fixed a real SSRF-adjacent gap in the OAuth discovery chain
+    (Finding 7 — HTTPS enforcement added, full domain allowlisting still
+    open, see 13c below). A quick SQL-injection check also found nothing
+    concerning. This was a targeted SSRF-focused pass, NOT an exhaustive
+    10-category OWASP sweep — XSS, insecure deserialization, and other
+    categories remain genuinely unreviewed. See `SECURITY_AUDIT.md`'s
+    "Not yet reviewed" section for the precise scope of what was and
+    wasn't covered.
+13c. **Add domain allowlisting to the OAuth discovery chain**
+    (`SECURITY_AUDIT.md` Finding 7, discovered 2026-08-06). HTTPS
+    enforcement is done; verifying the discovered URL's host actually
+    matches the original `mcpUrl`'s host (or an explicit allowlist)
+    remains open — real, more involved follow-up work, low urgency given
+    today's single-hardcoded-URL usage bounds practical exploitability.
 13a. ~~**Consolidate auth-check implementations** (TD-13, discovered
     2026-08-05 during Priority 3). 5 of 15 `/api/public/*` endpoints use
     a different (but not broken) auth-check variant than the other 10 —

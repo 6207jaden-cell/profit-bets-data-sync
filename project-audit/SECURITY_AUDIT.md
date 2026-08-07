@@ -344,11 +344,71 @@ explicitly one of the change categories that rule covers.
   `market_breadth_snapshots`, `iv_history_snapshots`, `robinhood_snapshots`)
   — authenticated users can only read, service_role does all writes.
 
+## FINDING 7 — LOW: OAuth discovery chain follows unvalidated URLs from remote responses (SSRF-adjacent)
+
+**Files:** `src/lib/mcp-oauth.server.ts` (`discoverAuthServer`),
+`src/lib/robinhood-live.ts` (its own separate `discoverAuthServer`)
+
+Both OAuth-server-discovery implementations follow a multi-hop chain:
+fetch a known URL, extract a NEW url from that response
+(`resource_metadata` from a `WWW-Authenticate` header, then
+`authorization_servers[0]` from a fetched JSON body), and fetch THAT url
+next — with no validation that the extracted URL stays within an
+expected domain, or even that it uses HTTPS. The final discovered
+`token_endpoint`/`authorization_endpoint` are later used for real OAuth
+token exchanges, meaning a compromised or malicious response at any hop
+could redirect the flow (including OAuth codes/secrets) to an
+attacker-controlled destination.
+
+**Why this is LOW and not HIGH, verified:** both implementations are
+currently only ever called with a single hardcoded URL
+(`https://agent.robinhood.com/mcp/trading` / `ROBINHOOD_MCP_URL`) —
+confirmed by grepping every call site before writing this finding, not
+assumed. Exploiting this today requires either compromising Robinhood's
+own infrastructure or breaking TLS on an HTTPS connection, both a high
+bar. The concern is more architectural: `mcp-oauth.server.ts`'s version
+takes `mcpUrl` as a generic parameter (clearly designed to eventually
+support MCP servers beyond Robinhood), and that generality is exactly
+what makes domain validation matter once/if it's ever used with a
+less-trusted server.
+
+**Fix applied 2026-08-06 — partial, stated honestly:** new
+`isHttpsUrl()` (`mcp-oauth.server.ts`) rejects any discovered URL that
+isn't HTTPS, applied at every hop in both implementations. This closes
+the simplest sub-case (an attacker or compromised intermediary
+downgrading a redirect to plaintext HTTP, which would otherwise let a
+network-level attacker intercept the request without needing to defeat
+TLS at all). **This does NOT close the full concern** — a compromised or
+malicious response pointing to a DIFFERENT HTTPS domain than expected
+would still pass this check. Full domain allowlisting (verifying the
+discovered URL's host matches the original `mcpUrl`'s host, or an
+explicit allowlist) is real, more involved follow-up work, not silently
+claimed as done here — flagged as `ROADMAP.md` item 13c.
+
+5 new tests for `isHttpsUrl`: accepts well-formed HTTPS, rejects plain
+HTTP (the exact downgrade case this exists to catch), rejects other
+schemes (`ftp:`, `file:`, `javascript:`) that could redirect a fetch
+somewhere unexpected, handles malformed/unparseable URL strings without
+throwing, and confirms only the scheme is checked (path/query/fragment
+don't matter).
+
+**Status:** PARTIALLY FIXED. HTTPS enforcement done; full domain
+allowlisting remains open, tracked separately.
+
 ## Not yet reviewed in this pass
 
-- Full OWASP Top 10 checklist (only auth/authz, injection-via-Supabase-client
-  patterns, and dependency CVEs have been checked so far — XSS surface,
-  SSRF via the many external fetch() calls to Polygon/Finnhub/Binance/
-  CoinGecko, and insecure deserialization have not been explicitly audited)
+- Full OWASP Top 10 checklist — **updated 2026-08-06:** SSRF via the
+  external fetch() calls has now been reviewed (see Finding 7 above; the
+  ~30 other dynamic fetch calls across the codebase were checked and
+  found to use hardcoded hostnames with only query-parameter values
+  varying, which is not the SSRF pattern). A quick, non-exhaustive check
+  for SQL-injection-via-string-concatenation in migration files also
+  found nothing (all dynamic SQL uses Postgres `format()`'s `%L` literal
+  quoting with hardcoded, developer-controlled values, not user input).
+  Still genuinely unreviewed: XSS surface, insecure deserialization, and
+  the remaining OWASP categories beyond auth/authz/injection/dependency-
+  CVEs/SSRF already covered piecemeal across this project's various audit
+  passes — this was a targeted SSRF-focused pass, not an exhaustive
+  10-category sweep, and shouldn't be read as one.
 - Supply-chain review beyond the automated CVE scan
 - Whether Supabase Storage (if used) has appropriate bucket policies
