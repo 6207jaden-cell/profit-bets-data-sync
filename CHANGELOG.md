@@ -1456,3 +1456,87 @@ a targeted SSRF review, not an exhaustive 10-category sweep. XSS,
 insecure deserialization, and other categories remain unreviewed, stated
 directly rather than implied covered.
 
+---
+
+## 2026-08-06 — Item 13b: the last 3 Stage 3 metrics — Stage 3's original list is now genuinely complete
+
+**What changed:** `computeVolatility`, `computeAverageR`, and
+`computeRiskAttribution` (`performance-metrics.ts`) — the three items
+identified as genuinely missing when Stage 3's "complete" claim was
+corrected earlier. Wired into `PerformanceMetricsPanel` (Volatility,
+Average R) and `AttributionPanel` (Risk Attribution, alongside the
+other four attribution categories).
+
+**Why:** Closes `TECHNICAL_DEBT.md` TD-12 for real this time. Verified
+by checking every one of the 25 originally-named Stage 3 items against
+actual exported function names in the codebase before writing this
+claim — not asserted from memory, given this exact kind of claim has
+been wrong twice before in this session.
+
+**How each was built:**
+- **Volatility** — extracted a shared `computeMeanAndStdDev` helper and
+  refactored `computeSharpeRatio` to use it (verified against Sharpe's
+  existing hand-computed tests before proceeding — zero regressions),
+  then built Volatility on the same shared helper so both report the
+  identical population-stdev definition, not two subtly different ones.
+- **Average R** — `pnlPct / stopLossPct`, the standard R-multiple
+  concept. Trades with no recorded stop loss are excluded from the
+  average, with that exclusion count reported explicitly (not defaulted
+  to zero, not silently dropped).
+- **Risk Attribution** — deliberately scoped as per-symbol return
+  variance, not a full max-drawdown decomposition (which has no single
+  canonical definition across symbols) — stated as such in the code and
+  UI rather than implied to be something more than it is. Required a
+  new server function since no `pnl_pct` column exists on `paper_trades`
+  — computed from `entry_price`/`exit_price`/`side`, same formula used
+  elsewhere in this project for consistency.
+
+**A real mid-build correction, worth recording:** while wiring
+`PerformanceMetricsPanel`'s data fetch for Average R, checked the
+actual database schema before trusting a plausible-but-wrong field name
+— the trade's symbol column is `asset`, not `symbol`. Caught before it
+ever compiled incorrectly, not after. Also reorganized mid-build: Risk
+Attribution was initially wired into `PerformanceMetricsPanel` but
+belongs in `AttributionPanel` alongside the other four attribution
+categories — moved once that was clear, cleaning up the now-redundant
+computation rather than leaving dead code behind.
+
+**Files changed:**
+- `src/lib/performance-metrics.ts` (`computeMeanAndStdDev` extracted,
+  Sharpe refactored onto it, `computeVolatility`/`computeAverageR`/
+  `computeRiskAttribution` added)
+- `src/lib/__tests__/performance-metrics.test.ts` (12 new tests, 73
+  total in file)
+- `src/lib/attribution.functions.ts` (`getRiskAttribution` added)
+- `src/features/trading/components/PerformanceMetricsPanel.tsx`
+  (Volatility and Average R cards; schema field-name correction)
+- `src/features/trading/components/AttributionPanel.tsx` (new Risk
+  Attribution section)
+- `project-audit/TECHNICAL_DEBT.md` (TD-12 finally, fully resolved)
+- `project-audit/ROADMAP.md` (item 13b marked done)
+
+**Tests added:** 12 — Volatility's std dev cross-checked directly
+against Sharpe's own internal computation via the shared helper (not
+just independently re-derived, an actual consistency check between the
+two), zero-variance handling, and the "fewer than 2 trades returns null"
+boundary; Average R's hand-computed multi-trade average, explicit
+exclusion-count reporting for missing/non-positive stop losses, the
+exact R = -1 boundary case (a trade that hit its stop exactly), and
+all-excluded returning null (not zero or NaN); Risk Attribution's
+hand-computed per-symbol std dev and average, sort-by-riskiest-first
+ordering, and null-not-zero handling for single-trade symbols.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 248/248 passing (12 new)
+- Independent fresh-clone + fresh-install verification to follow.
+
+**Where this leaves Stage 3:** genuinely, fully complete — all 25
+originally-named items built, tested, and (pending the fresh-clone
+verification that follows) independently verified. The remaining open
+items from this whole audit pass are: item 13's non-SSRF OWASP
+categories (XSS, insecure deserialization — genuinely unreviewed), item
+13c (OAuth domain allowlisting), item 14 (bundle size), items 15-16
+(blocked on live access), and the news/sentiment classifier review.
+

@@ -7,6 +7,7 @@ import {
   computeReturnDistribution, computeHoldingTimeDistribution, type HoldingTimeInput,
   computeRollingBenchmarkMetrics,
   computeRegimePerformance, type TradeWithRegime,
+  computeVolatility, computeAverageR, type TradeWithRisk, computeRiskAttribution,
   type TradeReturn,
 } from "@/lib/performance-metrics";
 
@@ -550,5 +551,117 @@ describe("computeRegimePerformance", () => {
     const result = computeRegimePerformance([...belowFloor, ...atFloor]);
     expect(result.find((r) => r.regime === "bull")!.hasMinimumEvidence).toBe(false);
     expect(result.find((r) => r.regime === "bear")!.hasMinimumEvidence).toBe(true);
+  });
+});
+
+describe("computeVolatility", () => {
+  it("computes the correct hand-verified population standard deviation", () => {
+    // Returns [10, -10, 10, -10]: mean=0, variance=(100+100+100+100)/4=100, stdDev=10
+    const trades: TradeReturn[] = [10, -10, 10, -10].map((pnlPct, i) => ({ pnlPct, closedAt: `2026-01-0${i + 1}T00:00:00Z` }));
+    const result = computeVolatility(trades);
+    expect(result).not.toBeNull();
+    expect(result!.stdDevPct).toBeCloseTo(10, 4);
+    expect(result!.sampleSize).toBe(4);
+  });
+
+  it("returns null for fewer than 2 trades — no variance is computable from a single point", () => {
+    expect(computeVolatility([{ pnlPct: 5, closedAt: "2026-01-01T00:00:00Z" }])).toBeNull();
+    expect(computeVolatility([])).toBeNull();
+  });
+
+  it("returns exactly 0 std dev for perfectly identical returns, not null", () => {
+    const trades: TradeReturn[] = [5, 5, 5].map((pnlPct, i) => ({ pnlPct, closedAt: `2026-01-0${i + 1}T00:00:00Z` }));
+    const result = computeVolatility(trades)!;
+    expect(result.stdDevPct).toBe(0);
+  });
+
+  it("uses the same population-stdev definition as computeSharpeRatio — cross-checked directly against Sharpe's own internal computation, not just independently re-derived", () => {
+    // For this fixture, Sharpe's std (used as its denominator) must equal
+    // computeVolatility's stdDevPct exactly — same shared helper underneath.
+    const trades: TradeReturn[] = [8, -3, 12, -6, 4].map((pnlPct, i) => ({ pnlPct, closedAt: `2026-01-0${i + 1}T00:00:00Z` }));
+    const vol = computeVolatility(trades)!;
+    const sharpe = computeSharpeRatio(trades)!;
+    const mean = trades.reduce((s, t) => s + t.pnlPct, 0) / trades.length;
+    const impliedStdFromSharpe = mean / sharpe.raw;
+    expect(vol.stdDevPct).toBeCloseTo(impliedStdFromSharpe, 3);
+  });
+});
+
+describe("computeAverageR", () => {
+  it("computes the correct hand-verified average R-multiple", () => {
+    // R = pnlPct / stopLossPct: 10/5=2, -5/5=-1, 15/3=5 -> average = (2-1+5)/3 = 2
+    const trades: TradeWithRisk[] = [
+      { pnlPct: 10, stopLossPct: 5 },
+      { pnlPct: -5, stopLossPct: 5 },
+      { pnlPct: 15, stopLossPct: 3 },
+    ];
+    const result = computeAverageR(trades);
+    expect(result.averageR).toBeCloseTo(2, 3);
+    expect(result.sampleSize).toBe(3);
+    expect(result.excludedNoStopLoss).toBe(0);
+  });
+
+  it("excludes trades with no recorded stop loss and reports the exclusion count explicitly, rather than defaulting to zero or silently dropping", () => {
+    const trades: TradeWithRisk[] = [
+      { pnlPct: 10, stopLossPct: 5 },
+      { pnlPct: -5, stopLossPct: null },
+      { pnlPct: 15, stopLossPct: 0 }, // non-positive, also excluded
+    ];
+    const result = computeAverageR(trades);
+    expect(result.sampleSize).toBe(1);
+    expect(result.excludedNoStopLoss).toBe(2);
+    expect(result.averageR).toBeCloseTo(2, 3); // only the first trade: 10/5=2
+  });
+
+  it("returns null averageR (not zero or NaN) when every trade lacks a stop loss", () => {
+    const trades: TradeWithRisk[] = [{ pnlPct: 10, stopLossPct: null }];
+    const result = computeAverageR(trades);
+    expect(result.averageR).toBeNull();
+    expect(result.excludedNoStopLoss).toBe(1);
+  });
+
+  it("a losing trade that exactly hit its stop loss produces R = -1 exactly", () => {
+    const trades: TradeWithRisk[] = [{ pnlPct: -5, stopLossPct: 5 }];
+    const result = computeAverageR(trades);
+    expect(result.averageR).toBe(-1);
+  });
+});
+
+describe("computeRiskAttribution", () => {
+  it("computes the correct hand-verified per-symbol return std dev and average", () => {
+    // Symbol A: [10,-10,10,-10] -> mean=0, stdDev=10 (highly volatile)
+    // Symbol B: [5,5,5,5] -> mean=5, stdDev=0 (zero volatility)
+    const trades = [
+      { symbol: "A", pnlPct: 10 }, { symbol: "A", pnlPct: -10 }, { symbol: "A", pnlPct: 10 }, { symbol: "A", pnlPct: -10 },
+      { symbol: "B", pnlPct: 5 }, { symbol: "B", pnlPct: 5 }, { symbol: "B", pnlPct: 5 }, { symbol: "B", pnlPct: 5 },
+    ];
+    const result = computeRiskAttribution(trades);
+    const a = result.find((r) => r.symbol === "A")!;
+    const b = result.find((r) => r.symbol === "B")!;
+    expect(a.returnStdDevPct).toBeCloseTo(10, 3);
+    expect(a.avgReturnPct).toBeCloseTo(0, 3);
+    expect(b.returnStdDevPct).toBe(0);
+    expect(b.avgReturnPct).toBeCloseTo(5, 3);
+  });
+
+  it("sorts by return std dev descending — the riskiest (most volatile) symbol first", () => {
+    const trades = [
+      { symbol: "LOW_VOL", pnlPct: 5 }, { symbol: "LOW_VOL", pnlPct: 5 },
+      { symbol: "HIGH_VOL", pnlPct: 20 }, { symbol: "HIGH_VOL", pnlPct: -20 },
+    ];
+    const result = computeRiskAttribution(trades);
+    expect(result[0].symbol).toBe("HIGH_VOL");
+    expect(result[1].symbol).toBe("LOW_VOL");
+  });
+
+  it("returns null returnStdDevPct (not zero) for a symbol with only 1 trade — no variance is computable from a single point", () => {
+    const trades = [{ symbol: "SOLO", pnlPct: 10 }];
+    const result = computeRiskAttribution(trades);
+    expect(result[0].returnStdDevPct).toBeNull();
+    expect(result[0].tradeCount).toBe(1);
+  });
+
+  it("returns an empty array for no trades", () => {
+    expect(computeRiskAttribution([])).toEqual([]);
   });
 });

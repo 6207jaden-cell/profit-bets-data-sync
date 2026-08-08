@@ -376,6 +376,41 @@ correction above — TD-12 is LARGELY resolved, not fully.
 standalone Volatility, and Risk Attribution remain genuinely open, not
 blocking, but real and not yet scheduled.
 
+**FINAL UPDATE (2026-08-06, same day) — the three gaps above are now
+genuinely built.** All three items named in the correction above are
+now real, tested code, not just tracked as open:
+
+- **`computeVolatility`** (`performance-metrics.ts`) — population std
+  dev of per-trade returns, plus the same annualization convention
+  Sharpe uses. Extracted a shared `computeMeanAndStdDev` helper reused
+  by BOTH functions (refactored Sharpe onto it, verified against
+  Sharpe's existing hand-computed tests before proceeding — zero
+  regressions). New card in `PerformanceMetricsPanel`.
+- **`computeAverageR`** (`performance-metrics.ts`) — `pnlPct /
+  stopLossPct`, the standard R-multiple concept. Trades with no
+  recorded stop loss are excluded, with that exclusion count reported
+  explicitly rather than defaulted to zero or silently dropped. New
+  card in `PerformanceMetricsPanel`.
+- **`computeRiskAttribution`** (`performance-metrics.ts`) — the 5th
+  originally-requested attribution category. Deliberately scoped as
+  per-symbol return-variance (not a full max-drawdown decomposition,
+  which doesn't have one canonical definition across symbols) — stated
+  as such rather than implied to be something it isn't. New
+  `getRiskAttribution` server function, new section in
+  `AttributionPanel` alongside the other four attribution categories.
+
+12 new tests across all three, all hand-verified: Volatility's std dev
+cross-checked directly against Sharpe's own internal computation (not
+just independently re-derived), Average R's exclusion-count reporting
+and exact -1 boundary case (a trade that hit its stop exactly), and
+Risk Attribution's sort-by-riskiest-first ordering and null-not-zero
+handling for single-trade symbols.
+
+**Status: TD-12 is now genuinely, fully resolved.** All items from the
+original 24-item Stage 3 request are built, tested, and (pending the
+fresh-clone verification that follows this entry) independently
+verified.
+
 ---
 
 ## TD-13 — Two different auth-check implementations across `/api/public/*` endpoints

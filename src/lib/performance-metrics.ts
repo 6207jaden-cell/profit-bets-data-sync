@@ -44,12 +44,24 @@ export type SharpeResult = {
  * are too few trades or too short a date range to estimate a frequency
  * meaningfully (fewer than 2 trades, or all trades on the same timestamp).
  */
+/**
+ * Population mean and standard deviation of a set of returns. Shared by
+ * computeSharpeRatio and computeVolatility (added later in this file) so
+ * this calculation has a single source of truth rather than being
+ * duplicated — the same DRY instinct applied elsewhere in this project
+ * (shared instrument lists, shared auth utilities) after finding real
+ * bugs caused by near-duplicate logic drifting apart.
+ */
+function computeMeanAndStdDev(returns: number[]): { mean: number; stdDev: number } {
+  const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
+  return { mean, stdDev: Math.sqrt(variance) };
+}
+
 export function computeSharpeRatio(trades: TradeReturn[], riskFreeRatePct = 0): SharpeResult | null {
   if (trades.length < 2) return null;
   const returns = trades.map((t) => t.pnlPct);
-  const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
-  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
-  const std = Math.sqrt(variance);
+  const { mean, stdDev: std } = computeMeanAndStdDev(returns);
   if (std === 0) return null; // undefined — no variance to divide by
 
   const raw = (mean - riskFreeRatePct) / std;
@@ -556,4 +568,112 @@ export function computeRegimePerformance(trades: TradeWithRegime[]): RegimePerfo
       hasMinimumEvidence: stats.count >= MIN_REGIME_SAMPLE,
     }))
     .sort((a, b) => b.tradeCount - a.tradeCount);
+}
+
+// ── Volatility (standalone) ───────────────────────────────────────────────
+// Item 13b (TECHNICAL_DEBT.md TD-12 correction, 2026-08-06): standard
+// deviation of returns already exists INTERNALLY inside the Sharpe/Sortino
+// math above, but was never surfaced as its own reported number anywhere.
+// Reuses computeMeanAndStdDev directly — same population-stdev definition
+// Sharpe uses, not a second, differently-defined "volatility."
+
+export type VolatilityResult = {
+  /** Population standard deviation of per-trade returns, in percentage points. */
+  stdDevPct: number;
+  /** Same annualization convention as computeSharpeRatio (sqrt(tradesPerYear) scaling) — null if the trade span can't be determined. */
+  annualizedStdDevPct: number | null;
+  sampleSize: number;
+};
+
+export function computeVolatility(trades: TradeReturn[]): VolatilityResult | null {
+  if (trades.length < 2) return null;
+  const returns = trades.map((t) => t.pnlPct);
+  const { stdDev } = computeMeanAndStdDev(returns);
+
+  const sorted = [...trades].sort((a, b) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime());
+  const spanMs = new Date(sorted[sorted.length - 1].closedAt).getTime() - new Date(sorted[0].closedAt).getTime();
+  const spanDays = spanMs / 86_400_000;
+  let annualizedStdDevPct: number | null = null;
+  if (spanDays > 0) {
+    const tradesPerYear = (trades.length / spanDays) * 365;
+    annualizedStdDevPct = stdDev * Math.sqrt(tradesPerYear);
+  }
+
+  return {
+    stdDevPct: Number(stdDev.toFixed(4)),
+    annualizedStdDevPct: annualizedStdDevPct != null ? Number(annualizedStdDevPct.toFixed(4)) : null,
+    sampleSize: trades.length,
+  };
+}
+
+// ── Average R ────────────────────────────────────────────────────────────
+// Item 13b: return normalized by initial risk taken (the standard trading
+// "R-multiple" concept), not raw percentage return. R = pnlPct / stopLossPct
+// — since both are already percentage-of-entry-price measures, entry price
+// cancels out and this holds regardless of direction, AS LONG AS pnlPct is
+// correctly signed (positive = win) and stopLossPct is a positive distance,
+// which is how this system already stores it. A trade with no recorded
+// stop loss can't be normalized this way and is excluded, not defaulted to
+// zero or dropped silently — the exclusion count is reported explicitly.
+
+export type TradeWithRisk = { pnlPct: number; stopLossPct: number | null };
+
+export type AverageRResult = {
+  averageR: number | null;
+  sampleSize: number;
+  /** Trades excluded because they had no recorded stop loss (or a non-positive one) — reported explicitly, not silently dropped. */
+  excludedNoStopLoss: number;
+};
+
+export function computeAverageR(trades: TradeWithRisk[]): AverageRResult {
+  const valid = trades.filter((t) => t.stopLossPct != null && t.stopLossPct > 0);
+  const excludedNoStopLoss = trades.length - valid.length;
+  if (valid.length === 0) return { averageR: null, sampleSize: 0, excludedNoStopLoss };
+
+  const rValues = valid.map((t) => t.pnlPct / t.stopLossPct!);
+  const averageR = rValues.reduce((s, r) => s + r, 0) / rValues.length;
+  return { averageR: Number(averageR.toFixed(3)), sampleSize: valid.length, excludedNoStopLoss };
+}
+
+// ── Risk Attribution ────────────────────────────────────────────────────
+// Item 13b: the 5th of the originally-requested attribution categories
+// (Portfolio/Signal/Claude/Learning were built in Stage 3; this one wasn't).
+// Answers a genuinely different question than Portfolio Attribution: not
+// "which symbols made the most money" but "which symbols are the most
+// VOLATILE/unstable contributors" — measured as the population standard
+// deviation of each symbol's own returns. True max-drawdown attribution
+// would require decomposing a sequence-dependent, path-dependent portfolio
+// statistic across symbols, which doesn't have a single canonical
+// definition — this per-symbol return-variance measure is the tractable,
+// well-defined interpretation of "risk attribution," stated as such rather
+// than implied to be a full drawdown decomposition.
+
+export type RiskAttributionRow = {
+  symbol: string;
+  tradeCount: number;
+  /** Population std dev of this symbol's own trade returns — null if fewer than 2 trades (no variance is computable from a single point). */
+  returnStdDevPct: number | null;
+  avgReturnPct: number;
+};
+
+export function computeRiskAttribution(trades: Array<{ symbol: string; pnlPct: number }>): RiskAttributionRow[] {
+  const bySymbol = new Map<string, number[]>();
+  for (const t of trades) {
+    const arr = bySymbol.get(t.symbol) ?? [];
+    arr.push(t.pnlPct);
+    bySymbol.set(t.symbol, arr);
+  }
+
+  return Array.from(bySymbol.entries())
+    .map(([symbol, returns]) => {
+      const avgReturnPct = returns.reduce((s, r) => s + r, 0) / returns.length;
+      const returnStdDevPct = returns.length >= 2 ? computeMeanAndStdDev(returns).stdDev : null;
+      return {
+        symbol,
+        tradeCount: returns.length,
+        returnStdDevPct: returnStdDevPct != null ? Number(returnStdDevPct.toFixed(3)) : null,
+        avgReturnPct: Number(avgReturnPct.toFixed(3)),
+      };
+    })
+    .sort((a, b) => (b.returnStdDevPct ?? -1) - (a.returnStdDevPct ?? -1)); // riskiest (most volatile) first
 }

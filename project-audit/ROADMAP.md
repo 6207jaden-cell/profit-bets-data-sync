@@ -224,14 +224,17 @@ once enough real trade volume exists, not more infrastructure work.
     utility from `src/lib/api-auth.ts`.~~ **DONE 2026-08-06.** All 15
     endpoints now use the same shared, tested utility. See
     `TECHNICAL_DEBT.md` TD-13.
-13b. **Complete the remaining Stage 3 analytics items** (discovered
+13b. ~~**Complete the remaining Stage 3 analytics items** (discovered
     2026-08-06 — previously miscounted as complete, see `TECHNICAL_DEBT.md`
     TD-12 correction): Average R (risk-normalized return, not raw %),
     standalone Volatility as its own reported figure (currently only
     exists internally inside the Sharpe/Sortino calculation), and Risk
     Attribution (which positions/signals contribute most to drawdown or
     variance, not profit — the 5th originally-requested attribution
-    category, distinct from the 4 that were built).
+    category, distinct from the 4 that were built).~~ **DONE 2026-08-06.**
+    All three built and tested (12 new tests) — see `TECHNICAL_DEBT.md`
+    TD-12's final update. **Stage 3's original 24-item list is now
+    genuinely, fully complete.**
 14. Bundle size / code-splitting analysis.
 15. Real performance profiling (latency, memory, CPU) — needs actual
     running-system access, not static review.

@@ -12,6 +12,7 @@ import {
   computeProfitFactor, computeExpectancy, computeWinRateWithConfidenceInterval,
   computeRollingMetrics, computeRollingTrend,
   computeReturnDistribution, computeHoldingTimeDistribution,
+  computeVolatility, computeAverageR, type TradeWithRisk,
   type TradeReturn,
 } from "@/lib/performance-metrics";
 import { getBenchmarkComparison } from "@/lib/benchmark-comparison.functions";
@@ -24,6 +25,7 @@ type ClosedTrade = {
   exit_price: number | null;
   closed_at: string | null;
   created_at: string;
+  stop_loss_pct: number | null;
 };
 
 function pnlPct(t: ClosedTrade): number | null {
@@ -71,7 +73,7 @@ export function PerformanceMetricsPanel() {
     queryFn: async () => {
       const { data } = await supabase
         .from("paper_trades")
-        .select("side, quantity, entry_price, exit_price, closed_at, created_at")
+        .select("side, quantity, entry_price, exit_price, closed_at, created_at, stop_loss_pct")
         .eq("user_id", userId!)
         .eq("is_open", false)
         .not("exit_price", "is", null)
@@ -97,11 +99,17 @@ export function PerformanceMetricsPanel() {
   const metrics = useMemo(() => {
     if (!trades || trades.length === 0) return null;
 
-    const tradeReturns: TradeReturn[] = trades
-      .map((t) => ({ pnlPct: pnlPct(t), closedAt: t.closed_at ?? t.created_at }))
-      .filter((t): t is TradeReturn => t.pnlPct != null);
+    // Filter once, keep all needed fields together — avoids any risk of
+    // index misalignment between tradeReturns and the risk/symbol-specific
+    // arrays derived from the same underlying set of valid closed trades.
+    const validTrades = trades
+      .map((t) => ({ pnlPct: pnlPct(t), closedAt: t.closed_at ?? t.created_at, stopLossPct: t.stop_loss_pct }))
+      .filter((t): t is { pnlPct: number; closedAt: string; stopLossPct: number | null } => t.pnlPct != null);
 
-    if (tradeReturns.length === 0) return null;
+    if (validTrades.length === 0) return null;
+
+    const tradeReturns: TradeReturn[] = validTrades.map((t) => ({ pnlPct: t.pnlPct, closedAt: t.closedAt }));
+    const tradesWithRisk: TradeWithRisk[] = validTrades.map((t) => ({ pnlPct: t.pnlPct, stopLossPct: t.stopLossPct }));
 
     const pnls = trades.map(pnlDollar);
     const wins = tradeReturns.filter((t) => t.pnlPct > 0).length;
@@ -118,6 +126,9 @@ export function PerformanceMetricsPanel() {
       closedTradesWithDates.map((t) => ({ createdAt: t.created_at, closedAt: t.closed_at! })),
     );
 
+    const volatility = computeVolatility(tradeReturns);
+    const averageR = computeAverageR(tradesWithRisk);
+
     return {
       sampleSize: tradeReturns.length,
       sharpe: computeSharpeRatio(tradeReturns),
@@ -130,6 +141,8 @@ export function PerformanceMetricsPanel() {
       rollingTrend,
       returnDistribution,
       holdingTimeDistribution,
+      volatility,
+      averageR,
     };
   }, [trades]);
 
@@ -196,6 +209,18 @@ export function PerformanceMetricsPanel() {
               value={metrics.winRate ? `${(metrics.winRate.winRate * 100).toFixed(0)}%` : "—"}
               sublabel={metrics.winRate ? `95% CI: ${(metrics.winRate.ciLower * 100).toFixed(0)}–${(metrics.winRate.ciUpper * 100).toFixed(0)}%` : ""}
               tone="neutral"
+            />
+            <MetricCard
+              label="Volatility"
+              value={metrics.volatility ? `${metrics.volatility.stdDevPct.toFixed(2)}%` : "—"}
+              sublabel="std dev of returns, per trade"
+              tone="neutral"
+            />
+            <MetricCard
+              label="Average R"
+              value={metrics.averageR.averageR != null ? `${metrics.averageR.averageR >= 0 ? "+" : ""}${metrics.averageR.averageR.toFixed(2)}R` : "—"}
+              sublabel={metrics.averageR.excludedNoStopLoss > 0 ? `${metrics.averageR.excludedNoStopLoss} trade${metrics.averageR.excludedNoStopLoss !== 1 ? "s" : ""} excluded, no stop recorded` : "return ÷ initial risk"}
+              tone={metrics.averageR.averageR != null && metrics.averageR.averageR > 0 ? "positive" : metrics.averageR.averageR != null && metrics.averageR.averageR < 0 ? "negative" : "neutral"}
             />
           </div>
 

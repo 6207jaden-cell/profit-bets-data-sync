@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useProfile } from "@/hooks/use-profile";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { GitBranch, Brain, Sparkles } from "lucide-react";
+import { GitBranch, Brain, Sparkles, ShieldAlert } from "lucide-react";
 import { LoadingState } from "@/components/StateViews";
-import { getSignalAttribution, getClaudeAttribution, getLearningAttribution, getPortfolioAttribution } from "@/lib/attribution.functions";
+import { getSignalAttribution, getClaudeAttribution, getLearningAttribution, getPortfolioAttribution, getRiskAttribution } from "@/lib/attribution.functions";
 
 export function AttributionPanel() {
   const { userId } = useProfile();
@@ -35,6 +35,13 @@ export function AttributionPanel() {
     enabled: !!userId,
     staleTime: 300_000,
     queryFn: async () => getPortfolioAttribution(),
+  });
+
+  const { data: riskAttr, isLoading: riskLoading } = useQuery({
+    queryKey: ["risk-attribution", userId],
+    enabled: !!userId,
+    staleTime: 300_000,
+    queryFn: async () => getRiskAttribution(),
   });
 
   return (
@@ -230,6 +237,50 @@ export function AttributionPanel() {
               </div>
             </Card>
           </div>
+        )}
+      </div>
+
+      {/* Risk Attribution — the 5th originally-requested attribution
+          category. Deliberately answers a DIFFERENT question than
+          Portfolio Attribution above: not which symbols made money, but
+          which symbols are the most VOLATILE (highest return std dev) —
+          a genuinely different, risk-focused decomposition. */}
+      <div className="mb-2">
+        <h3 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+          <ShieldAlert className="h-3 w-3" /> Risk Attribution (by Symbol)
+        </h3>
+        {riskLoading ? (
+          <LoadingState message="Loading risk attribution…" />
+        ) : !riskAttr || riskAttr.length === 0 ? (
+          <Card className="p-4 border-border/60 bg-card text-xs text-muted-foreground text-center">
+            No closed trades yet — this fills in as trades close.
+          </Card>
+        ) : (
+          <Card className="border-border/60 bg-card overflow-hidden">
+            <div className="hidden sm:grid grid-cols-[1fr_90px_90px_70px] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 font-medium">
+              <span>Symbol</span>
+              <span className="text-right">Return Std Dev</span>
+              <span className="text-right">Avg Return</span>
+              <span className="text-right">Trades</span>
+            </div>
+            <div className="divide-y divide-border/30">
+              {riskAttr.slice(0, 8).map((r) => (
+                <div key={r.symbol} className="grid grid-cols-2 sm:grid-cols-[1fr_90px_90px_70px] gap-1 px-4 py-2 items-center">
+                  <span className="text-sm font-medium col-span-2 sm:col-span-1">{r.symbol}</span>
+                  <span className="text-right text-xs font-mono text-amber-400">
+                    {r.returnStdDevPct != null ? `${r.returnStdDevPct.toFixed(2)}%` : "—"}
+                  </span>
+                  <span className={cn("text-right text-xs font-mono", r.avgReturnPct >= 0 ? "text-emerald-400" : "text-red-400")}>
+                    {r.avgReturnPct >= 0 ? "+" : ""}{r.avgReturnPct.toFixed(2)}%
+                  </span>
+                  <span className="text-right text-xs font-mono text-muted-foreground">{r.tradeCount}</span>
+                </div>
+              ))}
+            </div>
+            <div className="px-4 py-2 border-t border-border/50 text-[9px] text-muted-foreground">
+              Return std dev per symbol — the most volatile contributors, not the most profitable ones (see Portfolio Attribution above for that). A symbol with only 1 trade shows "—" since variance isn't computable from a single point.
+            </div>
+          </Card>
         )}
       </div>
     </section>
