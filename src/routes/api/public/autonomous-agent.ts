@@ -8,6 +8,7 @@ import {
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 import { ALL_PROPOSABLE_INSTRUMENT_TYPES, isOptionsInstrumentType } from "@/lib/instruments";
+import { filterValidAiTrades } from "@/lib/ai-response-validation";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, updateSignalWeights, type SignalWeightMap } from "@/lib/signal-learning";
@@ -1394,6 +1395,13 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     });
     return { opened: 0, skipped: "ai_error" };
   }
+  // Item 13 fix: JSON.parse(...) as AiResponse in callGateway is a type
+  // ASSERTION, not runtime validation — filter out any malformed trade
+  // proposal here, before anything downstream dereferences its fields
+  // unguarded (see ai-response-validation.ts for full reasoning). Skips
+  // only the malformed entries; valid trades in the same response still
+  // process normally.
+  ai.trades = filterValidAiTrades(ai.trades ?? []);
 
   // Experiment 1 (Claude Value Test) — pure observation, never affects
   // trading. Logs every candidate shown to Claude alongside its

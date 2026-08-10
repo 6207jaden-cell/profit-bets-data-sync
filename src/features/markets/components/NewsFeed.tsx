@@ -5,6 +5,7 @@ import { Newspaper, ExternalLink, RefreshCw, TrendingUp, Bitcoin } from "lucide-
 import { Card } from "@/components/ui/card";
 import { getMarketNews } from "@/lib/market.functions";
 import { cn } from "@/lib/utils";
+import { safeExternalUrl } from "@/lib/url-safety";
 
 type Filter = "all" | "stocks" | "crypto";
 
@@ -76,14 +77,14 @@ export function NewsFeed() {
           {articles.map((a) => (
             <a
               key={a.id}
-              href={a.url}
+              href={safeExternalUrl(a.url)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex gap-3 bg-secondary/30 rounded-lg border border-border p-3 hover:border-primary/40 transition-all group"
             >
               {a.image && (
                 <img
-                  src={a.image}
+                  src={safeExternalUrl(a.image)}
                   alt=""
                   className="w-16 h-16 rounded-md object-cover flex-shrink-0"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}

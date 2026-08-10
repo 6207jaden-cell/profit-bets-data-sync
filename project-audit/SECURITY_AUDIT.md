@@ -405,10 +405,125 @@ allowlisting remains open, tracked separately.
   for SQL-injection-via-string-concatenation in migration files also
   found nothing (all dynamic SQL uses Postgres `format()`'s `%L` literal
   quoting with hardcoded, developer-controlled values, not user input).
-  Still genuinely unreviewed: XSS surface, insecure deserialization, and
-  the remaining OWASP categories beyond auth/authz/injection/dependency-
-  CVEs/SSRF already covered piecemeal across this project's various audit
-  passes — this was a targeted SSRF-focused pass, not an exhaustive
-  10-category sweep, and shouldn't be read as one.
+  **XSS and insecure deserialization have now ALSO been reviewed** (see
+  Findings 8 and 9 below). Still genuinely unreviewed beyond this:
+  the remaining OWASP categories not covered piecemeal across this
+  project's various audit passes — this was still a targeted pass on
+  specific categories, not an exhaustive 10-category sweep, and
+  shouldn't be read as one.
+
+## FINDING 8 — LOW: `href`/`src` rendered directly from untrusted third-party API responses, no scheme validation
+
+**Files:** `src/features/markets/components/NewsFeed.tsx`,
+`src/features/trading/components/CatalystsPanel.tsx`
+
+Both render an anchor `href` (and `NewsFeed.tsx` an `<img src>`) taken
+directly from a Finnhub news API response field (`url`/`latestUrl`/
+`image`), with no validation that the value is actually an http(s) URL.
+A `javascript:` URI in a malicious or compromised upstream response
+would execute if a user clicked the resulting link.
+
+**Checked before treating this as urgent:** every internally-constructed
+URL in this codebase (`robinhood-links.ts`) always starts from a
+hardcoded `https://robinhood.com/...` prefix with only a symbol
+interpolated into the PATH, never the scheme — those call sites (in
+`MarketSignalCard.tsx`, `AssetDetailDrawer.tsx`, `OptionsFlowPanel.tsx`)
+are not vulnerable to this and were confirmed clean, not just assumed
+safe. Only the two files above render a URL whose value originates
+entirely from a third-party API response.
+
+**Fixed 2026-08-06.** New `safeExternalUrl()` (`src/lib/url-safety.ts`)
+— returns the URL unchanged if it's well-formed http(s), or `"#"` (a
+safe, inert href) otherwise. Applied at both sites. 7 tests: accepts
+valid http/https, rejects `javascript:`/`data:`/`vbscript:`/`file:`
+schemes explicitly, handles null/undefined/malformed input without
+throwing, and confirms path/query/fragment are preserved on valid URLs.
+
+**Also found during this check, not itself exploitable, worth recording
+plainly rather than silently noting and moving on:**
+`src/components/ui/chart.tsx`'s `ChartStyle` component uses
+`dangerouslySetInnerHTML` to inject CSS custom properties built from a
+`config` prop's color values. This is standard shadcn/ui component-
+library boilerplate (not custom app code) and is currently entirely
+unused — confirmed via grep that `ChartContainer` (the only component
+that renders `ChartStyle`) is never imported anywhere in this codebase's
+actual feature code. Zero live risk today since the code path is
+unreachable. Not removed — it's third-party library boilerplate, not
+this project's own code, and deleting shared UI-library scaffolding
+that might be used later isn't this review's call to make unilaterally.
+Worth being aware of if `ChartContainer` is ever wired up in the future:
+`config` values would need to come from developer-controlled chart
+definitions, never directly from external/API data, if that happens.
+
+## FINDING 9 — LOW/MEDIUM: AI gateway JSON response validated by type assertion only, not at runtime
+
+**File:** `src/routes/api/public/autonomous-agent.ts` (`callGateway`)
+
+`JSON.parse(cleaned) as AiResponse` is a TypeScript type ASSERTION, not
+runtime validation. If the model ever returns a malformed trade proposal
+— a missing field, wrong type, or unexpected shape — nothing catches it
+before downstream code dereferences it unguarded (e.g.
+`t.symbol.toUpperCase()` on a `symbol` that could be `null`).
+
+**Checked the actual blast radius before assessing severity:** the
+trade-processing loop lives inside `runForUser()`, and the per-user call
+site already wraps `runForUser()` in its own try/catch — confirmed by
+reading the surrounding code, not assumed. So today, an uncaught throw
+here is contained to one user's one scan cycle (logged, skipped, retried
+at the next scheduled run), not a wider outage. Still a real gap worth
+closing: a single malformed trade proposal currently aborts that
+user's ENTIRE cycle, including any OTHER, perfectly valid trades in the
+same AI response.
+
+**Fixed 2026-08-06.** New `isValidAiTrade()`/`filterValidAiTrades()`
+(`src/lib/ai-response-validation.ts`) — a runtime type guard checking
+every field the trade-processing pipeline actually dereferences without
+a null-check (symbol, direction, instrument, conviction,
+allocation_pct, stop_loss_pct, take_profit_pct, hold_duration,
+rationale), deliberately scoped to what would otherwise throw or
+silently corrupt downstream math (e.g. a non-positive `stop_loss_pct`
+would make the newly-built Average R calculation divide incorrectly).
+Wired into `autonomous-agent.ts` immediately after the AI response is
+received — malformed entries are filtered out and logged, valid entries
+in the same response still process normally. 15 tests, including the
+specific case this exists to fix: one malformed trade in a batch no
+longer prevents the other valid trades from being kept.
+
+**Why LOW/MEDIUM, not HIGH:** this is a correctness/reliability gap, not
+a security vulnerability in the traditional sense — `JSON.parse` itself
+doesn't execute arbitrary code (unlike deserialization vulnerabilities
+in other languages/formats), and the AI model isn't an untrusted
+external attacker in the usual threat-model sense. The real risk was a
+single bad model response degrading that cycle's trading behavior more
+than necessary, which is now fixed.
+
+## FINDING 10 — LOW/MEDIUM: no security headers configured anywhere
+
+Checked directly (not assumed): grepped the entire codebase and every
+config file for `Content-Security-Policy`, `X-Frame-Options`,
+`Strict-Transport-Security`, `X-Content-Type-Options` — zero matches.
+The auto-generated Cloudflare Pages `_headers` output only contained a
+cache-control rule for static assets, nothing security-related.
+
+**Fixed 2026-08-06 — partial, deliberately scoped conservatively.**
+New `public/_headers` source file (Cloudflare Pages' documented
+convention — merges with the auto-generated cache-control rule at build
+time, verified directly by rebuilding and inspecting the actual output,
+not assumed to work): `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`,
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`. All
+four are standard, well-understood, zero-functional-risk headers that
+only add hardening, never change application behavior.
+
+**Deliberately NOT added: a Content-Security-Policy.** A CSP is the
+single highest-value security header for XSS defense in depth, but
+getting its directives wrong (e.g., blocking a legitimate inline
+script/style the framework or a UI library needs) could genuinely break
+the live app — and unlike the four headers above, this isn't something
+confidently verifiable without live browser testing this process
+doesn't have access to. Deferred deliberately, the same reasoning
+already applied to item 13c (OAuth domain allowlisting): better to leave
+a real gap open and documented than guess at a fix that risks breaking
+a working feature. Tracked as `ROADMAP.md` item 13e.
 - Supply-chain review beyond the automated CVE scan
 - Whether Supabase Storage (if used) has appropriate bucket policies

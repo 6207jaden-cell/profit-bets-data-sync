@@ -1632,3 +1632,114 @@ doesn't have. An incorrect assumption risks breaking a currently-working
 feature. Marked as deliberately deferred in `ROADMAP.md`, not silently
 skipped or guessed at.
 
+---
+
+## 2026-08-06 — Item 13 completion: XSS, insecure-deserialization, and security-header review, plus item 14 bundle analysis
+
+**What changed:** Four more static-review items closed out — three
+OWASP categories from item 13's original scope (XSS, insecure
+deserialization, missing security headers), plus item 14 (bundle size),
+completing everything actionable without live database or network
+access.
+
+**Finding 8 (XSS, fixed):** `NewsFeed.tsx` and `CatalystsPanel.tsx`
+render `href`/`src` directly from Finnhub news API responses with no
+URL scheme validation — a `javascript:` URI in a malicious or
+compromised upstream response would execute on click. Checked every
+internally-constructed URL first (`robinhood-links.ts`) and confirmed
+those are safe (hardcoded host, symbol only interpolated into the path)
+before concluding only these two files needed the fix. New
+`safeExternalUrl()` (`src/lib/url-safety.ts`), 7 tests.
+
+**Also found, not fixed (deliberately, not an oversight):**
+`src/components/ui/chart.tsx`'s `ChartStyle` uses
+`dangerouslySetInnerHTML`, but `ChartContainer` (its only caller) is
+never imported anywhere in this codebase's actual feature code —
+confirmed via grep, zero live risk. This is shadcn/ui library
+boilerplate, not custom app code; not removed, since deleting shared
+UI-library scaffolding that might be used later isn't this review's
+call to make unilaterally. Documented so it's understood if it's ever
+wired up.
+
+**Finding 9 (insecure deserialization, fixed):**
+`autonomous-agent.ts`'s `callGateway` parses the AI model's JSON
+response via `JSON.parse(cleaned) as AiResponse` — a type assertion,
+not runtime validation. Checked the actual blast radius before
+assessing severity: the trade loop is contained by an existing per-user
+try/catch, so today a malformed response just skips one user's cycle
+rather than crashing broadly — but it currently aborts that user's
+ENTIRE cycle, including other valid trades in the same response. New
+`isValidAiTrade()`/`filterValidAiTrades()`
+(`src/lib/ai-response-validation.ts`) filters out malformed proposals
+individually rather than failing the whole batch. 15 tests.
+
+**Item 14 (bundle size, no urgent action found):** Checked the client
+bundle's largest chunks directly after a real build (`du -h` + `strings`
+to verify contents, not guessed from file names). The two largest
+chunks are `@supabase/auth` and `recharts` — both genuinely necessary,
+appropriately shared across routes by Vite's automatic code-splitting.
+No bloat or unused-dependency bomb found. One purely cosmetic
+observation (the recharts chunk's file name is coincidental and
+unstable across builds) noted but not acted on, since a build-config
+change isn't something to attempt without live deployment verification.
+
+**Finding 10 (missing security headers, partially fixed):** grepped the
+entire codebase and every config file for `Content-Security-Policy`,
+`X-Frame-Options`, `Strict-Transport-Security`, `X-Content-Type-Options`
+— zero matches anywhere. New `public/_headers` (Cloudflare Pages'
+documented convention) adds four standard, zero-functional-risk headers
+— confirmed by rebuilding and inspecting the actual merged output, not
+assumed to work. A Content-Security-Policy was deliberately NOT added:
+the single highest-value header for XSS defense in depth, but getting
+its directives wrong could genuinely break the live app, and that's not
+confidently verifiable without live browser testing this process
+doesn't have — the same reasoning already applied to item 13c.
+
+**Files changed:**
+- `src/lib/url-safety.ts` (new)
+- `src/lib/ai-response-validation.ts` (new)
+- `src/lib/__tests__/url-safety.test.ts` (new, 7 tests)
+- `src/lib/__tests__/ai-response-validation.test.ts` (new, 15 tests)
+- `src/features/markets/components/NewsFeed.tsx`
+- `src/features/trading/components/CatalystsPanel.tsx`
+- `src/routes/api/public/autonomous-agent.ts` (trade filtering wired in
+  immediately after the AI response is received)
+- `public/_headers` (new)
+- `project-audit/SECURITY_AUDIT.md` (new Findings 8, 9, and 10, "Not yet
+  reviewed" section updated)
+- `project-audit/ROADMAP.md` (item 13 updated, item 14 marked done, new
+  item 13e for the deferred CSP)
+
+**Tests added:** 22 total. `safeExternalUrl`: valid http/https
+preserved exactly, `javascript:`/`data:`/`vbscript:`/`file:` schemes all
+rejected explicitly, null/undefined/malformed input handled without
+throwing. `isValidAiTrade`/`filterValidAiTrades`: every field the
+pipeline dereferences unguarded checked individually (symbol, direction,
+instrument, conviction, allocation_pct, stop_loss_pct — including why a
+non-positive stop_loss_pct specifically would break the Average R math
+built earlier this session — take_profit_pct, hold_duration, rationale),
+plus the actual bug this exists to fix directly verified: one malformed
+trade in a batch no longer prevents the other valid trades from being
+kept. `public/_headers` has no test suite equivalent — verified instead
+by an actual rebuild and direct inspection of the merged output file.
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 286/286 passing (22 new)
+- The `_headers` merge behavior verified directly against real build
+  output, not assumed
+- Independent fresh-clone + fresh-install verification to follow, since
+  the trade-validation fix touches the live trading decision path.
+
+**Where this leaves the whole audit pass:** everything genuinely
+actionable without live database or network access has now been
+reviewed or fixed, including security headers. What remains is either
+explicitly deferred pending live verification (13c's OAuth domain
+allowlisting, 13e's CSP, Finding 6's field-name check), needs real
+accumulated data (15, 16, whether the trading edge is real), or is a
+narrower remainder of item 13 — CSRF token handling and a handful of
+other OWASP sub-categories weren't specifically checked in this or
+prior passes, and this shouldn't be read as an exhaustive Top 10 sweep
+even now.
+

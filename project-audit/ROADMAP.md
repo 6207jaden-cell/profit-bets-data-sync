@@ -206,11 +206,17 @@ once enough real trade volume exists, not more infrastructure work.
     partially fixed a real SSRF-adjacent gap in the OAuth discovery chain
     (Finding 7 — HTTPS enforcement added, full domain allowlisting still
     open, see 13c below). A quick SQL-injection check also found nothing
-    concerning. This was a targeted SSRF-focused pass, NOT an exhaustive
-    10-category OWASP sweep — XSS, insecure deserialization, and other
-    categories remain genuinely unreviewed. See `SECURITY_AUDIT.md`'s
-    "Not yet reviewed" section for the precise scope of what was and
-    wasn't covered.
+    concerning. **XSS and insecure deserialization also now reviewed and
+    fixed (same day)** — see `SECURITY_AUDIT.md` Findings 8 and 9: real
+    `javascript:`-URI vector closed on two components rendering
+    externally-sourced URLs, and the AI gateway's parsed JSON response
+    now runtime-validated rather than trusted via type assertion alone.
+    Still genuinely unreviewed: the remaining OWASP categories beyond
+    auth/authz/injection/dependency-CVEs/SSRF/XSS/deserialization already
+    covered piecemeal across this project's audit passes — this was
+    still a targeted pass on specific categories, not an exhaustive
+    10-category sweep. See `SECURITY_AUDIT.md`'s "Not yet reviewed"
+    section for the precise, current scope.
 13c. **Add domain allowlisting to the OAuth discovery chain**
     (`SECURITY_AUDIT.md` Finding 7, discovered 2026-08-06). HTTPS
     enforcement is done; verifying the discovered URL's host actually
@@ -231,6 +237,15 @@ once enough real trade volume exists, not more infrastructure work.
     — more consequential, fixed the same way. See
     `TRADING_ENGINE_REVIEW.md`'s "Not yet reviewed" section for full
     detail. 16 new tests.
+13e. **Add a Content-Security-Policy header** (`SECURITY_AUDIT.md`
+    Finding 10, discovered 2026-08-06). Four other security headers
+    (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
+    `Strict-Transport-Security`) were added the same day via a new
+    `public/_headers` file. CSP deliberately excluded — real risk of
+    breaking the live app if its directives are wrong, not confidently
+    verifiable without live browser testing this process doesn't have.
+    Low urgency; the four headers already added cover most of the
+    zero-risk, high-value ground.
 13a. ~~**Consolidate auth-check implementations** (TD-13, discovered
     2026-08-05 during Priority 3). 5 of 15 `/api/public/*` endpoints use
     a different (but not broken) auth-check variant than the other 10 —
@@ -249,7 +264,25 @@ once enough real trade volume exists, not more infrastructure work.
     All three built and tested (12 new tests) — see `TECHNICAL_DEBT.md`
     TD-12's final update. **Stage 3's original 24-item list is now
     genuinely, fully complete.**
-14. Bundle size / code-splitting analysis.
+14. ~~Bundle size / code-splitting analysis.~~ **DONE 2026-08-06, no
+    urgent action identified.** Checked the client bundle's largest
+    chunks directly (`du -h .output/public/assets/*.js` after a real
+    build, contents verified with `strings`, not guessed from file
+    names). Findings: the two largest chunks (~556-568KB each) are
+    `@supabase/auth` (in the main entry chunk — a genuinely necessary,
+    core dependency) and `recharts` (in its own shared chunk, code-split
+    appropriately by Vite across the multiple routes that use charts,
+    not duplicated per-route). No obvious bloat or unused-dependency
+    bomb found — sizes are explained by real, feature-driving
+    dependencies, not waste. One cosmetic-only observation: the
+    recharts chunk's file name is coincidental and unstable across
+    builds (it's been "AreaChart-*", now "url-safety-*", based on
+    unrelated import-graph shifts) — a `manualChunks` config giving it a
+    stable, descriptive name would make future bundle analysis easier to
+    read, but this is a build-config change not attempted without a live
+    environment to verify it doesn't subtly affect chunk-splitting
+    behavior in ways this sandbox can't fully test end-to-end. Low
+    priority, purely cosmetic if ever done.
 15. Real performance profiling (latency, memory, CPU) — needs actual
     running-system access, not static review.
 16. Multiple-comparisons correction for the per-signal learning system

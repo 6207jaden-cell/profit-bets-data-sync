@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { scanNewsCatalysts } from "@/lib/catalysts.functions";
 import { cn } from "@/lib/utils";
+import { safeExternalUrl } from "@/lib/url-safety";
 
 function timeAgo(ms: number) {
   const d = Date.now() - ms;
@@ -62,7 +63,7 @@ export function CatalystsPanel() {
                   <span className="text-[10px] text-muted-foreground font-mono">×{c.mentions}</span>
                 </div>
                 <div className="min-w-0">
-                  <a href={c.latestUrl} target="_blank" rel="noopener noreferrer"
+                  <a href={safeExternalUrl(c.latestUrl)} target="_blank" rel="noopener noreferrer"
                     className="text-sm truncate block hover:text-primary transition-colors">
                     {c.latestHeadline} <ExternalLink className="w-3 h-3 inline-block ml-1 opacity-60" />
                   </a>
