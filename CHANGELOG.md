@@ -1540,3 +1540,95 @@ categories (XSS, insecure deserialization — genuinely unreviewed), item
 13c (OAuth domain allowlisting), item 14 (bundle size), items 15-16
 (blocked on live access), and the news/sentiment classifier review.
 
+---
+
+## 2026-08-06 — News/sentiment classifier review: real bugs found in two separate implementations
+
+**What changed:** New exported `matchesFinancialKeyword()`
+(`market.functions.ts`) — whole-word regex matching, replacing naive
+`text.includes(word)` substring matching. Applied to both
+`market.functions.ts`'s `classify()` and, after discovering it exists,
+`catalysts.functions.ts`'s `sentimentScore()`.
+
+**Why:** Concrete false positives confirmed before writing any fix, not
+assumed: "gain" matched inside "bargain" (a market-selloff headline
+could register bullish), "cut" matched inside "cutting-edge" (diluting
+a genuinely bullish headline with a false bearish signal), "rise"
+matched inside "surprise"/"enterprise", and "record" was scored
+unconditionally bullish despite "record low"/"record losses" being
+common, clearly bearish constructions — a keyword-count classifier has
+no way to tell "record high" from "record low" apart.
+
+**Severity assessed before fixing, not after:** grepped every consumer
+of `classify()`'s output before deciding how much this mattered —
+confirmed it's used ONLY by `NewsFeed.tsx` to color a badge in a
+news-browsing UI, never fed into any autonomous trading decision. Fixed
+anyway, since the fix was cheap and mechanical and a wrong-colored badge
+is still worth getting right — but this context matters for anyone
+reading this entry and wondering whether past trades were affected by
+this bug. They weren't.
+
+**A second, more consequential implementation found during this same
+check, previously unknown:** `catalysts.functions.ts`'s
+`sentimentScore()` is a separate, independently-maintained near-
+duplicate with the identical bug — but its output genuinely does feed
+`catalystSymbols` in `autonomous-agent.ts`, affecting which symbols the
+live trading agent actually scans. Fixed the same way, reusing the
+newly-exported `matchesFinancialKeyword()` rather than a third
+re-implementation of the same regex — consolidating rather than letting
+a second copy of near-identical logic keep drifting, the same instinct
+applied elsewhere in this project after finding real bugs caused by
+exactly this pattern (auth checks, instrument type lists).
+
+**How the fix avoided a recall regression:** strict word-boundary
+matching alone would have broken legitimate inflected forms — "rallied"
+(rally→rallied involves a y→ied spelling change) and "rising"
+(rise→rising drops the trailing e) aren't simple suffix-appends of their
+base words, so a generic suffix regex wouldn't catch them either.
+Verified this precisely with a standalone script testing 12 concrete
+before/after cases (including these two) before writing any production
+code — explicit inflected forms are listed directly in the keyword
+arrays rather than derived via a stemming approximation, more
+verbose but individually verifiable.
+
+**Files changed:**
+- `src/lib/market.functions.ts` (`matchesFinancialKeyword` exported,
+  `classify` exported and fixed, keyword lists expanded with inflected
+  forms, "record" removed)
+- `src/lib/catalysts.functions.ts` (`sentimentScore` exported and fixed
+  using the same shared `matchesFinancialKeyword`, same keyword
+  treatment, plus its extra bull/bear words given the same inflected-
+  form treatment)
+- `src/lib/__tests__/market-sentiment.test.ts` (new, 16 tests covering
+  both files)
+- `project-audit/TRADING_ENGINE_REVIEW.md` ("Not yet reviewed" section
+  updated with full detail on both findings)
+- `project-audit/ROADMAP.md` (new item 13d; item 13c explicitly marked
+  as deliberately deferred rather than attempted — see below)
+
+**Tests added:** 16 — word-boundary matching confirmed to reject every
+concrete false-positive case found (bargain/gain, cutting-edge/cut,
+surprise+enterprise/rise) while still matching genuine keywords and
+their inflected forms including the two spelling-change cases
+(rallied, rising); `classify()`'s end-to-end behavior on realistic
+headline shapes for both files; the "record" ambiguity fix verified on
+both a record-loss and a record-low headline; and `sentimentScore`'s
+score clamping verified at the extreme (many repeated keyword matches
+still stays within -1..1).
+
+**Verification performed:**
+- `npx tsc --noEmit`: 0 errors (sandbox)
+- `npm run build`: exit 0, clean (sandbox)
+- `npx vitest run`: 264/264 passing (16 new)
+- Independent fresh-clone + fresh-install verification to follow, since
+  `catalysts.functions.ts`'s fix affects real agent-scanning behavior.
+
+**A related decision made in the same pass, stated directly:** item 13c
+(OAuth domain allowlisting) was considered but deliberately NOT
+attempted right now — implementing it correctly requires knowing
+Robinhood's actual OAuth-server hostname relative to its MCP endpoint,
+which can't be verified without live network access this process
+doesn't have. An incorrect assumption risks breaking a currently-working
+feature. Marked as deliberately deferred in `ROADMAP.md`, not silently
+skipped or guessed at.
+

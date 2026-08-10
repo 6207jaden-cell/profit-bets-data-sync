@@ -217,6 +217,20 @@ once enough real trade volume exists, not more infrastructure work.
     matches the original `mcpUrl`'s host (or an explicit allowlist)
     remains open — real, more involved follow-up work, low urgency given
     today's single-hardcoded-URL usage bounds practical exploitability.
+    **Deliberately NOT attempted 2026-08-06** — doing this correctly
+    requires knowing Robinhood's actual OAuth-server hostname relative to
+    its MCP endpoint, unverifiable without live network access this
+    process doesn't have. An incorrect assumption here risks breaking a
+    currently-working feature. Deferred responsibly rather than guessed.
+13d. ~~**News/sentiment classifier review**~~ **DONE 2026-08-06.** Found
+    and fixed the substring-matching false positives in
+    `market.functions.ts`'s `classify()` (display-only, confirmed via
+    grep before assessing severity), plus a second, previously-unknown
+    near-duplicate implementation in `catalysts.functions.ts` with the
+    same bug that genuinely does feed which symbols the live agent scans
+    — more consequential, fixed the same way. See
+    `TRADING_ENGINE_REVIEW.md`'s "Not yet reviewed" section for full
+    detail. 16 new tests.
 13a. ~~**Consolidate auth-check implementations** (TD-13, discovered
     2026-08-05 during Priority 3). 5 of 15 `/api/public/*` endpoints use
     a different (but not broken) auth-check variant than the other 10 —

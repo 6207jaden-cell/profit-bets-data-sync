@@ -442,6 +442,46 @@ not as evidence about the full live system's actual edge.
   classifier in `market.functions.ts` was not re-audited for accuracy in
   this pass.
 
+**REVIEWED AND FIXED 2026-08-06.** Found and fixed real substring-
+matching false positives, plus a second, previously-unknown duplicate
+implementation with the same bug. Full detail:
+
+`market.functions.ts`'s `classify()` used naive `text.includes(word)`
+matching — concrete false positives confirmed before writing any fix:
+"gain" matched inside "bargain" (a headline about a market selloff could
+register bullish), "cut" matched inside "cutting-edge" (diluting a
+genuinely bullish surge headline with a false bearish signal), "rise"
+matched inside "surprise"/"enterprise", and "record" was scored
+unconditionally bullish despite financial news routinely using "record
+low"/"record losses" in clearly bearish contexts — a keyword-count
+classifier has no way to tell "record high" from "record low" apart.
+Checked where this classification is actually consumed before assessing
+severity: confirmed via grep that it's ONLY used by `NewsFeed.tsx` to
+color a badge in a news-browsing UI — never fed into any autonomous
+trading decision. Fixed anyway (the fix was cheap and mechanical, and a
+wrong-colored badge is still worth getting right) via a new exported
+`matchesFinancialKeyword()` (whole-word regex boundary matching) and
+expanded keyword lists with explicitly-listed common inflected forms
+(e.g. "rallied", "rising") rather than a generic suffix regex, since
+several real English inflections involve spelling changes (rally→
+rallied, rise→rising) a simple suffix-append can't handle — verified
+against 12 concrete before/after cases with a standalone script before
+writing any production code, not assumed to work.
+
+**A second, more consequential implementation was found during this
+same check, previously unknown to this document:**
+`catalysts.functions.ts`'s `sentimentScore()` is a SEPARATE,
+independently-maintained near-duplicate of the same classification
+logic — with the identical substring-matching bug and the same "record"
+ambiguity — but this one genuinely does feed real trading-relevant
+behavior: its output determines `catalystSymbols` in
+`autonomous-agent.ts`, which affects which symbols the live agent
+actually scans. Fixed the same way, reusing the newly-exported
+`matchesFinancialKeyword()` rather than a third re-implementation of the
+same regex — the same DRY instinct applied elsewhere in this project
+after finding real bugs caused by near-duplicate logic drifting apart
+(auth checks, instrument type lists). 16 new tests across both files.
+
 ### Stage 3.5's named empirical questions — genuinely unanswered, not silently skipped
 
 The Stage 3.5 protocol asks specific questions: does Claude outperform

@@ -137,13 +137,48 @@ export const getMarketNews = createServerFn({ method: "POST" })
     }
   });
 
-function classify(text: string): "bullish" | "bearish" | "neutral" {
+/**
+ * Whole-word match — a hard boundary on both sides of the keyword.
+ * Extracted and exported specifically for the fix below: the previous
+ * implementation used t.includes(word), a naive substring match with
+ * real, concrete false positives found during a code review (item 13's
+ * OWASP pass surfaced this as worth checking): "gain" matched inside
+ * "bargain", "cut" matched inside "cutting-edge", "rise" matched inside
+ * "surprise"/"enterprise" — and "record" was scored unconditionally
+ * bullish despite financial news routinely using "record low"/"record
+ * losses" in clearly bearish contexts, with no way for a keyword-count
+ * classifier to tell the difference. Removed "record" entirely rather
+ * than try to special-case it.
+ */
+export function matchesFinancialKeyword(text: string, word: string): boolean {
+  return new RegExp(`\\b${word}\\b`).test(text);
+}
+
+export function classify(text: string): "bullish" | "bearish" | "neutral" {
   const t = text.toLowerCase();
-  const bull = ["beat", "surge", "rally", "soar", "growth", "record", "upgrade", "outperform", "gain", "jump", "rise", "boost"];
-  const bear = ["miss", "plunge", "crash", "decline", "downgrade", "warn", "cut", "fall", "drop", "slump", "loss", "fear", "concern"];
+  // Common inflected forms listed explicitly rather than derived via a
+  // generic suffix regex — some involve real spelling changes a simple
+  // suffix rule can't handle (rally -> rallied, rise -> rising), so
+  // explicit, individually-verifiable entries are more robust than a
+  // stemming approximation for a list this size.
+  const bull = [
+    "beat", "beats", "surge", "surges", "surged", "surging",
+    "rally", "rallies", "rallied", "rallying", "soar", "soars", "soared", "soaring",
+    "growth", "upgrade", "upgraded", "outperform", "outperforms",
+    "gain", "gains", "gained", "gaining", "jump", "jumps", "jumped", "jumping",
+    "rise", "rises", "rising", "risen", "boost", "boosts", "boosted", "boosting",
+  ];
+  const bear = [
+    "miss", "misses", "missed", "plunge", "plunges", "plunged", "plunging",
+    "crash", "crashes", "crashed", "crashing", "decline", "declines", "declined", "declining",
+    "downgrade", "downgraded", "warn", "warns", "warned", "warning",
+    "cut", "cuts", "slashed", "fall", "falls", "fell", "falling", "fallen",
+    "drop", "drops", "dropped", "dropping", "slump", "slumps", "slumped",
+    "loss", "losses", "fear", "fears", "concern", "concerns", "concerned",
+  ];
   let s = 0;
-  for (const w of bull) if (t.includes(w)) s++;
-  for (const w of bear) if (t.includes(w)) s--;
+  for (const w of bull) if (matchesFinancialKeyword(t, w)) s++;
+  for (const w of bear) if (matchesFinancialKeyword(t, w)) s--;
   if (s > 0) return "bullish";
   if (s < 0) return "bearish";
   return "neutral";

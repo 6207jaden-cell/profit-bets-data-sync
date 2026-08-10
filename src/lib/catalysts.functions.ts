@@ -8,6 +8,7 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { matchesFinancialKeyword } from "@/lib/market.functions";
 
 export type Catalyst = {
   symbol: string;
@@ -20,14 +21,47 @@ export type Catalyst = {
   sources: string[];
 };
 
-const BULL = ["beat","surge","rally","soar","growth","record","upgrade","outperform","gain","jump","rise","boost","bullish","breakout","approval","partnership","acquire","buyback"];
-const BEAR = ["miss","plunge","crash","decline","downgrade","warn","cut","fall","drop","slump","loss","fear","concern","bearish","lawsuit","probe","recall","layoff","bankruptcy"];
+// Fixes the same substring-matching bug found and fixed in
+// market.functions.ts's classify() during item 13's OWASP-adjacent
+// review pass — this is a SEPARATE, independently-maintained
+// implementation of near-identical sentiment classification logic that
+// had the exact same bug ("gain" matching inside "bargain", "cut"
+// matching inside "cutting-edge", "record" scored unconditionally
+// bullish despite "record low"/"record losses" being common bearish
+// constructions). More consequential than the UI-only classifier this
+// duplicated: BULL/BEAR here directly influence `catalystSymbols` in
+// autonomous-agent.ts, which affects which symbols the live trading
+// agent actually scans. Reuses matchesFinancialKeyword
+// (market.functions.ts) rather than a third re-implementation of the
+// same word-boundary regex — same DRY instinct applied elsewhere in
+// this project after finding real bugs caused by near-duplicate logic
+// drifting apart (auth checks, instrument lists).
+const BULL = [
+  "beat", "beats", "surge", "surges", "surged", "surging",
+  "rally", "rallies", "rallied", "rallying", "soar", "soars", "soared", "soaring",
+  "growth", "upgrade", "upgraded", "outperform", "outperforms",
+  "gain", "gains", "gained", "gaining", "jump", "jumps", "jumped", "jumping",
+  "rise", "rises", "rising", "risen", "boost", "boosts", "boosted", "boosting",
+  "bullish", "breakout", "breakouts", "approval", "approvals",
+  "partnership", "partnerships", "acquire", "acquires", "acquired", "acquiring",
+  "buyback", "buybacks",
+];
+const BEAR = [
+  "miss", "misses", "missed", "plunge", "plunges", "plunged", "plunging",
+  "crash", "crashes", "crashed", "crashing", "decline", "declines", "declined", "declining",
+  "downgrade", "downgraded", "warn", "warns", "warned", "warning",
+  "cut", "cuts", "slashed", "fall", "falls", "fell", "falling", "fallen",
+  "drop", "drops", "dropped", "dropping", "slump", "slumps", "slumped",
+  "loss", "losses", "fear", "fears", "concern", "concerns", "concerned",
+  "bearish", "lawsuit", "lawsuits", "probe", "probes", "probed", "probing",
+  "recall", "recalls", "recalled", "recalling", "layoff", "layoffs", "bankruptcy", "bankruptcies",
+];
 
-function sentimentScore(text: string): number {
+export function sentimentScore(text: string): number {
   const t = text.toLowerCase();
   let s = 0;
-  for (const w of BULL) if (t.includes(w)) s += 1;
-  for (const w of BEAR) if (t.includes(w)) s -= 1;
+  for (const w of BULL) if (matchesFinancialKeyword(t, w)) s += 1;
+  for (const w of BEAR) if (matchesFinancialKeyword(t, w)) s -= 1;
   return Math.max(-3, Math.min(3, s)) / 3;
 }
 
