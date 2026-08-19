@@ -1,40 +1,29 @@
-# Fix: autonomous agent stopped scanning on weekdays
+# Fix the Open Dashboard flow
 
-## What's actually wrong
+## Goal
+Make **Open dashboard** reliably open `/markets` in preview and production, whether the visitor is already signed in or needs to authenticate first.
 
-The schedules are fine — every job fired on time today. The problem is where they point.
+## Changes
+1. **Correct the landing-page controls**
+   - Replace the current nested `Link > button` markup with the design-system button rendered as the link itself.
+   - Keep the CTA in a neutral loading state until the local session check finishes, so it cannot navigate to a protected route with unknown auth state.
+   - Send authenticated users to `/markets`; send signed-out users to `/auth` with `/markets` preserved as the post-login destination.
 
-Verified from the database:
+2. **Make authentication redirect consistently**
+   - Validate and read the requested destination on `/auth`.
+   - After email or Google sign-in, navigate to that destination instead of relying on multiple hardcoded `/markets` redirects.
+   - If a session already exists, forward directly to the requested destination.
 
-- All 23 scan/exit/scalp jobs call `https://project--<id>.lovable.app/...`, which is the **published** site.
-- The project has **no published build**, so all 92 of today's calls came back **HTTP 404** with the "No working published build found yet" page. The agent code never ran.
-- The one job that still works, `autonomous-weekend-prep` (job 13, created earlier), points at the `-dev` preview URL instead — which is exactly why the only recent `agent_decisions` rows are the Saturday weekend-prep runs (Aug 1, Jul 25, Jul 18).
-- Weekday scans last produced a decision on Jul 14, right around when the jobs were re-registered against the production URL.
+3. **Harden preview recovery without masking real errors**
+   - Keep the full-page reload behavior for disconnected preview modules.
+   - Restore router invalidate-and-reset behavior for ordinary route errors, so genuine dashboard errors retry correctly rather than only refreshing the browser.
 
-```text
-cron fires  ->  https://project--<id>.lovable.app/api/public/autonomous-agent
-                        |
-                        v
-              404 "No published build"   ->  no scan, no decision row
-```
-
-## The fix
-
-**Publishing alone fixes it.** The jobs already point at the production URL, so the moment a published build exists they start hitting live code — no SQL changes, no re-registering, nothing to re-trigger. The next scheduled session runs on its own.
-
-Optional extras:
-
-1. **Verify once after publishing** — trigger a manual scan and confirm a new `agent_decisions` row plus a `200` in the HTTP response log. Not required for the fix; it just means you find out in 2 minutes instead of waiting for the next cron slot. You can also verify passively by watching the Agent tab after the next scheduled session.
-2. **Align the stale weekend job** — `autonomous-weekend-prep` (jobid 13) still points at the `-dev` preview host while the other 22 use production. It works today, but it's the odd one out and will drift. Worth folding into `register_all_crons()` so all schedules share one URL.
-
+4. **Verify the complete flow**
+   - Test the signed-out path: landing CTA → auth page with redirect retained.
+   - Test the signed-in path: landing CTA → `/markets`, with the dashboard visible and no root error screen.
+   - Check mobile and desktop button interaction and inspect browser errors during navigation.
 
 ## Technical details
-
-- Publish the project so `https://project--<id>.lovable.app` serves a real build; the 23 cron jobs need no changes.
-- Optional cleanup: delete the stale `autonomous-weekend-prep` job (jobid 13) and add `weekend_prep` to the job list inside `register_all_crons()` so every schedule lives in one place, then run `SELECT register_all_crons();`.
-- Keep `APPLY_CRONS.sql` in sync with the production URL so future manual runs don't reintroduce a mismatch.
-- Verification queries: `cron.job_run_details` for firing, and `net._http_response` `status_code` for whether the endpoint actually answered `200`.
-
-## Note
-
-The endpoints themselves look healthy — `resolve-signals` returned `{"ok":true,...}` with a `200` today, so the app and API routes work. This is purely a URL/publish-target problem.
+- Continue using TanStack Router navigation and the existing protected `_authenticated` layout.
+- Use the existing `Button` component with its `asChild` composition API; do not nest interactive elements.
+- Do not change dashboard business logic, background jobs, or database behavior.
