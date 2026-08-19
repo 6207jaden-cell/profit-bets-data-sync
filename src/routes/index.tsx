@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 import { TrendingUp, Bell, LineChart, Bot, Trophy } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -15,6 +17,19 @@ export const Route = createFileRoute("/")({
 });
 
 function Landing() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (active) setSignedIn(!!data.session?.user);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSignedIn(!!session?.user);
+    });
+    return () => { active = false; sub.subscription.unsubscribe(); };
+  }, []);
+
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border">
@@ -23,7 +38,11 @@ function Landing() {
             <TrendingUp className="h-6 w-6 text-primary" />
             <span className="font-display font-semibold">Markets Dashboard</span>
           </div>
-          <Link to="/auth"><Button size="sm">Sign in</Button></Link>
+          {signedIn ? (
+            <Link to="/markets"><Button size="sm">Open dashboard</Button></Link>
+          ) : (
+            <Link to="/auth"><Button size="sm">Sign in</Button></Link>
+          )}
         </div>
       </header>
 
@@ -38,8 +57,17 @@ function Landing() {
           Daily AI signals, self-backtesting strategies, an autonomous Robinhood agent, and a live leaderboard of what's winning right now.
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap">
-          <Link to="/markets"><Button size="lg">Open dashboard</Button></Link>
-          <Link to="/auth"><Button size="lg" variant="outline">Start for free</Button></Link>
+          {signedIn === false ? (
+            <>
+              <Link to="/auth"><Button size="lg">Sign in to open dashboard</Button></Link>
+              <Link to="/auth"><Button size="lg" variant="outline">Start for free</Button></Link>
+            </>
+          ) : (
+            <>
+              <Link to="/markets"><Button size="lg">Open dashboard</Button></Link>
+              <Link to="/trading"><Button size="lg" variant="outline">AI Trading</Button></Link>
+            </>
+          )}
         </div>
       </section>
 
