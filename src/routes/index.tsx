@@ -38,7 +38,11 @@ function Landing() {
             <TrendingUp className="h-6 w-6 text-primary" />
             <span className="font-display font-semibold">Markets Dashboard</span>
           </div>
-          <Link to="/auth"><Button size="sm">Sign in</Button></Link>
+          {signedIn ? (
+            <Link to="/markets"><Button size="sm">Open dashboard</Button></Link>
+          ) : (
+            <Link to="/auth"><Button size="sm">Sign in</Button></Link>
+          )}
         </div>
       </header>
 
