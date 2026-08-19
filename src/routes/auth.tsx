@@ -26,6 +26,16 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Already signed in? Go straight to the dashboard instead of showing the form.
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (active && data.session?.user) navigate({ to: "/markets" });
+    });
+    return () => { active = false; };
+  }, [navigate]);
+
+
   async function handleEmail(mode: "signin" | "signup") {
     setLoading(true);
     try {
