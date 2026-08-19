@@ -57,8 +57,17 @@ function Landing() {
           Daily AI signals, self-backtesting strategies, an autonomous Robinhood agent, and a live leaderboard of what's winning right now.
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap">
-          <Link to="/markets"><Button size="lg">Open dashboard</Button></Link>
-          <Link to="/auth"><Button size="lg" variant="outline">Start for free</Button></Link>
+          {signedIn === false ? (
+            <>
+              <Link to="/auth"><Button size="lg">Sign in to open dashboard</Button></Link>
+              <Link to="/auth"><Button size="lg" variant="outline">Start for free</Button></Link>
+            </>
+          ) : (
+            <>
+              <Link to="/markets"><Button size="lg">Open dashboard</Button></Link>
+              <Link to="/trading"><Button size="lg" variant="outline">AI Trading</Button></Link>
+            </>
+          )}
         </div>
       </section>
 
