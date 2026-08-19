@@ -168,6 +168,8 @@ function SettingsPage() {
         <AgentSettingsCard userId={userId} />
 
         <CronSyncCard />
+        <PreviewTaskRunnerCard />
+
 
         <Card className="p-5 border-border bg-card space-y-3">
           <div className="flex items-center gap-2">
