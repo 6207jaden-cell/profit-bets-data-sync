@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 import { TrendingUp, Bell, LineChart, Bot, Trophy } from "lucide-react";
 
 export const Route = createFileRoute("/")({
