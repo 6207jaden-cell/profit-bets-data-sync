@@ -168,6 +168,8 @@ function SettingsPage() {
         <AgentSettingsCard userId={userId} />
 
         <CronSyncCard />
+        <PreviewTaskRunnerCard />
+
 
         <Card className="p-5 border-border bg-card space-y-3">
           <div className="flex items-center gap-2">
@@ -368,17 +370,11 @@ function CronSyncCard() {
             {status.error ?? `${status.failed} cron(s) failed to register`}
           </div>
           {status.error?.includes("pg_cron") && (
-            <div className="text-[11px] text-muted-foreground space-y-1">
-              <p>To enable extensions:</p>
-              <ol className="list-decimal list-inside space-y-0.5">
-                <li>Go to <span className="font-mono">supabase.com → your project</span></li>
-                <li>Left sidebar → <span className="font-mono">Database → Extensions</span></li>
-                <li>Search <span className="font-mono">pg_cron</span> → Enable</li>
-                <li>Search <span className="font-mono">pg_net</span> → Enable</li>
-                <li>Come back here and click Sync again</li>
-              </ol>
+            <div className="text-[11px] text-muted-foreground">
+              <p>The <span className="font-mono">pg_cron</span> and <span className="font-mono">pg_net</span> database extensions need to be enabled before scheduling works. Ask in chat and they can be turned on for you, then click Sync again.</p>
             </div>
           )}
+
           {(status.failed_jobs ?? []).length > 0 && (
             <details className="text-[10px] text-muted-foreground">
               <summary className="cursor-pointer">Show failed jobs</summary>
@@ -398,6 +394,112 @@ function CronSyncCard() {
     </Card>
   );
 }
+
+// Scheduled jobs always call the PUBLISHED production URL, so preview builds
+// never get hit by cron. This card runs the same endpoints against whatever
+// origin you're currently viewing (preview or live) so changes can be verified
+// before publishing.
+const PREVIEW_TASKS: Array<{ label: string; path: string; body?: Record<string, unknown> }> = [
+  { label: "Morning scan", path: "/api/public/autonomous-agent", body: { session: "morning" } },
+  { label: "Midday scan", path: "/api/public/autonomous-agent", body: { session: "midday" } },
+  { label: "Crypto scan", path: "/api/public/autonomous-agent", body: { session: "crypto" } },
+  { label: "Scalp scan", path: "/api/public/autonomous-agent", body: { session: "scalp" } },
+  { label: "Weekend prep", path: "/api/public/autonomous-agent", body: { session: "weekend_prep" } },
+  { label: "Exit check", path: "/api/public/autonomous-exit-check" },
+  { label: "Learning pass", path: "/api/public/autonomous-learning" },
+  { label: "Evaluate strategies", path: "/api/public/evaluate-strategies" },
+  { label: "Generate strategies", path: "/api/public/generate-strategies" },
+  { label: "Evaluate alerts", path: "/api/public/evaluate-alerts" },
+  { label: "Resolve signals", path: "/api/public/resolve-signals" },
+  { label: "Resolve shadow experiments", path: "/api/public/resolve-shadow-experiments" },
+  { label: "Snapshot portfolio", path: "/api/public/snapshot-portfolio" },
+  { label: "Daily digest", path: "/api/public/daily-digest" },
+  { label: "Friday review", path: "/api/public/friday-review" },
+  { label: "Sync Robinhood balance", path: "/api/public/sync-robinhood-balance" },
+];
+
+function PreviewTaskRunnerCard() {
+  const [running, setRunning] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, { ok: boolean; text: string }>>({});
+
+  async function run(task: (typeof PREVIEW_TASKS)[number]) {
+    const key = task.label;
+    setRunning(key);
+    try {
+      const anonKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
+        ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+      const res = await fetch(task.path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: anonKey },
+        body: JSON.stringify(task.body ?? {}),
+      });
+      const text = (await res.text()).slice(0, 400);
+      setResults((r) => ({ ...r, [key]: { ok: res.ok, text: `${res.status} ${text}` } }));
+      if (res.ok) toast.success(`${key} ran on this build`);
+      else toast.error(`${key} failed (${res.status})`);
+    } catch (e) {
+      setResults((r) => ({ ...r, [key]: { ok: false, text: String(e) } }));
+      toast.error(`${key} failed`);
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const isPreview = origin.includes("-preview--") || origin.includes("localhost") || origin.includes("-dev.");
+
+  return (
+    <Card className="p-4 sm:p-5 space-y-4 border-border">
+      <div>
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <Send className="h-4 w-4 text-primary" />
+          Run background tasks on this build
+        </h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          Scheduled jobs only ever call the published site. Use these buttons to run the exact same
+          logic against the build you are looking at right now
+          {isPreview ? " (currently: preview)" : " (currently: live site)"} — so you can verify a change
+          before publishing it.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {PREVIEW_TASKS.map((t) => {
+          const r = results[t.label];
+          return (
+            <Button
+              key={t.label}
+              size="sm"
+              variant="outline"
+              className={`justify-start text-xs ${r ? (r.ok ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400") : ""}`}
+              disabled={running !== null}
+              onClick={() => run(t)}
+            >
+              {running === t.label
+                ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                : r
+                ? (r.ok ? <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> : <AlertCircle className="h-3.5 w-3.5 mr-1.5" />)
+                : <Send className="h-3.5 w-3.5 mr-1.5" />}
+              {t.label}
+            </Button>
+          );
+        })}
+      </div>
+
+      {Object.entries(results).length > 0 && (
+        <details className="text-[10px] text-muted-foreground">
+          <summary className="cursor-pointer">Show responses</summary>
+          <ul className="mt-1 space-y-1 font-mono break-all">
+            {Object.entries(results).map(([k, v]) => (
+              <li key={k} className={v.ok ? "text-emerald-400/80" : "text-red-400/80"}>{k}: {v.text}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+}
+
 
 function AgentSlider({
   label, value, min, max, step, onChange, hint,

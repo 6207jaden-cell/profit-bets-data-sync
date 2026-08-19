@@ -517,7 +517,8 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                 await fireWebhook(userId, "strategy_retired", { strategy_id: strat.id, name: strat.name ?? "", win_rate: winRate, roi });
                 retired++;
                 try {
-                  const url = `https://project--a4cfc4c8-5d00-4bc0-a84a-408f0bcb34ad-dev.lovable.app/api/public/generate-strategies`;
+                  // Same-origin: a preview run stays in preview, production stays in production.
+                  const url = `${new URL(request.url).origin}/api/public/generate-strategies`;
                   await fetch(url, {
                     method: "POST",
                     headers: { "Content-Type": "application/json", apikey: anon },
