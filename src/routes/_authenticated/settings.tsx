@@ -368,17 +368,11 @@ function CronSyncCard() {
             {status.error ?? `${status.failed} cron(s) failed to register`}
           </div>
           {status.error?.includes("pg_cron") && (
-            <div className="text-[11px] text-muted-foreground space-y-1">
-              <p>To enable extensions:</p>
-              <ol className="list-decimal list-inside space-y-0.5">
-                <li>Go to <span className="font-mono">supabase.com → your project</span></li>
-                <li>Left sidebar → <span className="font-mono">Database → Extensions</span></li>
-                <li>Search <span className="font-mono">pg_cron</span> → Enable</li>
-                <li>Search <span className="font-mono">pg_net</span> → Enable</li>
-                <li>Come back here and click Sync again</li>
-              </ol>
+            <div className="text-[11px] text-muted-foreground">
+              <p>The <span className="font-mono">pg_cron</span> and <span className="font-mono">pg_net</span> database extensions need to be enabled before scheduling works. Ask in chat and they can be turned on for you, then click Sync again.</p>
             </div>
           )}
+
           {(status.failed_jobs ?? []).length > 0 && (
             <details className="text-[10px] text-muted-foreground">
               <summary className="cursor-pointer">Show failed jobs</summary>
