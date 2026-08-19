@@ -5,6 +5,7 @@ import {
   createRootRouteWithContext,
   HeadContent,
   Scripts,
+  useRouter,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
@@ -36,19 +37,20 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
+  const router = useRouter();
+  const message = `${error.name} ${error.message}`;
+  const isTransientPreviewError = [
+    "FORCE_RELOAD",
+    "transport was disconnected",
+    "fetchModule",
+    "dynamically imported module",
+    "Importing a module script failed",
+  ].some((fragment) => message.includes(fragment));
+
   useEffect(() => {
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
-
-    const message = `${error.name} ${error.message}`;
-    const isTransientPreviewError = [
-      "FORCE_RELOAD",
-      "transport was disconnected",
-      "fetchModule",
-      "dynamically imported module",
-      "Importing a module script failed",
-    ].some((fragment) => message.includes(fragment));
 
     if (!isTransientPreviewError) return;
 
@@ -58,7 +60,7 @@ function ErrorComponent({ error }: { error: Error; reset: () => void }) {
     window.sessionStorage.setItem(PREVIEW_RECOVERY_KEY, message);
     const reloadTimer = window.setTimeout(() => window.location.reload(), 300);
     return () => window.clearTimeout(reloadTimer);
-  }, [error]);
+  }, [error, isTransientPreviewError, message]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -70,7 +72,14 @@ function ErrorComponent({ error }: { error: Error; reset: () => void }) {
           Something went wrong on our end. You can try refreshing or head back home.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <Button onClick={() => window.location.reload()}>
+          <Button onClick={() => {
+            if (isTransientPreviewError) {
+              window.location.reload();
+              return;
+            }
+            router.invalidate();
+            reset();
+          }}>
             Try again
           </Button>
           <a

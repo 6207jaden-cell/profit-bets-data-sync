@@ -19,6 +19,20 @@ export const Route = createFileRoute("/")({
 function Landing() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
+  const dashboardButton = (size: "sm" | "lg") => {
+    if (signedIn === null) {
+      return <Button size={size} disabled>Checking session…</Button>;
+    }
+
+    return (
+      <Button asChild size={size}>
+        <Link to={signedIn ? "/markets" : "/auth"} search={signedIn ? undefined : { redirect: "/markets" }}>
+          {signedIn ? "Open dashboard" : "Sign in to open dashboard"}
+        </Link>
+      </Button>
+    );
+  };
+
   useEffect(() => {
     let active = true;
     supabase.auth.getSession().then(({ data }) => {
@@ -38,11 +52,7 @@ function Landing() {
             <TrendingUp className="h-6 w-6 text-primary" />
             <span className="font-display font-semibold">Markets Dashboard</span>
           </div>
-          {signedIn ? (
-            <Link to="/markets"><Button size="sm">Open dashboard</Button></Link>
-          ) : (
-            <Link to="/auth"><Button size="sm">Sign in</Button></Link>
-          )}
+          {dashboardButton("sm")}
         </div>
       </header>
 
@@ -59,14 +69,18 @@ function Landing() {
         <div className="flex items-center justify-center gap-3 flex-wrap">
           {signedIn === false ? (
             <>
-              <Link to="/auth"><Button size="lg">Sign in to open dashboard</Button></Link>
-              <Link to="/auth"><Button size="lg" variant="outline">Start for free</Button></Link>
+              {dashboardButton("lg")}
+              <Button asChild size="lg" variant="outline">
+                <Link to="/auth" search={{ redirect: "/markets" }}>Start for free</Link>
+              </Button>
+            </>
+          ) : signedIn === true ? (
+            <>
+              {dashboardButton("lg")}
+              <Button asChild size="lg" variant="outline"><Link to="/trading">AI Trading</Link></Button>
             </>
           ) : (
-            <>
-              <Link to="/markets"><Button size="lg">Open dashboard</Button></Link>
-              <Link to="/trading"><Button size="lg" variant="outline">AI Trading</Button></Link>
-            </>
+            dashboardButton("lg")
           )}
         </div>
       </section>
