@@ -9,8 +9,18 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TrendingUp, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
+
+const authSearchSchema = z.object({
+  redirect: z.string().optional().catch(undefined),
+});
+
+function safeDestination(redirect: string | undefined): "/markets" {
+  return redirect === "/markets" ? "/markets" : "/markets";
+}
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: authSearchSchema,
   head: () => ({
     meta: [
       { title: "Sign in — Markets Dashboard" },
@@ -22,6 +32,8 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
+  const destination = safeDestination(search.redirect);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,10 +42,10 @@ function AuthPage() {
   useEffect(() => {
     let active = true;
     supabase.auth.getSession().then(({ data }) => {
-      if (active && data.session?.user) navigate({ to: "/markets" });
+      if (active && data.session?.user) navigate({ to: destination, replace: true });
     });
     return () => { active = false; };
-  }, [navigate]);
+  }, [destination, navigate]);
 
 
   async function handleEmail(mode: "signin" | "signup") {
@@ -47,7 +59,7 @@ function AuthPage() {
       } as never);
       if (error) throw error;
       toast.success(mode === "signin" ? "Welcome back." : "Account created — check your email if confirmation is required.");
-      navigate({ to: "/markets" });
+      navigate({ to: destination, replace: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Authentication failed");
     } finally {
@@ -59,10 +71,10 @@ function AuthPage() {
     setLoading(true);
     try {
       const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin + "/markets",
+        redirect_uri: `${window.location.origin}/auth?redirect=${encodeURIComponent(destination)}`,
       });
       if (result.error) throw result.error;
-      if (!result.redirected) navigate({ to: "/markets" });
+      if (!result.redirected) navigate({ to: destination, replace: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Google sign-in failed");
       setLoading(false);
