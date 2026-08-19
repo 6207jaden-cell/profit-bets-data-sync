@@ -17,6 +17,19 @@ export const Route = createFileRoute("/")({
 });
 
 function Landing() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (active) setSignedIn(!!data.session?.user);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSignedIn(!!session?.user);
+    });
+    return () => { active = false; sub.subscription.unsubscribe(); };
+  }, []);
+
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border">
