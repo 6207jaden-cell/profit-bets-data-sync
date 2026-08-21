@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link, useHydrated } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
@@ -41,6 +41,7 @@ function AuthPending() {
 }
 
 function AuthPage() {
+  const hydrated = useHydrated();
   const navigate = useNavigate();
   const search = Route.useSearch();
   const destination = safeDestination(search.redirect);
@@ -90,6 +91,8 @@ function AuthPage() {
       setLoading(false);
     }
   }
+
+  if (!hydrated) return <AuthPending />;
 
   return (
     <main className="min-h-screen flex items-center justify-center p-4 bg-background">
