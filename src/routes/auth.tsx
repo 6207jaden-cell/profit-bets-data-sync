@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TrendingUp, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { RoutePending } from "@/components/RoutePending";
 
 const authSearchSchema = z.object({
   redirect: z.string().optional().catch(undefined),
@@ -21,7 +22,7 @@ function safeDestination(redirect: string | undefined): "/markets" {
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
-  pendingComponent: AuthPending,
+  pendingComponent: RoutePending,
   validateSearch: authSearchSchema,
   head: () => ({
     meta: [
@@ -31,14 +32,6 @@ export const Route = createFileRoute("/auth")({
   }),
   component: AuthPage,
 });
-
-function AuthPending() {
-  return (
-    <main className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Loading sign in" />
-    </main>
-  );
-}
 
 function AuthPage() {
   const hydrated = useHydrated();
@@ -92,7 +85,7 @@ function AuthPage() {
     }
   }
 
-  if (!hydrated) return <AuthPending />;
+  if (!hydrated) return <RoutePending />;
 
   return (
     <main className="min-h-screen flex items-center justify-center p-4 bg-background">

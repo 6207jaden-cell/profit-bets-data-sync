@@ -1,10 +1,10 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { RoutePending } from "@/components/RoutePending";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
-  pendingComponent: AuthenticatedPending,
+  pendingComponent: RoutePending,
   beforeLoad: async () => {
     // Use the locally persisted session first: it resolves instantly and does not
     // bounce signed-in users to /auth when the network call is slow or flaky.
@@ -17,11 +17,3 @@ export const Route = createFileRoute("/_authenticated")({
   },
   component: () => <Outlet />,
 });
-
-function AuthenticatedPending() {
-  return (
-    <main className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Loading sign in" />
-    </main>
-  );
-}
