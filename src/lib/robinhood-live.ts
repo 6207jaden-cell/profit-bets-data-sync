@@ -11,7 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { isHttpsUrl } from "@/lib/mcp-oauth.server";
+
 
 const ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading";
 
