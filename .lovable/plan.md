@@ -5,7 +5,7 @@ Make public and authenticated pages load reliably in preview without getting tra
 
 ## Confirmed findings
 - Direct requests to `/`, `/auth`, `/markets`, and `/settings` currently return HTML successfully; protected pages correctly redirect signed-out visitors to `/auth`.
-- A clean browser run reproduces React hydration mismatches on `/auth`.
+- The runtime report and a clean browser run both reproduce a React hydration mismatch at the `/auth` route boundary: the server has a Suspense placeholder while the client immediately renders `AuthPage`.
 - The root error boundary clears its preview-recovery marker as soon as the root mounts, before child routes are known to be stable. A child-route failure can therefore repeatedly re-arm the automatic reload.
 - The router has no global `defaultErrorComponent`, so failures outside the root route boundary do not share the same recovery behavior.
 
@@ -15,10 +15,10 @@ Make public and authenticated pages load reliably in preview without getting tra
    - Limit automatic reload to one attempt per transient preview error and keep the manual hard-reload action available.
    - Use normal router invalidation/reset for genuine application errors so they do not enter a reload loop.
 
-2. **Eliminate auth hydration mismatch**
-   - Make the auth/session-dependent route output deterministic between server render and first client render.
-   - Defer session-driven redirects until hydration while keeping the sign-in form stable.
-   - Review the authenticated layout’s client-only guard so navigation does not replace server markup with a conflicting route tree during hydration.
+2. **Eliminate the confirmed route-boundary hydration mismatch**
+   - Give the auth route a deterministic pending/render boundary so the server and first client render use the same tree instead of `Suspense` on one side and `AuthPage` on the other.
+   - Keep session-driven redirects in an effect after hydration so auth state cannot change the initial markup.
+   - Review the authenticated layout’s `ssr: false` boundary and give its public-to-protected transitions the same deterministic loading behavior.
 
 3. **Add router-wide fallback coverage**
    - Configure the router’s default error component to use the same shared fallback, covering errors that occur outside a matched route boundary.
