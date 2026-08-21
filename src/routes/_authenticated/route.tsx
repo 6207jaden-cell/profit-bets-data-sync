@@ -20,8 +20,8 @@ export const Route = createFileRoute("/_authenticated")({
 
 function AuthenticatedPending() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-background">
-      <Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Loading dashboard" />
+    <main className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Loading sign in" />
     </main>
   );
 }
