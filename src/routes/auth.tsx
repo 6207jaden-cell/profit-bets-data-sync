@@ -20,6 +20,8 @@ function safeDestination(redirect: string | undefined): "/markets" {
 }
 
 export const Route = createFileRoute("/auth")({
+  ssr: false,
+  pendingComponent: AuthPending,
   validateSearch: authSearchSchema,
   head: () => ({
     meta: [
@@ -29,6 +31,14 @@ export const Route = createFileRoute("/auth")({
   }),
   component: AuthPage,
 });
+
+function AuthPending() {
+  return (
+    <main className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Loading sign in" />
+    </main>
+  );
+}
 
 function AuthPage() {
   const navigate = useNavigate();
