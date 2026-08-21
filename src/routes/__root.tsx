@@ -37,7 +37,7 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+export function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   const message = `${error.name} ${error.message}`;
@@ -52,7 +52,11 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   useEffect(() => {
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
 
-    if (!isTransientPreviewError) return;
+    const isPreview =
+      window.location.hostname === "localhost" ||
+      window.location.hostname.includes("-preview--") ||
+      window.location.hostname.endsWith("-dev.lovable.app");
+    if (!isPreview || !isTransientPreviewError) return;
 
     const alreadyRetried = window.sessionStorage.getItem(PREVIEW_RECOVERY_KEY) === message;
     if (alreadyRetried) return;
@@ -73,7 +77,11 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <Button onClick={() => {
-            if (isTransientPreviewError) {
+            const isPreview =
+              window.location.hostname === "localhost" ||
+              window.location.hostname.includes("-preview--") ||
+              window.location.hostname.endsWith("-dev.lovable.app");
+            if (isPreview && isTransientPreviewError) {
               window.location.reload();
               return;
             }
@@ -153,10 +161,6 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-
-  useEffect(() => {
-    window.sessionStorage.removeItem(PREVIEW_RECOVERY_KEY);
-  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
