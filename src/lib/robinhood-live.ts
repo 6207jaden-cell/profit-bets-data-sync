@@ -159,29 +159,18 @@ async function mcpRpc(
 let _meta: { token_endpoint: string; authorization_endpoint: string } | null = null;
 async function discoverAuthServer() {
   if (_meta) return _meta;
-  const protectedRes = await fetch(ROBINHOOD_MCP_URL, {
-    headers: { accept: "application/json" },
-  });
-  const wwwAuth = protectedRes.headers.get("www-authenticate") ?? "";
-  const resourceMatch = wwwAuth.match(/resource_metadata="([^"]+)"/);
-  // SECURITY_AUDIT.md Finding 7: this discovery chain follows URLs
-  // extracted from the remote server's OWN response with no domain
-  // allowlisting — requiring HTTPS at each hop closes the simplest
-  // downgrade-to-plaintext sub-case. Same fix, same honest scope
-  // limitation, as the equivalent chain in mcp-oauth.server.ts.
-  if (resourceMatch && isHttpsUrl(resourceMatch[1])) {
-    const r = await fetch(resourceMatch[1]);
-    const rm = (await r.json()) as { authorization_servers?: string[] };
-    const candidate = rm.authorization_servers?.[0];
-    if (candidate && isHttpsUrl(candidate)) {
-      const asUrl = candidate.replace(/\/$/, "");
-      const asMeta = await fetch(`${asUrl}/.well-known/oauth-authorization-server`);
-      _meta = (await asMeta.json()) as typeof _meta;
-      return _meta!;
-    }
-  }
-  throw new Error("Could not discover Robinhood auth server");
+  // Robinhood only answers POST on the MCP endpoint (a GET returns 405 with no
+  // www-authenticate header), and its advertised issuer is the MCP URL itself
+  // while the AS metadata is hosted at the origin root. The shared helper in
+  // mcp-oauth.server.ts already probes with POST and tries every RFC 8414
+  // metadata location, so delegate instead of duplicating a stricter chain.
+  const { discoverAuthServer: discover } = await import("@/lib/mcp-oauth.server");
+  const meta = await discover(ROBINHOOD_MCP_URL);
+  if (!meta?.token_endpoint) throw new Error("Could not discover Robinhood auth server");
+  _meta = { token_endpoint: meta.token_endpoint, authorization_endpoint: meta.authorization_endpoint };
+  return _meta;
 }
+
 
 // ─── MCP session initialise ──────────────────────────────────────────────────
 
