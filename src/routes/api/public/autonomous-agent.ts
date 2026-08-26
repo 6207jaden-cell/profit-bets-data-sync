@@ -1448,10 +1448,19 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   );
 
   const sectorCount = new Map<string, number>();
+  // Sector concentration is measured by NOTIONAL exposure (dollars at risk),
+  // not position count — three tiny crypto lots should never block a fourth
+  // entry while the sector holds a trivial share of equity.
+  const sectorNotional = new Map<string, number>();
   for (const t of openList) {
     const s = sectorFor(String(t.asset));
     sectorCount.set(s, (sectorCount.get(s) ?? 0) + 1);
+    const px = quotes.get(String(t.asset)) ?? Number(t.entry_price);
+    sectorNotional.set(s, (sectorNotional.get(s) ?? 0) + Number(t.quantity) * px);
   }
+  // Max share of total equity any one sector may hold.
+  const SECTOR_MAX_PCT = 35;
+  const sectorEquityBase = currentEquity > 0 ? currentEquity : cash;
 
   let opened = 0;
   let cashRemaining = cash;
