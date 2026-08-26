@@ -1448,10 +1448,19 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   );
 
   const sectorCount = new Map<string, number>();
+  // Sector concentration is measured by NOTIONAL exposure (dollars at risk),
+  // not position count — three tiny crypto lots should never block a fourth
+  // entry while the sector holds a trivial share of equity.
+  const sectorNotional = new Map<string, number>();
   for (const t of openList) {
     const s = sectorFor(String(t.asset));
     sectorCount.set(s, (sectorCount.get(s) ?? 0) + 1);
+    const px = quotes.get(String(t.asset)) ?? Number(t.entry_price);
+    sectorNotional.set(s, (sectorNotional.get(s) ?? 0) + Number(t.quantity) * px);
   }
+  // Max share of total equity any one sector may hold.
+  const SECTOR_MAX_PCT = 35;
+  const sectorEquityBase = currentEquity > 0 ? currentEquity : cash;
 
   let opened = 0;
   let cashRemaining = cash;
@@ -1636,6 +1645,10 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
             });
             const scaleFillPrice = applySlippage(existingPrice, t.direction === "long" ? "buy" : "sell", scaleSlip.slippageBps);
             const scaleQty = scaleCash / scaleFillPrice;
+            if (!Number.isFinite(scaleQty) || scaleQty <= 0) {
+              debugSkips.push({ symbol: t.symbol, reason: "zero_quantity", detail: { scaleCash, scaleFillPrice } });
+              continue;
+            }
             const scaleAtrPct = candidateAtrMap.get(t.symbol.toUpperCase());
             const scaleCalibrated = atrBasedStopTarget(scaleAtrPct, session, t.stop_loss_pct ?? settings.stop_loss_pct, t.take_profit_pct ?? settings.take_profit_pct);
             const scaleSignalsForSymbol = candidateSignalsMap.get(t.symbol.toUpperCase());
@@ -1683,7 +1696,17 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     const sect = sectorFor(t.symbol);
     // Cap concentration per real sector; skip the guard entirely for "other" so
     // unclassified assets do not cross-block each other.
-    if (sect !== "other" && (sectorCount.get(sect) ?? 0) >= Math.max(3, Math.floor(openList.length * 0.5))) { debugSkips.push({ symbol: t.symbol, reason: "sector_cap", detail: sect }); continue; }
+    if (sect !== "other" && sectorEquityBase > 0) {
+      const sectorAfter = (sectorNotional.get(sect) ?? 0) + allocCash;
+      const sectorAfterPct = (sectorAfter / sectorEquityBase) * 100;
+      if (sectorAfterPct > SECTOR_MAX_PCT) {
+        debugSkips.push({
+          symbol: t.symbol, reason: "sector_cap",
+          detail: { sector: sect, sector_pct_after: Number(sectorAfterPct.toFixed(1)), max_pct: SECTOR_MAX_PCT },
+        });
+        continue;
+      }
+    }
 
     // isSectorBullish defined below for loop (hoisted) with cached ETF lookups
 
@@ -1722,6 +1745,12 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     });
     const price = applySlippage(quotedPrice, t.direction === "long" ? "buy" : "sell", slip.slippageBps);
     const qty = allocCash / price;
+    // Never record a zero/degenerate-size position: those become phantom
+    // "trades" in history with $0 P&L that pollute win-rate and attribution.
+    if (!Number.isFinite(qty) || qty <= 0 || allocCash < 1) {
+      debugSkips.push({ symbol: t.symbol, reason: "zero_quantity", detail: { allocCash, price, qty } });
+      continue;
+    }
 
     // For options trades, resolve the real contract from Polygon before inserting
     let resolvedOptions = t.options_details as Record<string, unknown> | null ?? null;
@@ -1813,6 +1842,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     } catch (e) { console.error("[autonomous] notif open", e); }
     cashRemaining -= allocCash;
     sectorCount.set(sect, (sectorCount.get(sect) ?? 0) + 1);
+    sectorNotional.set(sect, (sectorNotional.get(sect) ?? 0) + allocCash);
     opened += 1;
   }
 
