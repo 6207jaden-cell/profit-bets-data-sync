@@ -183,7 +183,7 @@ export const Route = createFileRoute("/api/public/sync-robinhood-balance")({
               role: "assistant",
               is_autonomous: true,
               session_type: "balance_sync",
-              content: `🔄 Robinhood balance synced: ${portfolioValue != null ? `Portfolio $${portfolioValue.toLocaleString()}` : ""} ${buyingPower != null ? `· Cash $${buyingPower.toLocaleString()}` : ""} — paper portfolio updated to match live account.`,
+              content: `🔄 Robinhood balance synced: ${portfolioValue != null ? `Portfolio $${portfolioValue.toLocaleString()}` : ""} ${buyingPower != null ? `· Cash $${buyingPower.toLocaleString()}` : ""} — ${isLive ? "live mode: paper portfolio updated to match live account." : "paper mode: snapshot recorded only, paper portfolio untouched."}`,
             });
 
             synced++;
