@@ -1,0 +1,1 @@
+DELETE FROM public.paper_trades WHERE quantity <= 0;
