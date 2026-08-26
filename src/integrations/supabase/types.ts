@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -155,6 +155,42 @@ export type Database = {
           role?: string
           session_type?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      agent_signal_weights: {
+        Row: {
+          alpha: number
+          avg_pnl_pct: number
+          beta: number
+          id: string
+          sample_size: number
+          signal_name: string
+          updated_at: string
+          user_id: string
+          weight_multiplier: number
+        }
+        Insert: {
+          alpha?: number
+          avg_pnl_pct?: number
+          beta?: number
+          id?: string
+          sample_size?: number
+          signal_name: string
+          updated_at?: string
+          user_id: string
+          weight_multiplier?: number
+        }
+        Update: {
+          alpha?: number
+          avg_pnl_pct?: number
+          beta?: number
+          id?: string
+          sample_size?: number
+          signal_name?: string
+          updated_at?: string
+          user_id?: string
+          weight_multiplier?: number
         }
         Relationships: []
       }
@@ -422,6 +458,7 @@ export type Database = {
           closed_at: string | null
           created_at: string
           entry_price: number
+          entry_signals: string[] | null
           exit_price: number | null
           hold_duration: string | null
           id: string
@@ -443,6 +480,7 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           entry_price: number
+          entry_signals?: string[] | null
           exit_price?: number | null
           hold_duration?: string | null
           id?: string
@@ -464,6 +502,7 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           entry_price?: number
+          entry_signals?: string[] | null
           exit_price?: number | null
           hold_duration?: string | null
           id?: string
