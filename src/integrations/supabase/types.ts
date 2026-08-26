@@ -128,6 +128,42 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_memory: {
+        Row: {
+          content: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          memory_type: string
+          relevance: number
+          symbol: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          memory_type: string
+          relevance?: number
+          symbol?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          memory_type?: string
+          relevance?: number
+          symbol?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_messages: {
         Row: {
           content: string
@@ -160,37 +196,61 @@ export type Database = {
       }
       agent_signal_weights: {
         Row: {
+          absent_alpha: number
+          absent_avg_pnl_pct: number
+          absent_beta: number
+          absent_sample_size: number
           alpha: number
+          avg_loss_pct: number
           avg_pnl_pct: number
+          avg_win_pct: number
           beta: number
           id: string
+          loss_count: number
           sample_size: number
           signal_name: string
           updated_at: string
           user_id: string
           weight_multiplier: number
+          win_count: number
         }
         Insert: {
+          absent_alpha?: number
+          absent_avg_pnl_pct?: number
+          absent_beta?: number
+          absent_sample_size?: number
           alpha?: number
+          avg_loss_pct?: number
           avg_pnl_pct?: number
+          avg_win_pct?: number
           beta?: number
           id?: string
+          loss_count?: number
           sample_size?: number
           signal_name: string
           updated_at?: string
           user_id: string
           weight_multiplier?: number
+          win_count?: number
         }
         Update: {
+          absent_alpha?: number
+          absent_avg_pnl_pct?: number
+          absent_beta?: number
+          absent_sample_size?: number
           alpha?: number
+          avg_loss_pct?: number
           avg_pnl_pct?: number
+          avg_win_pct?: number
           beta?: number
           id?: string
+          loss_count?: number
           sample_size?: number
           signal_name?: string
           updated_at?: string
           user_id?: string
           weight_multiplier?: number
+          win_count?: number
         }
         Relationships: []
       }
@@ -227,6 +287,63 @@ export type Database = {
         }
         Relationships: []
       }
+      btc_dominance_snapshots: {
+        Row: {
+          created_at: string
+          dominance_pct: number
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          dominance_pct: number
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          dominance_pct?: number
+          id?: string
+        }
+        Relationships: []
+      }
+      cron_locks: {
+        Row: {
+          acquired_at: string
+          expires_at: string
+          lock_key: string
+        }
+        Insert: {
+          acquired_at: string
+          expires_at: string
+          lock_key: string
+        }
+        Update: {
+          acquired_at?: string
+          expires_at?: string
+          lock_key?: string
+        }
+        Relationships: []
+      }
+      iv_history_snapshots: {
+        Row: {
+          created_at: string
+          id: string
+          iv_pct: number
+          symbol: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          iv_pct: number
+          symbol: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          iv_pct?: number
+          symbol?: string
+        }
+        Relationships: []
+      }
       manual_positions: {
         Row: {
           asset: string
@@ -254,6 +371,24 @@ export type Database = {
           id?: string
           shares?: number
           user_id?: string
+        }
+        Relationships: []
+      }
+      market_breadth_snapshots: {
+        Row: {
+          breadth_score: number
+          created_at: string
+          id: string
+        }
+        Insert: {
+          breadth_score: number
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          breadth_score?: number
+          created_at?: string
+          id?: string
         }
         Relationships: []
       }
@@ -349,6 +484,7 @@ export type Database = {
           dcr_metadata: Json | null
           expires_at: string | null
           id: string
+          oauth_state: string | null
           refresh_token: string | null
           server_label: string
           server_url: string
@@ -366,6 +502,7 @@ export type Database = {
           dcr_metadata?: Json | null
           expires_at?: string | null
           id?: string
+          oauth_state?: string | null
           refresh_token?: string | null
           server_label: string
           server_url: string
@@ -383,6 +520,7 @@ export type Database = {
           dcr_metadata?: Json | null
           expires_at?: string | null
           id?: string
+          oauth_state?: string | null
           refresh_token?: string | null
           server_label?: string
           server_url?: string
@@ -456,10 +594,16 @@ export type Database = {
         Row: {
           asset: string
           closed_at: string | null
+          conviction: number | null
           created_at: string
           entry_price: number
+          entry_quoted_price: number | null
           entry_signals: string[] | null
+          entry_slippage_bps: number | null
+          estimated_fees: number | null
           exit_price: number | null
+          exit_quoted_price: number | null
+          exit_slippage_bps: number | null
           hold_duration: string | null
           id: string
           instrument: string
@@ -478,10 +622,16 @@ export type Database = {
         Insert: {
           asset: string
           closed_at?: string | null
+          conviction?: number | null
           created_at?: string
           entry_price: number
+          entry_quoted_price?: number | null
           entry_signals?: string[] | null
+          entry_slippage_bps?: number | null
+          estimated_fees?: number | null
           exit_price?: number | null
+          exit_quoted_price?: number | null
+          exit_slippage_bps?: number | null
           hold_duration?: string | null
           id?: string
           instrument?: string
@@ -500,10 +650,16 @@ export type Database = {
         Update: {
           asset?: string
           closed_at?: string | null
+          conviction?: number | null
           created_at?: string
           entry_price?: number
+          entry_quoted_price?: number | null
           entry_signals?: string[] | null
+          entry_slippage_bps?: number | null
+          estimated_fees?: number | null
           exit_price?: number | null
+          exit_quoted_price?: number | null
+          exit_slippage_bps?: number | null
           hold_duration?: string | null
           id?: string
           instrument?: string
@@ -629,6 +785,27 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limit_state: {
+        Row: {
+          bucket_key: string
+          request_count: number
+          updated_at: string
+          window_start: string
+        }
+        Insert: {
+          bucket_key: string
+          request_count?: number
+          updated_at?: string
+          window_start: string
+        }
+        Update: {
+          bucket_key?: string
+          request_count?: number
+          updated_at?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       risk_limits: {
         Row: {
           cooldown_seconds: number
@@ -658,6 +835,178 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      robinhood_snapshots: {
+        Row: {
+          balance: number
+          buying_power: number | null
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          balance: number
+          buying_power?: number | null
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          balance?: number
+          buying_power?: number | null
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      shadow_candidate_log: {
+        Row: {
+          actual_trade_id: string | null
+          agreement: string
+          claude_conviction: number | null
+          claude_direction: string | null
+          claude_traded: boolean
+          created_at: string
+          deterministic_direction: string
+          deterministic_rank: number
+          deterministic_score: number
+          hypothetical_return_pct: number | null
+          id: string
+          price_at_scan: number | null
+          resolution_price: number | null
+          resolved: boolean
+          resolved_at: string | null
+          session_type: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          actual_trade_id?: string | null
+          agreement: string
+          claude_conviction?: number | null
+          claude_direction?: string | null
+          claude_traded?: boolean
+          created_at?: string
+          deterministic_direction: string
+          deterministic_rank: number
+          deterministic_score: number
+          hypothetical_return_pct?: number | null
+          id?: string
+          price_at_scan?: number | null
+          resolution_price?: number | null
+          resolved?: boolean
+          resolved_at?: string | null
+          session_type: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          actual_trade_id?: string | null
+          agreement?: string
+          claude_conviction?: number | null
+          claude_direction?: string | null
+          claude_traded?: boolean
+          created_at?: string
+          deterministic_direction?: string
+          deterministic_rank?: number
+          deterministic_score?: number
+          hypothetical_return_pct?: number | null
+          id?: string
+          price_at_scan?: number | null
+          resolution_price?: number | null
+          resolved?: boolean
+          resolved_at?: string | null
+          session_type?: string
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadow_candidate_log_actual_trade_id_fkey"
+            columns: ["actual_trade_id"]
+            isOneToOne: false
+            referencedRelation: "paper_trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shadow_weighting_comparison: {
+        Row: {
+          actual_trade_id: string | null
+          adaptive_bear_score: number
+          adaptive_bull_score: number
+          adaptive_rank: number
+          created_at: string
+          direction_hint: string
+          hypothetical_return_pct: number | null
+          id: string
+          neutral_bear_score: number
+          neutral_bull_score: number
+          neutral_rank: number
+          price_at_scan: number | null
+          rank_delta: number
+          resolution_price: number | null
+          resolved: boolean
+          resolved_at: string | null
+          session_type: string
+          symbol: string
+          user_id: string
+          was_traded: boolean
+        }
+        Insert: {
+          actual_trade_id?: string | null
+          adaptive_bear_score: number
+          adaptive_bull_score: number
+          adaptive_rank: number
+          created_at?: string
+          direction_hint?: string
+          hypothetical_return_pct?: number | null
+          id?: string
+          neutral_bear_score: number
+          neutral_bull_score: number
+          neutral_rank: number
+          price_at_scan?: number | null
+          rank_delta: number
+          resolution_price?: number | null
+          resolved?: boolean
+          resolved_at?: string | null
+          session_type: string
+          symbol: string
+          user_id: string
+          was_traded?: boolean
+        }
+        Update: {
+          actual_trade_id?: string | null
+          adaptive_bear_score?: number
+          adaptive_bull_score?: number
+          adaptive_rank?: number
+          created_at?: string
+          direction_hint?: string
+          hypothetical_return_pct?: number | null
+          id?: string
+          neutral_bear_score?: number
+          neutral_bull_score?: number
+          neutral_rank?: number
+          price_at_scan?: number | null
+          rank_delta?: number
+          resolution_price?: number | null
+          resolved?: boolean
+          resolved_at?: string | null
+          session_type?: string
+          symbol?: string
+          user_id?: string
+          was_traded?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadow_weighting_comparison_actual_trade_id_fkey"
+            columns: ["actual_trade_id"]
+            isOneToOne: false
+            referencedRelation: "paper_trades"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       signals_executions: {
         Row: {
@@ -803,6 +1152,75 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_ab_tests: {
+        Row: {
+          ab_budget: number
+          created_at: string
+          end_date: string | null
+          id: string
+          name: string
+          result_confidence: number | null
+          result_summary: string | null
+          result_winner: string | null
+          split_pct: number
+          start_date: string
+          status: string
+          strategy_a_id: string
+          strategy_b_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ab_budget?: number
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          name: string
+          result_confidence?: number | null
+          result_summary?: string | null
+          result_winner?: string | null
+          split_pct?: number
+          start_date?: string
+          status?: string
+          strategy_a_id: string
+          strategy_b_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ab_budget?: number
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          name?: string
+          result_confidence?: number | null
+          result_summary?: string | null
+          result_winner?: string | null
+          split_pct?: number
+          start_date?: string
+          status?: string
+          strategy_a_id?: string
+          strategy_b_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_ab_tests_strategy_a_id_fkey"
+            columns: ["strategy_a_id"]
+            isOneToOne: false
+            referencedRelation: "strategies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "strategy_ab_tests_strategy_b_id_fkey"
+            columns: ["strategy_b_id"]
+            isOneToOne: false
+            referencedRelation: "strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       strategy_performance: {
         Row: {
           backtest_from: string | null
@@ -849,6 +1267,41 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "strategy_performance_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      strategy_versions: {
+        Row: {
+          created_at: string
+          id: string
+          note: string | null
+          strategy_id: string
+          strategy_json: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          note?: string | null
+          strategy_id: string
+          strategy_json: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          note?: string | null
+          strategy_id?: string
+          strategy_json?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_versions_strategy_id_fkey"
             columns: ["strategy_id"]
             isOneToOne: false
             referencedRelation: "strategies"
@@ -966,6 +1419,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cron_lock_cleanup: { Args: never; Returns: undefined }
       get_strategy_trade_stats: {
         Args: never
         Returns: {
@@ -989,10 +1443,23 @@ export type Database = {
         }
         Returns: boolean
       }
+      rate_limit_cleanup: { Args: never; Returns: undefined }
+      rate_limit_increment: {
+        Args: { p_bucket_key: string; p_window_start: string }
+        Returns: {
+          is_new_window: boolean
+          request_count: number
+        }[]
+      }
       register_all_crons: { Args: never; Returns: Json }
+      release_cron_lock: { Args: { p_lock_key: string }; Returns: undefined }
       tier_rank: {
         Args: { _tier: Database["public"]["Enums"]["app_tier"] }
         Returns: number
+      }
+      try_acquire_cron_lock: {
+        Args: { p_lock_key: string; p_ttl_seconds: number }
+        Returns: boolean
       }
     }
     Enums: {
