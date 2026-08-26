@@ -1842,6 +1842,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     } catch (e) { console.error("[autonomous] notif open", e); }
     cashRemaining -= allocCash;
     sectorCount.set(sect, (sectorCount.get(sect) ?? 0) + 1);
+    sectorNotional.set(sect, (sectorNotional.get(sect) ?? 0) + allocCash);
     opened += 1;
   }
 
