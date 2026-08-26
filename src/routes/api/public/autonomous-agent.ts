@@ -1692,7 +1692,17 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     const sect = sectorFor(t.symbol);
     // Cap concentration per real sector; skip the guard entirely for "other" so
     // unclassified assets do not cross-block each other.
-    if (sect !== "other" && (sectorCount.get(sect) ?? 0) >= Math.max(3, Math.floor(openList.length * 0.5))) { debugSkips.push({ symbol: t.symbol, reason: "sector_cap", detail: sect }); continue; }
+    if (sect !== "other" && sectorEquityBase > 0) {
+      const sectorAfter = (sectorNotional.get(sect) ?? 0) + allocCash;
+      const sectorAfterPct = (sectorAfter / sectorEquityBase) * 100;
+      if (sectorAfterPct > SECTOR_MAX_PCT) {
+        debugSkips.push({
+          symbol: t.symbol, reason: "sector_cap",
+          detail: { sector: sect, sector_pct_after: Number(sectorAfterPct.toFixed(1)), max_pct: SECTOR_MAX_PCT },
+        });
+        continue;
+      }
+    }
 
     // isSectorBullish defined below for loop (hoisted) with cached ETF lookups
 
