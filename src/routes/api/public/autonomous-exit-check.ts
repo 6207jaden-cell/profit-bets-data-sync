@@ -300,7 +300,10 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     const sessionTagMatch = originalRationale.match(/\[(SCALP|SWING|CRYPTO)\]/);
     const sessionTag = sessionTagMatch ? sessionTagMatch[0] : "";
 
-    await supabaseAdmin.from("paper_trades").insert({
+    // Same rule as full closes below: no execution log / notification unless
+    // the trimmed lot row was really written, otherwise a failing insert
+    // re-logs the same trim on every 10-minute run.
+    const { error: trimErr } = await supabaseAdmin.from("paper_trades").insert({
       user_id: userId, portfolio_id: portfolio.id,
       asset: t.trade.asset, side: t.trade.side, quantity: trimQty,
       entry_price: t.trade.entry_price, exit_price: t.exit_price,
@@ -317,6 +320,10 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
       exit_slippage_bps: t.slippage_bps,
       estimated_fees: estimateFees(String(t.trade.instrument ?? "stock")),
     } as never);
+    if (trimErr) {
+      console.error("[exit-check] trim insert failed, skipping logs", t.trade.id, trimErr.message);
+      continue;
+    }
 
     await supabaseAdmin.from("paper_trades").update({ quantity: remainingQty }).eq("id", t.trade.id);
 
