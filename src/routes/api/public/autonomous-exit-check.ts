@@ -300,7 +300,10 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     const sessionTagMatch = originalRationale.match(/\[(SCALP|SWING|CRYPTO)\]/);
     const sessionTag = sessionTagMatch ? sessionTagMatch[0] : "";
 
-    await supabaseAdmin.from("paper_trades").insert({
+    // Same rule as full closes below: no execution log / notification unless
+    // the trimmed lot row was really written, otherwise a failing insert
+    // re-logs the same trim on every 10-minute run.
+    const { error: trimErr } = await supabaseAdmin.from("paper_trades").insert({
       user_id: userId, portfolio_id: portfolio.id,
       asset: t.trade.asset, side: t.trade.side, quantity: trimQty,
       entry_price: t.trade.entry_price, exit_price: t.exit_price,
@@ -317,6 +320,10 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
       exit_slippage_bps: t.slippage_bps,
       estimated_fees: estimateFees(String(t.trade.instrument ?? "stock")),
     } as never);
+    if (trimErr) {
+      console.error("[exit-check] trim insert failed, skipping logs", t.trade.id, trimErr.message);
+      continue;
+    }
 
     await supabaseAdmin.from("paper_trades").update({ quantity: remainingQty }).eq("id", t.trade.id);
 
@@ -354,13 +361,28 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
   for (const c of closures) {
     const dir = c.trade.side === "buy" ? 1 : -1;
     const pnl = (c.exit_price - Number(c.trade.entry_price)) * Number(c.trade.quantity) * dir;
-    await supabaseAdmin.from("paper_trades").update({
-      is_open: false, exit_price: c.exit_price, pnl, closed_at: new Date().toISOString(),
-      // Experiment 3: record this closure's exit-side cost data.
-      exit_quoted_price: c.quoted_price,
-      exit_slippage_bps: c.slippage_bps,
-      estimated_fees: estimateFees(String(c.trade.instrument ?? "stock")),
-    } as never).eq("id", c.trade.id);
+    // The position row MUST actually flip to closed before we log anything
+    // else. Previously the write was fire-and-forget: if it failed (e.g. a
+    // column in the payload didn't exist yet) the trade stayed open while the
+    // execution log, notification and agent message were still written — so
+    // every 10-minute run re-logged the same phantom "close" and inflated the
+    // Trade Journal / execution counter. `is_open` in the filter also makes
+    // this idempotent against overlapping runs.
+    const { data: closedRows, error: closeErr } = await supabaseAdmin
+      .from("paper_trades").update({
+        is_open: false, exit_price: c.exit_price, pnl, closed_at: new Date().toISOString(),
+        // Experiment 3: record this closure's exit-side cost data.
+        exit_quoted_price: c.quoted_price,
+        exit_slippage_bps: c.slippage_bps,
+        estimated_fees: estimateFees(String(c.trade.instrument ?? "stock")),
+      } as never)
+      .eq("id", c.trade.id)
+      .eq("is_open", true)
+      .select("id");
+    if (closeErr || !closedRows || closedRows.length === 0) {
+      console.error("[exit-check] close failed, skipping logs", c.trade.id, closeErr?.message);
+      continue;
+    }
 
     // Bayesian signal-weight update — nudges this user's learned weight for
     // every signal that was active when this trade opened, using the actual
