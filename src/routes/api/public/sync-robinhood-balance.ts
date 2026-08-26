@@ -134,23 +134,36 @@ export const Route = createFileRoute("/api/public/sync-robinhood-balance")({
               continue;
             }
 
-            // Update paper portfolio to match real account
-            const { data: portfolio } = await supabaseAdmin
-              .from("paper_portfolios")
-              .select("id, balance, equity")
+            // Only a LIVE-mode account may overwrite the paper portfolio.
+            // In paper mode the two must stay separate, otherwise real
+            // Robinhood buying power replaces simulated cash and every
+            // paper performance metric (return vs starting balance,
+            // position sizing, drawdown) becomes meaningless.
+            const { data: settings } = await supabaseAdmin
+              .from("user_settings")
+              .select("autonomous_execution_mode")
               .eq("user_id", userId)
               .maybeSingle();
+            const isLive = String(settings?.autonomous_execution_mode ?? "paper") === "live";
 
-            if (!portfolio) continue;
+            if (isLive) {
+              const { data: portfolio } = await supabaseAdmin
+                .from("paper_portfolios")
+                .select("id, balance, equity")
+                .eq("user_id", userId)
+                .maybeSingle();
 
-            const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-            if (buyingPower != null) updates.balance = buyingPower;
-            if (portfolioValue != null) updates.equity = portfolioValue;
+              if (portfolio) {
+                const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+                if (buyingPower != null) updates.balance = buyingPower;
+                if (portfolioValue != null) updates.equity = portfolioValue;
 
-            await supabaseAdmin
-              .from("paper_portfolios")
-              .update(updates as never)
-              .eq("id", portfolio.id);
+                await supabaseAdmin
+                  .from("paper_portfolios")
+                  .update(updates as never)
+                  .eq("id", portfolio.id);
+              }
+            }
 
             // Save daily snapshot for the Robinhood chart. robinhood_snapshots
             // is ahead of the auto-generated Database type (migration applied,
