@@ -1645,6 +1645,10 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
             });
             const scaleFillPrice = applySlippage(existingPrice, t.direction === "long" ? "buy" : "sell", scaleSlip.slippageBps);
             const scaleQty = scaleCash / scaleFillPrice;
+            if (!Number.isFinite(scaleQty) || scaleQty <= 0) {
+              debugSkips.push({ symbol: t.symbol, reason: "zero_quantity", detail: { scaleCash, scaleFillPrice } });
+              continue;
+            }
             const scaleAtrPct = candidateAtrMap.get(t.symbol.toUpperCase());
             const scaleCalibrated = atrBasedStopTarget(scaleAtrPct, session, t.stop_loss_pct ?? settings.stop_loss_pct, t.take_profit_pct ?? settings.take_profit_pct);
             const scaleSignalsForSymbol = candidateSignalsMap.get(t.symbol.toUpperCase());
