@@ -1741,6 +1741,12 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     });
     const price = applySlippage(quotedPrice, t.direction === "long" ? "buy" : "sell", slip.slippageBps);
     const qty = allocCash / price;
+    // Never record a zero/degenerate-size position: those become phantom
+    // "trades" in history with $0 P&L that pollute win-rate and attribution.
+    if (!Number.isFinite(qty) || qty <= 0 || allocCash < 1) {
+      debugSkips.push({ symbol: t.symbol, reason: "zero_quantity", detail: { allocCash, price, qty } });
+      continue;
+    }
 
     // For options trades, resolve the real contract from Polygon before inserting
     let resolvedOptions = t.options_details as Record<string, unknown> | null ?? null;
