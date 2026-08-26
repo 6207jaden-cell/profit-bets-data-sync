@@ -158,6 +158,42 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_signal_weights: {
+        Row: {
+          alpha: number
+          avg_pnl_pct: number
+          beta: number
+          id: string
+          sample_size: number
+          signal_name: string
+          updated_at: string
+          user_id: string
+          weight_multiplier: number
+        }
+        Insert: {
+          alpha?: number
+          avg_pnl_pct?: number
+          beta?: number
+          id?: string
+          sample_size?: number
+          signal_name: string
+          updated_at?: string
+          user_id: string
+          weight_multiplier?: number
+        }
+        Update: {
+          alpha?: number
+          avg_pnl_pct?: number
+          beta?: number
+          id?: string
+          sample_size?: number
+          signal_name?: string
+          updated_at?: string
+          user_id?: string
+          weight_multiplier?: number
+        }
+        Relationships: []
+      }
       broker_connections: {
         Row: {
           account_label: string | null
@@ -422,6 +458,7 @@ export type Database = {
           closed_at: string | null
           created_at: string
           entry_price: number
+          entry_signals: string[] | null
           exit_price: number | null
           hold_duration: string | null
           id: string
@@ -443,6 +480,7 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           entry_price: number
+          entry_signals?: string[] | null
           exit_price?: number | null
           hold_duration?: string | null
           id?: string
@@ -464,6 +502,7 @@ export type Database = {
           closed_at?: string | null
           created_at?: string
           entry_price?: number
+          entry_signals?: string[] | null
           exit_price?: number | null
           hold_duration?: string | null
           id?: string
