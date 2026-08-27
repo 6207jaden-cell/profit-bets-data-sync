@@ -510,10 +510,21 @@ function AutonomousSection({ userId, robinhoodReady = false }: { userId: string 
   }
   async function setExecMode(mode: "paper" | "live") {
     if (!userId) return;
+    if (mode === "live") {
+      if (!robinhoodReady) {
+        toast.error("Connect Robinhood first", { description: "Live mode needs an active Robinhood connection." });
+        return;
+      }
+      const ok = window.confirm(
+        "Switch to LIVE trading?\n\nThe autonomous agent will place orders with real money in your Robinhood account. Paper simulation stops.",
+      );
+      if (!ok) return;
+    }
     await supabase.from("user_settings").upsert({
       user_id: userId, autonomous_mode: autonomous, autonomous_execution_mode: mode,
     });
     qc.invalidateQueries({ queryKey: ["user-settings", userId] });
+    toast.success(mode === "live" ? "Live trading enabled" : "Switched to paper mode");
   }
   async function setPause(hours: number | null) {
     if (!userId) return;
