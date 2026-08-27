@@ -175,7 +175,7 @@ export function AgentPanel() {
   if (!ready) {
     return (
       <div className="space-y-4">
-        <AutonomousSection userId={userId} />
+        <AutonomousSection userId={userId} robinhoodReady={false} />
         <Card className="p-8 md:p-12 bg-card border-border">
         <div className="max-w-md mx-auto text-center space-y-5">
           <div className="mx-auto h-14 w-14 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center">
