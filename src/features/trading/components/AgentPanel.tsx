@@ -274,7 +274,7 @@ export function AgentPanel() {
 
   return (
     <div className="space-y-3">
-    <AutonomousSection userId={userId} />
+    <AutonomousSection userId={userId} robinhoodReady={true} />
     <AgentPerformanceCard />
     <div className="grid grid-rows-[auto_1fr_auto] gap-3 h-[calc(100vh-320px)] min-h-[500px]">
       <Card className="px-4 py-2 flex items-center justify-between bg-card border-border">
