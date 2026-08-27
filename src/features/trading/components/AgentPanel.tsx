@@ -86,14 +86,18 @@ export function AgentPanel() {
   async function handleConnect() {
     setConnectionBusy(true);
     setConnectionError(null);
-    const authWindow = window.open("about:blank", "robinhood-oauth");
+    setAuthUrl(null);
     try {
       const result = await initiateConnFn();
-      if (authWindow) authWindow.location.href = result.auth_url;
-      else window.location.href = result.auth_url;
+      setAuthUrl(result.auth_url);
+      // Popup blockers frequently kill a post-await window.open, so the URL is
+      // also rendered as a link below — this is a best-effort convenience.
+      const w = window.open(result.auth_url, "_blank", "noopener,noreferrer");
+      if (!w) {
+        toast.info("Popup blocked", { description: "Use the “Open Robinhood approval page” link below." });
+      }
       await qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
     } catch (error) {
-      authWindow?.close();
       setConnectionError(error instanceof Error ? error.message : "Could not start the Robinhood connection.");
     } finally {
       setConnectionBusy(false);
@@ -107,7 +111,9 @@ export function AgentPanel() {
     try {
       await completeConnFn({ data: { callback: callbackUrl.trim() } });
       setCallbackUrl("");
+      setAuthUrl(null);
       await qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
+      toast.success("Robinhood connected");
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : "Could not finish the Robinhood connection.");
     } finally {
