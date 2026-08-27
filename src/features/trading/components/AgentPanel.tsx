@@ -77,6 +77,8 @@ export function AgentPanel() {
   });
 
   const ready = conn.data?.state === "ready";
+  const pendingAuth = conn.data?.state === "authenticating" || !!authUrl;
+  const openAuthUrl = authUrl ?? conn.data?.auth_url ?? null;
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
 
   async function handleDisconnect() {
