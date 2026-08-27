@@ -735,27 +735,6 @@ function AutonomousSection({ userId, robinhoodReady = false }: { userId: string 
                   </PopoverContent>
                 </Popover>
               )}
-              <div className="flex items-center gap-1 text-[10px]">
-                <span className="text-muted-foreground">Mode:</span>
-                <button
-                  onClick={() => setExecMode("paper")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-all",
-                    execMode === "paper"
-                      ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
-                      : "text-muted-foreground hover:text-foreground border border-transparent"
-                  )}
-                >Paper</button>
-                <button
-                  onClick={() => setExecMode("live")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-all",
-                    execMode === "live"
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse"
-                      : "text-muted-foreground hover:text-foreground border border-transparent"
-                  )}
-                >Live</button>
-              </div>
             </div>
           </div>
           {autonomousMsgs.length > 0 && (
