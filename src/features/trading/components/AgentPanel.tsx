@@ -570,6 +570,63 @@ function AutonomousSection({ userId, robinhoodReady = false }: { userId: string 
           <Switch checked={autonomous} onCheckedChange={toggleAutonomous} />
         </div>
       </div>
+
+      {/* Always-visible execution mode indicator + toggle */}
+      <div
+        className={cn(
+          "rounded-lg border p-3 space-y-2",
+          execMode === "live"
+            ? "border-red-500/50 bg-red-500/10"
+            : "border-blue-500/40 bg-blue-500/5",
+        )}
+      >
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "h-2.5 w-2.5 rounded-full",
+                execMode === "live" ? "bg-red-500 animate-pulse" : "bg-blue-400",
+              )}
+            />
+            <span className="text-xs font-semibold">
+              {execMode === "live" ? "LIVE TRADING — real money" : "PAPER TRADING — simulated"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 rounded-md border border-border bg-background/60 p-0.5 text-[11px]">
+            <button
+              type="button"
+              onClick={() => setExecMode("paper")}
+              className={cn(
+                "px-2.5 py-1 rounded font-medium transition-colors",
+                execMode === "paper"
+                  ? "bg-blue-500/25 text-blue-200"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Paper
+            </button>
+            <button
+              type="button"
+              onClick={() => setExecMode("live")}
+              className={cn(
+                "px-2.5 py-1 rounded font-medium transition-colors",
+                execMode === "live"
+                  ? "bg-red-500/25 text-red-200"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Live
+            </button>
+          </div>
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {execMode === "live"
+            ? "The agent places real Robinhood orders on every scan. Use STOP or Pause to halt it instantly."
+            : robinhoodReady
+              ? "All trades are simulated in the paper portfolio. Switch to Live to route orders to Robinhood."
+              : "All trades are simulated. Connect Robinhood below to unlock live mode."}
+        </p>
+      </div>
       <Button
         type="button"
         onClick={runScanNow}
