@@ -195,16 +195,33 @@ export function AgentPanel() {
           </ul>
            <div className="rounded-md border border-border bg-muted/40 p-4 text-left space-y-3">
              <div className="text-sm font-medium">Connect with Robinhood Trading MCP</div>
-             <p className="text-xs leading-relaxed text-muted-foreground">
-               Approve access in Robinhood. Your browser will then try to open a localhost page; it may look blank or say it cannot connect. That is expected—copy the full URL from that page's address bar and paste it below.
-             </p>
-             <Button type="button" onClick={handleConnect} disabled={connectionBusy} className="w-full">
-               {connectionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-               {conn.data?.state === "authenticating" ? "Open Robinhood again" : "Connect Robinhood"}
-             </Button>
-             {conn.data?.state === "authenticating" && (
+
+             {/* Step 1 */}
+             <div className="space-y-2">
+               <div className="text-[11px] font-semibold text-primary">Step 1 — Approve in Robinhood</div>
+               <Button type="button" onClick={handleConnect} disabled={connectionBusy} className="w-full">
+                 {connectionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                 {pendingAuth ? "Restart Robinhood approval" : "Connect Robinhood"}
+               </Button>
+               {openAuthUrl && (
+                 <a
+                   href={openAuthUrl}
+                   target="_blank"
+                   rel="noreferrer"
+                   className="flex items-center justify-center gap-1 text-xs font-medium text-primary hover:underline"
+                 >
+                   Open Robinhood approval page <ExternalLink className="h-3 w-3" />
+                 </a>
+               )}
+             </div>
+
+             {/* Step 2 */}
+             {pendingAuth && (
                <div className="space-y-2 border-t border-border pt-3">
-                 <label htmlFor="robinhood-callback" className="text-xs font-medium">Finish connection</label>
+                 <div className="text-[11px] font-semibold text-primary">Step 2 — Paste the redirect address</div>
+                 <p className="text-xs leading-relaxed text-muted-foreground">
+                   After you approve, Robinhood sends your browser to a <span className="font-mono">localhost</span> page that will look blank or say it can’t connect. That’s expected — copy everything in that tab’s address bar and paste it here.
+                 </p>
                  <input
                    id="robinhood-callback"
                    value={callbackUrl}
@@ -212,11 +229,31 @@ export function AgentPanel() {
                    placeholder="http://localhost:1455/callback?code=…&state=…"
                    autoCapitalize="none"
                    autoCorrect="off"
+                   spellCheck={false}
                    className="h-10 w-full rounded-md border border-border bg-background px-3 text-xs outline-none focus:border-primary"
                  />
-                 <Button type="button" onClick={handleCompleteConnection} disabled={connectionBusy || !callbackUrl.trim()} className="w-full">
-                   Finish connection
-                 </Button>
+                 <div className="flex gap-2">
+                   <Button
+                     type="button"
+                     variant="secondary"
+                     size="sm"
+                     onClick={async () => {
+                       try {
+                         const text = await navigator.clipboard.readText();
+                         if (text.trim()) setCallbackUrl(text.trim());
+                         else toast.error("Clipboard is empty");
+                       } catch {
+                         toast.error("Clipboard blocked — paste manually");
+                       }
+                     }}
+                     className="flex-1"
+                   >
+                     Paste
+                   </Button>
+                   <Button type="button" onClick={handleCompleteConnection} disabled={connectionBusy || !callbackUrl.trim()} className="flex-1">
+                     {connectionBusy && <Loader2 className="h-4 w-4 animate-spin" />} Finish
+                   </Button>
+                 </div>
                  <Button type="button" variant="ghost" size="sm" onClick={handleDisconnect} disabled={connectionBusy} className="w-full">
                    Start over
                  </Button>
