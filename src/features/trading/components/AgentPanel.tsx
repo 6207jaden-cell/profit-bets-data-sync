@@ -391,7 +391,7 @@ type AgentMsg = {
   is_autonomous: boolean; session_type: string | null; created_at: string;
 };
 
-function AutonomousSection({ userId }: { userId: string | null }) {
+function AutonomousSection({ userId, robinhoodReady = false }: { userId: string | null; robinhoodReady?: boolean }) {
   const qc = useQueryClient();
 
   const settings = useQuery({
