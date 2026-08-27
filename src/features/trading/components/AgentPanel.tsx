@@ -39,6 +39,7 @@ export function AgentPanel() {
   const [callbackUrl, setCallbackUrl] = useState("");
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
 
   const getConnFn = useServerFn(getRobinhoodConnection);
   const initiateConnFn = useServerFn(initiateRobinhoodConnection);
