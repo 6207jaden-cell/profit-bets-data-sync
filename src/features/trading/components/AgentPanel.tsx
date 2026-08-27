@@ -39,6 +39,7 @@ export function AgentPanel() {
   const [callbackUrl, setCallbackUrl] = useState("");
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
 
   const getConnFn = useServerFn(getRobinhoodConnection);
   const initiateConnFn = useServerFn(initiateRobinhoodConnection);
@@ -76,6 +77,8 @@ export function AgentPanel() {
   });
 
   const ready = conn.data?.state === "ready";
+  const pendingAuth = conn.data?.state === "authenticating" || !!authUrl;
+  const openAuthUrl = authUrl ?? conn.data?.auth_url ?? null;
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
 
   async function handleDisconnect() {
@@ -86,14 +89,18 @@ export function AgentPanel() {
   async function handleConnect() {
     setConnectionBusy(true);
     setConnectionError(null);
-    const authWindow = window.open("about:blank", "robinhood-oauth");
+    setAuthUrl(null);
     try {
       const result = await initiateConnFn();
-      if (authWindow) authWindow.location.href = result.auth_url;
-      else window.location.href = result.auth_url;
+      setAuthUrl(result.auth_url);
+      // Popup blockers frequently kill a post-await window.open, so the URL is
+      // also rendered as a link below — this is a best-effort convenience.
+      const w = window.open(result.auth_url, "_blank", "noopener,noreferrer");
+      if (!w) {
+        toast.info("Popup blocked", { description: "Use the “Open Robinhood approval page” link below." });
+      }
       await qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
     } catch (error) {
-      authWindow?.close();
       setConnectionError(error instanceof Error ? error.message : "Could not start the Robinhood connection.");
     } finally {
       setConnectionBusy(false);
@@ -107,7 +114,9 @@ export function AgentPanel() {
     try {
       await completeConnFn({ data: { callback: callbackUrl.trim() } });
       setCallbackUrl("");
+      setAuthUrl(null);
       await qc.invalidateQueries({ queryKey: ["mcp-robinhood"] });
+      toast.success("Robinhood connected");
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : "Could not finish the Robinhood connection.");
     } finally {
@@ -166,7 +175,7 @@ export function AgentPanel() {
   if (!ready) {
     return (
       <div className="space-y-4">
-        <AutonomousSection userId={userId} />
+        <AutonomousSection userId={userId} robinhoodReady={false} />
         <Card className="p-8 md:p-12 bg-card border-border">
         <div className="max-w-md mx-auto text-center space-y-5">
           <div className="mx-auto h-14 w-14 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center">
@@ -188,16 +197,33 @@ export function AgentPanel() {
           </ul>
            <div className="rounded-md border border-border bg-muted/40 p-4 text-left space-y-3">
              <div className="text-sm font-medium">Connect with Robinhood Trading MCP</div>
-             <p className="text-xs leading-relaxed text-muted-foreground">
-               Approve access in Robinhood. Your browser will then try to open a localhost page; it may look blank or say it cannot connect. That is expected—copy the full URL from that page's address bar and paste it below.
-             </p>
-             <Button type="button" onClick={handleConnect} disabled={connectionBusy} className="w-full">
-               {connectionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-               {conn.data?.state === "authenticating" ? "Open Robinhood again" : "Connect Robinhood"}
-             </Button>
-             {conn.data?.state === "authenticating" && (
+
+             {/* Step 1 */}
+             <div className="space-y-2">
+               <div className="text-[11px] font-semibold text-primary">Step 1 — Approve in Robinhood</div>
+               <Button type="button" onClick={handleConnect} disabled={connectionBusy} className="w-full">
+                 {connectionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                 {pendingAuth ? "Restart Robinhood approval" : "Connect Robinhood"}
+               </Button>
+               {openAuthUrl && (
+                 <a
+                   href={openAuthUrl}
+                   target="_blank"
+                   rel="noreferrer"
+                   className="flex items-center justify-center gap-1 text-xs font-medium text-primary hover:underline"
+                 >
+                   Open Robinhood approval page <ExternalLink className="h-3 w-3" />
+                 </a>
+               )}
+             </div>
+
+             {/* Step 2 */}
+             {pendingAuth && (
                <div className="space-y-2 border-t border-border pt-3">
-                 <label htmlFor="robinhood-callback" className="text-xs font-medium">Finish connection</label>
+                 <div className="text-[11px] font-semibold text-primary">Step 2 — Paste the redirect address</div>
+                 <p className="text-xs leading-relaxed text-muted-foreground">
+                   After you approve, Robinhood sends your browser to a <span className="font-mono">localhost</span> page that will look blank or say it can’t connect. That’s expected — copy everything in that tab’s address bar and paste it here.
+                 </p>
                  <input
                    id="robinhood-callback"
                    value={callbackUrl}
@@ -205,11 +231,31 @@ export function AgentPanel() {
                    placeholder="http://localhost:1455/callback?code=…&state=…"
                    autoCapitalize="none"
                    autoCorrect="off"
+                   spellCheck={false}
                    className="h-10 w-full rounded-md border border-border bg-background px-3 text-xs outline-none focus:border-primary"
                  />
-                 <Button type="button" onClick={handleCompleteConnection} disabled={connectionBusy || !callbackUrl.trim()} className="w-full">
-                   Finish connection
-                 </Button>
+                 <div className="flex gap-2">
+                   <Button
+                     type="button"
+                     variant="secondary"
+                     size="sm"
+                     onClick={async () => {
+                       try {
+                         const text = await navigator.clipboard.readText();
+                         if (text.trim()) setCallbackUrl(text.trim());
+                         else toast.error("Clipboard is empty");
+                       } catch {
+                         toast.error("Clipboard blocked — paste manually");
+                       }
+                     }}
+                     className="flex-1"
+                   >
+                     Paste
+                   </Button>
+                   <Button type="button" onClick={handleCompleteConnection} disabled={connectionBusy || !callbackUrl.trim()} className="flex-1">
+                     {connectionBusy && <Loader2 className="h-4 w-4 animate-spin" />} Finish
+                   </Button>
+                 </div>
                  <Button type="button" variant="ghost" size="sm" onClick={handleDisconnect} disabled={connectionBusy} className="w-full">
                    Start over
                  </Button>
@@ -228,7 +274,7 @@ export function AgentPanel() {
 
   return (
     <div className="space-y-3">
-    <AutonomousSection userId={userId} />
+    <AutonomousSection userId={userId} robinhoodReady={true} />
     <AgentPerformanceCard />
     <div className="grid grid-rows-[auto_1fr_auto] gap-3 h-[calc(100vh-320px)] min-h-[500px]">
       <Card className="px-4 py-2 flex items-center justify-between bg-card border-border">
@@ -345,7 +391,7 @@ type AgentMsg = {
   is_autonomous: boolean; session_type: string | null; created_at: string;
 };
 
-function AutonomousSection({ userId }: { userId: string | null }) {
+function AutonomousSection({ userId, robinhoodReady = false }: { userId: string | null; robinhoodReady?: boolean }) {
   const qc = useQueryClient();
 
   const settings = useQuery({
@@ -464,10 +510,21 @@ function AutonomousSection({ userId }: { userId: string | null }) {
   }
   async function setExecMode(mode: "paper" | "live") {
     if (!userId) return;
+    if (mode === "live") {
+      if (!robinhoodReady) {
+        toast.error("Connect Robinhood first", { description: "Live mode needs an active Robinhood connection." });
+        return;
+      }
+      const ok = window.confirm(
+        "Switch to LIVE trading?\n\nThe autonomous agent will place orders with real money in your Robinhood account. Paper simulation stops.",
+      );
+      if (!ok) return;
+    }
     await supabase.from("user_settings").upsert({
       user_id: userId, autonomous_mode: autonomous, autonomous_execution_mode: mode,
     });
     qc.invalidateQueries({ queryKey: ["user-settings", userId] });
+    toast.success(mode === "live" ? "Live trading enabled" : "Switched to paper mode");
   }
   async function setPause(hours: number | null) {
     if (!userId) return;
@@ -512,6 +569,63 @@ function AutonomousSection({ userId }: { userId: string | null }) {
           <span className="text-muted-foreground">Autonomous</span>
           <Switch checked={autonomous} onCheckedChange={toggleAutonomous} />
         </div>
+      </div>
+
+      {/* Always-visible execution mode indicator + toggle */}
+      <div
+        className={cn(
+          "rounded-lg border p-3 space-y-2",
+          execMode === "live"
+            ? "border-red-500/50 bg-red-500/10"
+            : "border-blue-500/40 bg-blue-500/5",
+        )}
+      >
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "h-2.5 w-2.5 rounded-full",
+                execMode === "live" ? "bg-red-500 animate-pulse" : "bg-blue-400",
+              )}
+            />
+            <span className="text-xs font-semibold">
+              {execMode === "live" ? "LIVE TRADING — real money" : "PAPER TRADING — simulated"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 rounded-md border border-border bg-background/60 p-0.5 text-[11px]">
+            <button
+              type="button"
+              onClick={() => setExecMode("paper")}
+              className={cn(
+                "px-2.5 py-1 rounded font-medium transition-colors",
+                execMode === "paper"
+                  ? "bg-blue-500/25 text-blue-200"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Paper
+            </button>
+            <button
+              type="button"
+              onClick={() => setExecMode("live")}
+              className={cn(
+                "px-2.5 py-1 rounded font-medium transition-colors",
+                execMode === "live"
+                  ? "bg-red-500/25 text-red-200"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Live
+            </button>
+          </div>
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {execMode === "live"
+            ? "The agent places real Robinhood orders on every scan. Use STOP or Pause to halt it instantly."
+            : robinhoodReady
+              ? "All trades are simulated in the paper portfolio. Switch to Live to route orders to Robinhood."
+              : "All trades are simulated. Connect Robinhood below to unlock live mode."}
+        </p>
       </div>
       <Button
         type="button"
@@ -621,27 +735,6 @@ function AutonomousSection({ userId }: { userId: string | null }) {
                   </PopoverContent>
                 </Popover>
               )}
-              <div className="flex items-center gap-1 text-[10px]">
-                <span className="text-muted-foreground">Mode:</span>
-                <button
-                  onClick={() => setExecMode("paper")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-all",
-                    execMode === "paper"
-                      ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
-                      : "text-muted-foreground hover:text-foreground border border-transparent"
-                  )}
-                >Paper</button>
-                <button
-                  onClick={() => setExecMode("live")}
-                  className={cn(
-                    "px-2 py-0.5 rounded font-medium transition-all",
-                    execMode === "live"
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse"
-                      : "text-muted-foreground hover:text-foreground border border-transparent"
-                  )}
-                >Live</button>
-              </div>
             </div>
           </div>
           {autonomousMsgs.length > 0 && (

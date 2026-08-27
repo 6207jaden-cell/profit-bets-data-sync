@@ -95,22 +95,25 @@ export const completeRobinhoodConnection = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ callback: z.string().min(1) }).parse(d))
   .handler(async ({ data, context }) => {
     const robinhoodMcpUrl = "https://agent.robinhood.com/mcp/trading";
-    let callback: URL;
+    const raw = data.callback.trim();
+
+    // Be forgiving about what the user pastes: a full callback URL from any
+    // origin (browsers sometimes rewrite the loopback host), just the query
+    // string, or a bare `code=...&state=...` fragment all work.
+    let params: URLSearchParams;
     try {
-      callback = new URL(data.callback.trim());
+      params = new URL(raw).searchParams;
     } catch {
-      throw new Error("Paste the full localhost callback URL from Robinhood.");
+      params = new URLSearchParams(raw.replace(/^[?#]/, ""));
     }
 
-    if (callback.origin !== "http://localhost:1455" || callback.pathname !== "/callback") {
-      throw new Error("Paste the full http://localhost:1455/callback URL shown after Robinhood approval.");
+    const code = params.get("code");
+    const state = params.get("state");
+    const error = params.get("error");
+    if (error) throw new Error(`Robinhood returned an error: ${error}${params.get("error_description") ? ` — ${params.get("error_description")}` : ""}`);
+    if (!code || !state) {
+      throw new Error("That doesn't look like the Robinhood callback. Copy the whole address bar contents after approving (it contains code= and state=).");
     }
-
-    const code = callback.searchParams.get("code");
-    const state = callback.searchParams.get("state");
-    const error = callback.searchParams.get("error");
-    if (error) throw new Error(`Robinhood returned an error: ${error}`);
-    if (!code || !state) throw new Error("The callback URL is missing Robinhood's code or state.");
 
     const { data: row, error: rowError } = await (context.supabase as any)
       .from("mcp_connections")
