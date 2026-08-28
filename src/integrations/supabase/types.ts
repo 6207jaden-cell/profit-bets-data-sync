@@ -1419,6 +1419,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_paper_cash_delta: {
+        Args: { p_delta: number; p_portfolio_id: string }
+        Returns: number
+      }
       cron_lock_cleanup: { Args: never; Returns: undefined }
       get_strategy_trade_stats: {
         Args: never
