@@ -1268,11 +1268,12 @@ async function runForUser(args: {
   };
 
   // Build dynamic hard rules from recent weekly learning adjustments
-  const learningAdjustments = (learnings ?? [])
-    .flatMap((l) => Array.isArray(l.adjustments) ? l.adjustments as string[] : [])
+  const learningAdjustments = learnings
+    .flatMap((l) => sanitizeLearningAdjustments(l.adjustments))
     .slice(0, 8)
-    .map((a, i) => `- LEARNED RULE ${i + 1}: ${a}`)
+    .map((a, i) => `- GUIDANCE ${i + 1}: ${a}`)
     .join("\n");
+
 
   // ── Session-specific system prompt ──────────────────────────────────────
   const isScalp = session === "scalp";
