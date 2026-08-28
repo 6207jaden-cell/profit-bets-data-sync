@@ -421,10 +421,82 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
       });
     } catch (e) { console.error("[exit] notif close", e); }
     cash += Number(c.trade.quantity) * c.exit_price;
+    liveExits.push({ symbol: String(c.trade.asset), side: String(c.trade.side), paperQty: Number(c.trade.quantity), positionQty: Number(c.trade.quantity), fraction: 1, reason: c.reason });
     summaries.push(`${c.trade.asset} ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} (${c.reason})`);
   }
 
+  // ---- Mirror exits into the real Robinhood account (live mode only) ----
+  // Exits mirror the *fraction* of the position that the paper exit closed
+  // (100% for a full close, 50% for a trim), applied to whatever quantity the
+  // live account actually holds. That keeps the real account at the same
+  // relative exposure as the paper account even though the two hold different
+  // amounts of money — the same percentage-of-capital philosophy used at entry
+  // (src/lib/live-sizing.ts). Best-effort: a live failure never rolls back the
+  // paper close, it is only reported in the agent log.
+  if (executionMode === "live" && liveExits.length > 0) {
+    try {
+      const token = await getValidToken(supabaseAdmin, userId);
+      if (!token) {
+        await supabaseAdmin.from("agent_messages").insert({
+          user_id: userId, role: "assistant", is_autonomous: true, session_type: "exit_check",
+          content: "⚠️ Live mode: paper exits recorded, but no valid Robinhood connection was available to mirror the sells. Reconnect Robinhood in the Agent tab.",
+        });
+      } else {
+        const symbols = [...new Set(liveExits.map((e) => e.symbol))];
+        const liveCtx = await fetchRobinhoodContext(supabaseAdmin, userId, symbols).catch(() => null);
+        const liveNotes: string[] = [];
+
+        for (const ex of liveExits) {
+          // Closing a short in the paper book would mean buying to cover; the
+          // Agentic account is long-only here, so there is nothing to mirror.
+          if (ex.side !== "buy") {
+            liveNotes.push(`${ex.symbol}: skipped (short position, no live equivalent)`);
+            continue;
+          }
+          const liveQty = liveCtx?.positions.find(
+            (p) => p.symbol.toUpperCase() === ex.symbol.toUpperCase(),
+          )?.quantity ?? 0;
+          // scaledNotional = 0 disables the notional cap: an exit should be
+          // sized purely by the fraction being closed, never by buying power.
+          const sellQty = scaleSellQuantity(ex.paperQty, ex.positionQty, liveQty, 0, 0);
+          if (!sellQty.ok) {
+            liveNotes.push(`${ex.symbol}: skipped (${sellQty.reason})`);
+            continue;
+          }
+          const result = await placeLiveSell(token, ex.symbol, sellQty.quantity);
+          const pctNote = `${(ex.fraction * 100).toFixed(0)}% of live position → ${sellQty.quantity} sh`;
+          if (result.ok) {
+            liveNotes.push(`${ex.symbol}: SOLD ${pctNote} (${ex.reason}) order_id=${result.order_id} status=${result.status}`);
+            await supabaseAdmin.from("signals_executions").insert({
+              user_id: userId, execution_type: "live", status: result.status === "filled" ? "filled" : "pending",
+              asset: ex.symbol, side: "sell", quantity: sellQty.quantity, price: null,
+              reason: `live exit mirror (${pctNote}) — ${ex.reason}`,
+            } as never);
+          } else {
+            console.error("[exit-check] live sell failed", ex.symbol, result.error);
+            liveNotes.push(`${ex.symbol}: LIVE SELL FAILED (${pctNote}) — ${result.error}`);
+            await supabaseAdmin.from("notifications").insert({
+              user_id: userId, type: "live_order_failed",
+              title: `⚠️ Live exit failed: ${ex.symbol}`,
+              body: `Paper position closed (${ex.reason}) but the real Robinhood sell failed: ${result.error}. You may still be holding it in Robinhood.`,
+            });
+          }
+        }
+
+        if (liveNotes.length > 0) {
+          await supabaseAdmin.from("agent_messages").insert({
+            user_id: userId, role: "assistant", is_autonomous: true, session_type: "exit_check",
+            content: `🔴 Live exit mirroring: ${liveNotes.join(" | ")}`,
+          });
+        }
+      }
+    } catch (e) {
+      console.error("[exit-check] live exit mirroring error", e);
+    }
+  }
+
   await supabaseAdmin.from("paper_portfolios").update({ balance: cash, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
+
 
   const cashPct = Number(portfolio.equity) > 0 ? (cash / Number(portfolio.equity)) * 100 : 0;
   const summaryText = closures.length > 0 && trims.length > 0
