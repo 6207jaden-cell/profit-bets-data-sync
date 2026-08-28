@@ -859,7 +859,10 @@ async function runForUser(args: {
 
   // Load agent memories relevant to this scan's symbols
   const scanSymbols = (candidates as Array<{symbol?: string}>).map((c) => String(c.symbol ?? "")).filter(Boolean);
-  const memories = await loadRelevantMemories(supabaseAdmin as never, userId, scanSymbols);
+  const memories = await loadRelevantMemories(
+    supabaseAdmin as never, userId, scanSymbols, 20,
+    session === "crypto" ? "crypto" : "equity",
+  );
 
   // Options flow: only relevant for stocks during market hours — skip for crypto session
   if (session === "crypto") {
