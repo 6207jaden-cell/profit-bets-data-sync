@@ -1900,39 +1900,84 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     trades_opened: opened,
   });
   // ---- Live Robinhood execution for strategies in live mode ----
+  // The live Robinhood account holds a different amount of money than the
+  // paper portfolio, so orders are sized by *percentage of capital* rather
+  // than mirroring the paper dollar notional (see src/lib/live-sizing.ts).
   if (executionMode === "live" && opened > 0) {
     try {
       const token = await getValidToken(supabaseAdmin, userId);
       if (token) {
-        // Fetch the trades we just inserted to get their details
-        const { data: newTrades } = await supabaseAdmin
-          .from("paper_trades")
-          .select("*")
-          .eq("user_id", userId)
-          .eq("is_open", true)
-          .order("created_at", { ascending: false })
-          .limit(opened);
-        for (const trade of newTrades ?? []) {
-          const allocCash = Number(trade.quantity) * Number(trade.entry_price);
-          let result;
-          if (trade.side === "buy") {
-            result = await placeLiveBuy(token, String(trade.asset), allocCash);
-          } else {
-            result = await placeLiveSell(token, String(trade.asset), Number(trade.quantity));
+        const liveAccount = await resolveLiveAccount(supabaseAdmin, userId, token);
+        if (!liveAccount) {
+          await supabaseAdmin.from("agent_messages").insert({
+            user_id: userId, role: "assistant", is_autonomous: true, session_type: sessionType,
+            content: "⚠️ Live mode: skipped real Robinhood orders because the live account value could not be read. Paper trades were recorded normally.",
+          });
+        } else {
+          // Fetch the trades we just inserted to get their details
+          const { data: newTrades } = await supabaseAdmin
+            .from("paper_trades")
+            .select("*")
+            .eq("user_id", userId)
+            .eq("is_open", true)
+            .order("created_at", { ascending: false })
+            .limit(opened);
+
+          const trades = newTrades ?? [];
+          const sellSymbols = trades.filter((t) => t.side === "sell").map((t) => String(t.asset));
+          const liveCtx = sellSymbols.length > 0
+            ? await fetchRobinhoodContext(supabaseAdmin, userId, sellSymbols).catch(() => null)
+            : null;
+
+          let buyingPowerLeft = liveAccount.buying_power;
+          for (const trade of trades) {
+            const paperNotional = Number(trade.quantity) * Number(trade.entry_price);
+            const scaled = scaleNotional(paperNotional, currentEquity, liveAccount.portfolio_value, buyingPowerLeft);
+            if (!scaled.ok) {
+              await supabaseAdmin.from("paper_trades").update({
+                rationale: `${trade.rationale ?? ""} [LIVE SKIPPED: ${scaled.reason}]`,
+              }).eq("id", trade.id);
+              continue;
+            }
+
+            let result;
+            if (trade.side === "buy") {
+              result = await placeLiveBuy(token, String(trade.asset), scaled.notional);
+            } else {
+              const liveQty = liveCtx?.positions.find(
+                (p) => p.symbol.toUpperCase() === String(trade.asset).toUpperCase(),
+              )?.quantity ?? 0;
+              const sellQty = scaleSellQuantity(
+                Number(trade.quantity), Number(trade.quantity), liveQty,
+                scaled.notional, Number(trade.entry_price),
+              );
+              if (!sellQty.ok) {
+                await supabaseAdmin.from("paper_trades").update({
+                  rationale: `${trade.rationale ?? ""} [LIVE SKIPPED: ${sellQty.reason}]`,
+                }).eq("id", trade.id);
+                continue;
+              }
+              result = await placeLiveSell(token, String(trade.asset), sellQty.quantity);
+            }
+
+            const sizeNote = `${scaled.pct.toFixed(2)}% of account → $${scaled.notional.toFixed(2)}${scaled.clamped ? " (capped by buying power)" : ""}`;
+            if (result.ok) {
+              buyingPowerLeft = Math.max(0, buyingPowerLeft - scaled.notional);
+              await supabaseAdmin.from("paper_trades").update({
+                rationale: `${trade.rationale ?? ""} [LIVE: ${sizeNote}, order_id=${result.order_id} status=${result.status}]`,
+              }).eq("id", trade.id);
+            } else {
+              console.error("[autonomous] live order failed:", result.error, "trade:", trade.asset);
+              await supabaseAdmin.from("paper_trades").update({
+                rationale: `${trade.rationale ?? ""} [LIVE ORDER FAILED (${sizeNote}): ${result.error}]`,
+              }).eq("id", trade.id);
+            }
           }
-          if (result.ok) {
-            // Update the paper trade with real fill details
-            await supabaseAdmin.from("paper_trades").update({
-              entry_price: result.filled_price ?? trade.entry_price,
-              rationale: `${trade.rationale ?? ""} [LIVE: order_id=${result.order_id} status=${result.status}]`,
-            }).eq("id", trade.id);
-          } else {
-            console.error("[autonomous] live order failed:", result.error, "trade:", trade.asset);
-            // Mark as paper-only if live order fails
-            await supabaseAdmin.from("paper_trades").update({
-              rationale: `${trade.rationale ?? ""} [LIVE ORDER FAILED: ${result.error}]`,
-            }).eq("id", trade.id);
-          }
+
+          await supabaseAdmin.from("agent_messages").insert({
+            user_id: userId, role: "assistant", is_autonomous: true, session_type: sessionType,
+            content: `🔴 Live mode: orders scaled to your Robinhood account value of $${liveAccount.portfolio_value.toLocaleString()} (source: ${liveAccount.source === "snapshot" ? "last synced balance" : "live read"}). Each trade used the same % of capital as the paper trade, not the same dollars.`,
+          });
         }
       } else {
         console.warn("[autonomous] live mode but no valid Robinhood token for user", userId);
