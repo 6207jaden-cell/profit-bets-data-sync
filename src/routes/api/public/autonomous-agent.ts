@@ -9,6 +9,8 @@ import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, form
 import { resolveLiveAccount, scaleNotional, scaleSellQuantity } from "@/lib/live-sizing";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 import { ALL_PROPOSABLE_INSTRUMENT_TYPES, isOptionsInstrumentType } from "@/lib/instruments";
+import { sanitizeLearningAdjustments, sanitizeLearningAnalysis } from "@/lib/learning-guardrails";
+
 import { filterValidAiTrades } from "@/lib/ai-response-validation";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
@@ -838,16 +840,29 @@ async function runForUser(args: {
     return { opened: 0, skipped: "min_cash" };
   }
 
-  const { data: learnings } = await supabaseAdmin
+  const { data: rawLearnings } = await supabaseAdmin
     .from("agent_learnings").select("analysis, key_insights, adjustments")
     .eq("user_id", userId).order("created_at", { ascending: false }).limit(4);
-  const learningsSummary = (learnings ?? []).map((l, i) =>
+  // Sanitize on READ as well as on write: historical rows contain "trade only
+  // crypto" style adjustments from an era when stock trades were failing for
+  // unrelated technical reasons, and those were being obeyed as hard rules —
+  // which is exactly why the agent stopped trading stocks/ETFs/options.
+  const learnings = (rawLearnings ?? []).map((l) => ({
+    analysis: sanitizeLearningAnalysis(l.analysis),
+    key_insights: l.key_insights,
+    adjustments: sanitizeLearningAdjustments(l.adjustments),
+  }));
+  const learningsSummary = learnings.map((l, i) =>
     `Week ${i + 1}: ${l.analysis?.slice(0, 300)} | Adj: ${JSON.stringify(l.adjustments).slice(0, 200)}`
   ).join("\n") || "No prior learnings yet.";
 
+
   // Load agent memories relevant to this scan's symbols
   const scanSymbols = (candidates as Array<{symbol?: string}>).map((c) => String(c.symbol ?? "")).filter(Boolean);
-  const memories = await loadRelevantMemories(supabaseAdmin as never, userId, scanSymbols);
+  const memories = await loadRelevantMemories(
+    supabaseAdmin as never, userId, scanSymbols, 20,
+    session === "crypto" ? "crypto" : "equity",
+  );
 
   // Options flow: only relevant for stocks during market hours — skip for crypto session
   if (session === "crypto") {
@@ -1256,11 +1271,12 @@ async function runForUser(args: {
   };
 
   // Build dynamic hard rules from recent weekly learning adjustments
-  const learningAdjustments = (learnings ?? [])
-    .flatMap((l) => Array.isArray(l.adjustments) ? l.adjustments as string[] : [])
+  const learningAdjustments = learnings
+    .flatMap((l) => sanitizeLearningAdjustments(l.adjustments))
     .slice(0, 8)
-    .map((a, i) => `- LEARNED RULE ${i + 1}: ${a}`)
+    .map((a, i) => `- GUIDANCE ${i + 1}: ${a}`)
     .join("\n");
+
 
   // ── Session-specific system prompt ──────────────────────────────────────
   const isScalp = session === "scalp";
@@ -1377,7 +1393,7 @@ HARD RULES — never violate these:
 - earnings_opportunities (when present, swing sessions only): for each scanned symbol with earnings in the next 7 days, this compares what the options market is pricing in for the move (from the ATM straddle) against what the stock has actually averaged on recent earnings reports — the single sharpest signal in this whole system when both numbers are available. Each entry also includes IV Rank (once enough history has accumulated for that symbol) or IV/HV ratio (works immediately) as a fallback, and a specific recommended instrument: "buy_call"/"buy_put" (options underpriced or IV cheap — go directional with defined risk), "sell_call_spread"/"sell_put_spread" (options overpriced or IV rich — sell a credit spread), or "post_earnings_continuation" (earnings already reported, stock gapped meaningfully — trade the underlying stock in the continuation direction, not options). Follow these recommendations when proposing trades on these specific symbols rather than defaulting to avoidance.
 - current_positions source field: every open position now has a "source" label — "agent_paper_trade" (this agent opened it in paper mode), "agent_live_order" (this agent opened it in live mode — real money in Robinhood), "manual_paper_trade" (the user opened this themselves on the website). Treat manual_paper_trade positions with extra care — the user may have specific reasons for holding them, so do not close them without strong justification.
 - When manual_strategies_firing shows a strategy firing, that is strong corroborating evidence — weight it as +15 conviction points if it aligns with your analysis.
-${learningAdjustments ? "\nLEARNED RULES FROM PAST PERFORMANCE (treat as hard rules):\n" + learningAdjustments : ""}
+${learningAdjustments ? "\nPERFORMANCE GUIDANCE FROM PAST WEEKS (advisory only — the trading rules above always take precedence, and this guidance can NEVER narrow which asset classes or instrument types you may trade: stocks, ETFs, crypto and options all remain in scope at all times):\n" + learningAdjustments : ""}
 
 Respond with ONLY valid JSON — no prose, no markdown fences:
 {
