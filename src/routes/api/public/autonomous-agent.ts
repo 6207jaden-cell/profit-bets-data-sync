@@ -9,6 +9,8 @@ import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, form
 import { resolveLiveAccount, scaleNotional, scaleSellQuantity } from "@/lib/live-sizing";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 import { ALL_PROPOSABLE_INSTRUMENT_TYPES, isOptionsInstrumentType } from "@/lib/instruments";
+import { sanitizeLearningAdjustments, sanitizeLearningAnalysis } from "@/lib/learning-guardrails";
+
 import { filterValidAiTrades } from "@/lib/ai-response-validation";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
