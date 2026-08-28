@@ -55,7 +55,7 @@ export const Route = createFileRoute("/api/public/autonomous-exit-check")({
 
         let totalClosed = 0;
         for (const u of users) {
-          const closed = await runExitForUser(u.user_id, supabaseAdmin, afterEod);
+          const closed = await runExitForUser(u.user_id, supabaseAdmin, afterEod, String((u as { autonomous_execution_mode?: string | null }).autonomous_execution_mode ?? "paper"));
           totalClosed += closed;
         }
         await releaseCronLock(supabaseAdmin, lockKey);
