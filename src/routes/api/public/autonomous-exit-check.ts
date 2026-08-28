@@ -279,6 +279,10 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
 
   let cash = Number(portfolio.balance) || 0;
   const summaries: string[] = [];
+  // Live-exit mirroring queue (see the block after the paper writes below).
+  // Only positions whose paper write really succeeded get queued, so a failed
+  // paper update can never trigger a real Robinhood sell.
+  const liveExits: Array<{ symbol: string; side: string; paperQty: number; positionQty: number; fraction: number; reason: string }> = [];
 
   // Partial closes ("trim"): close 50% of the position to lock in gains while
   // letting the rest run, instead of an all-or-nothing hold/exit. Represented
