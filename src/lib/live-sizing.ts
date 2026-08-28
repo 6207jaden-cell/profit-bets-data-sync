@@ -14,7 +14,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
-const ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading";
 
 /** Robinhood rejects dust orders; anything under a dollar is not worth sending. */
 export const MIN_LIVE_NOTIONAL = 1;
