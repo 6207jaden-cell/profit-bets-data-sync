@@ -20,6 +20,22 @@ export type Memory = {
   created_at: string;
 };
 
+/** Which market a scan session is about, for scoping market observations. */
+export type MemoryScope = "crypto" | "equity";
+
+/**
+ * Market-observation memories are saved with a "<date> <session>:" prefix.
+ * Crypto scans run ~28x/day versus one morning stock scan, so without scoping
+ * the global memory pool becomes almost entirely crypto commentary and biases
+ * the equity sessions. Match the prefix to keep each session reading its own
+ * market's context.
+ */
+function memoryMatchesScope(m: Memory, scope: MemoryScope): boolean {
+  if (m.memory_type !== "market_observation") return true;
+  const isCryptoObservation = /^\S.*\b(crypto|crypto_scan)\s*:/i.test(m.content);
+  return scope === "crypto" ? isCryptoObservation : !isCryptoObservation;
+}
+
 /**
  * Load the most relevant memories for the current scan.
  * Returns a formatted string ready to inject into the Claude prompt.
@@ -29,6 +45,7 @@ export async function loadRelevantMemories(
   userId: string,
   symbols: string[],
   maxTotal = 20,
+  scope: MemoryScope = "equity",
 ): Promise<string> {
   const dbAny = db as unknown as SupabaseClient;
   // Load symbol-specific memories for symbols in this scan
@@ -43,7 +60,7 @@ export async function loadRelevantMemories(
         .limit(Math.ceil(maxTotal * 0.6))
     : { data: [] as unknown[] };
 
-  // Load global memories (no symbol)
+  // Load global memories (no symbol) — over-fetch, then scope-filter below.
   const { data: globalMems } = await dbAny
     .from("agent_memory")
     .select("id, symbol, memory_type, content, relevance, created_at")
@@ -51,9 +68,13 @@ export async function loadRelevantMemories(
     .is("symbol", null)
     .gt("relevance", 0.3)
     .order("relevance", { ascending: false })
-    .limit(Math.ceil(maxTotal * 0.4));
+    .limit(Math.ceil(maxTotal * 0.4) * 5);
 
-  const all = [...(symbolMems ?? []), ...(globalMems ?? [])] as Memory[];
+  const scopedGlobals = ((globalMems ?? []) as Memory[])
+    .filter((m) => memoryMatchesScope(m, scope))
+    .slice(0, Math.ceil(maxTotal * 0.4));
+
+  const all = [...((symbolMems ?? []) as Memory[]), ...scopedGlobals] as Memory[];
   if (all.length === 0) return "No prior memories.";
 
   return all
@@ -64,6 +85,7 @@ export async function loadRelevantMemories(
     })
     .join("\n");
 }
+
 
 /**
  * Save new memories after a scan run.
