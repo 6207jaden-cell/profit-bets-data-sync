@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { saveTradeOutcomeMemory } from "@/lib/agent-memory";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
+import { LEARNING_SCOPE_INSTRUCTION, sanitizeLearningAdjustments, sanitizeLearningAnalysis } from "@/lib/learning-guardrails";
 
 export const Route = createFileRoute("/api/public/autonomous-learning")({
   server: {
