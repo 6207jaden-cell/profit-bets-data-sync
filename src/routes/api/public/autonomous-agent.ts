@@ -838,12 +838,22 @@ async function runForUser(args: {
     return { opened: 0, skipped: "min_cash" };
   }
 
-  const { data: learnings } = await supabaseAdmin
+  const { data: rawLearnings } = await supabaseAdmin
     .from("agent_learnings").select("analysis, key_insights, adjustments")
     .eq("user_id", userId).order("created_at", { ascending: false }).limit(4);
-  const learningsSummary = (learnings ?? []).map((l, i) =>
+  // Sanitize on READ as well as on write: historical rows contain "trade only
+  // crypto" style adjustments from an era when stock trades were failing for
+  // unrelated technical reasons, and those were being obeyed as hard rules —
+  // which is exactly why the agent stopped trading stocks/ETFs/options.
+  const learnings = (rawLearnings ?? []).map((l) => ({
+    analysis: sanitizeLearningAnalysis(l.analysis),
+    key_insights: l.key_insights,
+    adjustments: sanitizeLearningAdjustments(l.adjustments),
+  }));
+  const learningsSummary = learnings.map((l, i) =>
     `Week ${i + 1}: ${l.analysis?.slice(0, 300)} | Adj: ${JSON.stringify(l.adjustments).slice(0, 200)}`
   ).join("\n") || "No prior learnings yet.";
+
 
   // Load agent memories relevant to this scan's symbols
   const scanSymbols = (candidates as Array<{symbol?: string}>).map((c) => String(c.symbol ?? "")).filter(Boolean);
