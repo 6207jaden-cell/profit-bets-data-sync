@@ -7,6 +7,8 @@ import { estimateFees } from "@/lib/cost-reality";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
+import { getValidToken, placeLiveSell, fetchRobinhoodContext } from "@/lib/robinhood-live";
+import { scaleSellQuantity } from "@/lib/live-sizing";
 
 type ExitAction = { position_id: string; action: "hold" | "trim" | "exit"; reason: string };
 
