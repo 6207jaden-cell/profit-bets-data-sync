@@ -6,6 +6,7 @@ import {
   computeCorrelation,
 } from "@/lib/indicators";
 import { getValidToken, placeLiveBuy, placeLiveSell, fetchRobinhoodContext, formatRobinhoodContext } from "@/lib/robinhood-live";
+import { resolveLiveAccount, scaleNotional, scaleSellQuantity } from "@/lib/live-sizing";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 import { ALL_PROPOSABLE_INSTRUMENT_TYPES, isOptionsInstrumentType } from "@/lib/instruments";
 import { filterValidAiTrades } from "@/lib/ai-response-validation";
