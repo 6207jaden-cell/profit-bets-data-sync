@@ -361,6 +361,7 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     } catch (e) { console.error("[exit] notif trim", e); }
 
     cash += trimQty * t.exit_price;
+    liveExits.push({ symbol: String(t.trade.asset), side: String(t.trade.side), paperQty: trimQty, positionQty: totalQty, fraction: trimQty / totalQty, reason: `trim: ${t.reason}` });
     summaries.push(`${t.trade.asset} TRIM 50% ${trimPnl >= 0 ? "+" : ""}${trimPnl.toFixed(2)} (${t.reason})`);
   }
 
