@@ -52,7 +52,8 @@ async function runLearningForUser(userId: string, supabaseAdmin: Awaited<ReturnT
     .eq("user_id", userId).order("created_at", { ascending: false }).limit(4);
   const priorSummary = (prior ?? []).map((p, i) => `Week ${i + 1}: ${p.analysis?.slice(0, 200)}`).join("\n") || "None.";
 
-  const system = `You are a quantitative trading analyst reviewing a week of autonomous trading activity. Identify patterns in what worked and what didn't and provide specific actionable adjustments for next week. Be direct and honest. Respond ONLY with valid JSON (no markdown): { "analysis": "string", "key_insights": ["string"], "adjustments": ["string"] }`;
+  const system = `You are a quantitative trading analyst reviewing a week of autonomous trading activity. Identify patterns in what worked and what didn't and provide specific actionable adjustments for next week. Be direct and honest. Respond ONLY with valid JSON (no markdown): { "analysis": "string", "key_insights": ["string"], "adjustments": ["string"] }
+${LEARNING_SCOPE_INSTRUCTION}`;
   const userMsg = JSON.stringify({
     trades: withPnl.map((t) => ({
       asset: t.asset, side: t.side, instrument: t.instrument,
