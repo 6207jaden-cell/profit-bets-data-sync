@@ -1866,8 +1866,19 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
 
 
   if (opened > 0) {
-    await supabaseAdmin.from("paper_portfolios").update({ balance: cashRemaining, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
+    // Apply the cash change as an ATOMIC DELTA, never an absolute write.
+    // `cash` was read at the start of this scan; the 10-minute exit checker
+    // can credit sale proceeds while the scan is still running, and an
+    // absolute `balance = cashRemaining` write silently erased those
+    // proceeds (that's how ~$1.3k of paper equity vanished on 2026-08-28).
+    // apply_paper_cash_delta also refreshes equity = cash + open cost basis.
+    const cashDelta = cashRemaining - cash;
+    const { error: cashErr } = await supabaseAdmin.rpc("apply_paper_cash_delta", {
+      p_portfolio_id: portfolio.id, p_delta: cashDelta,
+    } as never);
+    if (cashErr) console.error("[autonomous] cash delta failed", cashErr);
   }
+
 
   // Save market observation memory for this scan
   if (ai?.market_assessment) {
