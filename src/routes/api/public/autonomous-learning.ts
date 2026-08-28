@@ -129,7 +129,7 @@ ${LEARNING_SCOPE_INSTRUCTION}`;
 
   await supabaseAdmin.from("agent_messages").insert({
     user_id: userId, role: "assistant", is_autonomous: true, session_type: "weekly_learning",
-    content: `📚 Weekly learning review complete. Analyzed ${withPnl.length} trades (${(winRate * 100).toFixed(0)}% win rate, avg ${avgPnlPct >= 0 ? "+" : ""}${avgPnlPct.toFixed(1)}% per trade). Key insight: ${parsed.key_insights[0] ?? "n/a"}. Adjustments for next week: ${firstAdj}.`,
+    content: `📚 Weekly learning review complete. Analyzed ${withPnl.length} trades (${(winRate * 100).toFixed(0)}% win rate, avg ${avgPnlPct >= 0 ? "+" : ""}${avgPnlPct.toFixed(1)}% per trade). Key insight: ${safeInsights[0] ?? "n/a"}. Adjustments for next week: ${firstAdj}.`,
   });
   return true;
 }
