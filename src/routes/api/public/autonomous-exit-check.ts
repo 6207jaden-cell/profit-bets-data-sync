@@ -38,7 +38,7 @@ export const Route = createFileRoute("/api/public/autonomous-exit-check")({
         }
 
         const { data: users } = await supabaseAdmin
-          .from("user_settings").select("user_id").eq("autonomous_mode", true);
+          .from("user_settings").select("user_id, autonomous_execution_mode").eq("autonomous_mode", true);
         if (!users || users.length === 0) {
           await releaseCronLock(supabaseAdmin, lockKey);
           return Response.json({ ok: true, reason: "no_users" });
