@@ -201,69 +201,169 @@ async function initSession(accessToken: string): Promise<string | null> {
   return sessionId;
 }
 
+// ─── Agentic account resolution ──────────────────────────────────────────────
+// Robinhood's real order tools (place_equity_order / place_crypto_order,
+// server version 1.2.5) require the ACCOUNT to be passed explicitly and only
+// accept an account with agentic_allowed=true. Earlier code guessed a generic
+// "order" tool and sent {symbol, side, order_type, notional_amount,
+// time_in_force}, which the server rejected wholesale with
+// `unexpected additional properties` — that is why no live order ever filled.
+
+export type AgenticAccount = {
+  account_number: string;      // used by equity/option tools
+  rhs_account_number: string;  // used by crypto tools
+};
+
+let _acct: { at: number; value: AgenticAccount | null } | null = null;
+
+/** Finds the user's agentic-enabled brokerage account (cached 5 min). */
+export async function resolveAgenticAccount(
+  accessToken: string,
+  sessionId?: string | null,
+): Promise<AgenticAccount | null> {
+  if (_acct && Date.now() - _acct.at < 300_000) return _acct.value;
+  try {
+    const sid = sessionId ?? (await initSession(accessToken));
+    const res = await mcpRpc(accessToken, sid, "tools/call", { name: "get_accounts", arguments: {} }, 5);
+    const text = ((res.result as { content?: Array<{ text?: string }> })?.content ?? [])
+      .map((c) => c.text ?? "").join("\n");
+    const parsed = JSON.parse(text) as {
+      data?: { accounts?: Array<{ account_number?: string; rhs_account_number?: string; agentic_allowed?: boolean }> };
+    };
+    const acct = (parsed.data?.accounts ?? []).find((a) => a.agentic_allowed === true);
+    const value = acct?.account_number
+      ? { account_number: acct.account_number, rhs_account_number: acct.rhs_account_number ?? acct.account_number }
+      : null;
+    _acct = { at: Date.now(), value };
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads the agentic account's total value + buying power. */
+export async function fetchAgenticPortfolio(accessToken: string): Promise<
+  { total_value: number; buying_power: number; crypto_buying_power: number } | null
+> {
+  try {
+    const sid = await initSession(accessToken);
+    const acct = await resolveAgenticAccount(accessToken, sid);
+    if (!acct) return null;
+    const res = await mcpRpc(
+      accessToken, sid, "tools/call",
+      { name: "get_portfolio", arguments: { account_number: acct.account_number } }, 6,
+    );
+    const text = ((res.result as { content?: Array<{ text?: string }> })?.content ?? [])
+      .map((c) => c.text ?? "").join("\n");
+    const p = JSON.parse(text) as {
+      data?: {
+        total_value?: string; buying_power?: { buying_power?: string };
+        crypto_buying_power?: { buying_power?: string };
+      };
+    };
+    const total = Number(p.data?.total_value ?? NaN);
+    const bp = Number(p.data?.buying_power?.buying_power ?? NaN);
+    const cbp = Number(p.data?.crypto_buying_power?.buying_power ?? bp);
+    if (!Number.isFinite(total) || total <= 0) return null;
+    return {
+      total_value: total,
+      buying_power: Number.isFinite(bp) ? bp : 0,
+      crypto_buying_power: Number.isFinite(cbp) ? cbp : (Number.isFinite(bp) ? bp : 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Crypto tickers in this app are always "<SYM>-USD"; equities never are. */
+function isCryptoSymbol(symbol: string): boolean {
+  return /-USDT?$/i.test(symbol.trim());
+}
+
+function parseOrderResult(callRes: { result?: unknown; error?: { message: string } }, fallbackQty?: number): PlaceOrderResult {
+  if (callRes.error) return { ok: false, error: callRes.error.message };
+  const content = (callRes.result as { content?: Array<{ text?: string }>; isError?: boolean }) ?? {};
+  const text = (content.content ?? []).map((c) => c.text ?? "").join(" ");
+  if (content.isError) return { ok: false, error: text.slice(0, 300) || "order rejected" };
+  let id = "unknown";
+  let state = "";
+  let price: number | undefined;
+  let qty: number | undefined = fallbackQty;
+  try {
+    const j = JSON.parse(text) as { data?: Record<string, unknown> };
+    const d = (j.data ?? {}) as Record<string, unknown>;
+    id = String(d.id ?? d.order_id ?? "unknown");
+    state = String(d.state ?? d.status ?? "");
+    const p = Number(d.average_price ?? d.price ?? NaN);
+    if (Number.isFinite(p) && p > 0) price = p;
+    const q = Number(d.quantity ?? d.filled_asset_quantity ?? NaN);
+    if (Number.isFinite(q) && q > 0) qty = q;
+  } catch {
+    const m = text.match(/"?id"?[:\s]+"?([a-f0-9-]{8,})/i);
+    if (m) id = m[1];
+    state = text.toLowerCase();
+  }
+  return {
+    ok: true,
+    order_id: id,
+    status: /filled/i.test(state) ? "filled" : state || "pending",
+    filled_price: price,
+    filled_qty: qty,
+  };
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
  * Place a market buy order in the user's Robinhood Agentic account.
- * Returns ok:true with order details on success, ok:false with error string on failure.
+ * Notional (dollar_amount) sizing is used for both equities and crypto.
  */
 export async function placeLiveBuy(
   accessToken: string,
   symbol: string,
-  notionalAmount: number, // USD amount to spend (Robinhood supports fractional / notional orders)
+  notionalAmount: number, // USD amount to spend
 ): Promise<PlaceOrderResult> {
   try {
     const sessionId = await initSession(accessToken);
+    const acct = await resolveAgenticAccount(accessToken, sessionId);
+    if (!acct) return { ok: false, error: "No agentic-enabled Robinhood account found" };
 
-    // Find the correct place_order tool — name may vary by MCP version.
-    const toolsRes = await mcpRpc(accessToken, sessionId, "tools/list", undefined, 2);
-    const tools = ((toolsRes.result as { tools?: Array<{ name: string }> })?.tools ?? []);
-    const orderTool = tools.find((t) =>
-      t.name.toLowerCase().includes("order") || t.name.toLowerCase().includes("trade"),
-    );
-    if (!orderTool) return { ok: false, error: "No order tool found in Robinhood MCP" };
-
+    const dollars = Number(notionalAmount).toFixed(2);
+    const sym = symbol.toUpperCase();
+    const crypto = isCryptoSymbol(sym);
     const callRes = await mcpRpc(
-      accessToken,
-      sessionId,
-      "tools/call",
-      {
-        name: orderTool.name,
-        arguments: {
-          symbol: symbol.toUpperCase(),
-          side: "buy",
-          order_type: "market",
-          notional_amount: Number(notionalAmount.toFixed(2)),
-          time_in_force: "gfd", // good for day
-        },
-      },
-      3,
+      accessToken, sessionId, "tools/call",
+      crypto
+        ? {
+            name: "place_crypto_order",
+            arguments: {
+              rhs_account_number: acct.rhs_account_number,
+              symbol: sym, side: "buy", type: "market",
+              dollar_amount: dollars,
+              ref_id: crypto_uuid(),
+            },
+          }
+        : {
+            name: "place_equity_order",
+            arguments: {
+              account_number: acct.account_number,
+              symbol: sym, side: "buy", type: "market",
+              dollar_amount: dollars,
+              time_in_force: "gfd",
+              market_hours: "regular_hours",
+              ref_id: crypto_uuid(),
+            },
+          },
+      7,
     );
-
-    if (callRes.error) return { ok: false, error: callRes.error.message };
-
-    const content = (callRes.result as { content?: Array<{ text?: string }> })?.content ?? [];
-    const text = content.map((c) => c.text ?? "").join(" ");
-
-    // Parse order ID from response text heuristically.
-    const idMatch = text.match(/order[_\s]?id[:\s]+([a-z0-9\-]+)/i);
-    const priceMatch = text.match(/\$?([\d,.]+)\s*per\s*share/i);
-    const qtyMatch = text.match(/([\d.]+)\s*share/i);
-
-    return {
-      ok: true,
-      order_id: idMatch?.[1] ?? "unknown",
-      status: text.toLowerCase().includes("filled") ? "filled" : "pending",
-      filled_price: priceMatch ? Number(priceMatch[1].replace(/,/g, "")) : undefined,
-      filled_qty: qtyMatch ? Number(qtyMatch[1]) : undefined,
-    };
+    return parseOrderResult(callRes);
   } catch (err) {
     return { ok: false, error: String(err) };
   }
 }
 
 /**
- * Place a market sell order to close a position in the Agentic account.
+ * Place a market sell order to close (or trim) a position in the Agentic account.
  */
 export async function placeLiveSell(
   accessToken: string,
@@ -272,49 +372,47 @@ export async function placeLiveSell(
 ): Promise<PlaceOrderResult> {
   try {
     const sessionId = await initSession(accessToken);
+    const acct = await resolveAgenticAccount(accessToken, sessionId);
+    if (!acct) return { ok: false, error: "No agentic-enabled Robinhood account found" };
 
-    const toolsRes = await mcpRpc(accessToken, sessionId, "tools/list", undefined, 2);
-    const tools = ((toolsRes.result as { tools?: Array<{ name: string }> })?.tools ?? []);
-    const orderTool = tools.find((t) =>
-      t.name.toLowerCase().includes("order") || t.name.toLowerCase().includes("trade"),
-    );
-    if (!orderTool) return { ok: false, error: "No order tool found in Robinhood MCP" };
-
+    const sym = symbol.toUpperCase();
+    const crypto = isCryptoSymbol(sym);
+    const qty = crypto ? quantity.toFixed(8) : String(Math.max(0, quantity));
     const callRes = await mcpRpc(
-      accessToken,
-      sessionId,
-      "tools/call",
-      {
-        name: orderTool.name,
-        arguments: {
-          symbol: symbol.toUpperCase(),
-          side: "sell",
-          order_type: "market",
-          quantity: Number(quantity.toFixed(8)),
-          time_in_force: "gfd",
-        },
-      },
-      3,
+      accessToken, sessionId, "tools/call",
+      crypto
+        ? {
+            name: "place_crypto_order",
+            arguments: {
+              rhs_account_number: acct.rhs_account_number,
+              symbol: sym, side: "sell", type: "market",
+              quantity: qty, ref_id: crypto_uuid(),
+            },
+          }
+        : {
+            name: "place_equity_order",
+            arguments: {
+              account_number: acct.account_number,
+              symbol: sym, side: "sell", type: "market",
+              quantity: qty,
+              time_in_force: "gfd",
+              market_hours: "regular_hours",
+              ref_id: crypto_uuid(),
+            },
+          },
+      8,
     );
-
-    if (callRes.error) return { ok: false, error: callRes.error.message };
-
-    const content = (callRes.result as { content?: Array<{ text?: string }> })?.content ?? [];
-    const text = content.map((c) => c.text ?? "").join(" ");
-    const idMatch = text.match(/order[_\s]?id[:\s]+([a-z0-9\-]+)/i);
-    const priceMatch = text.match(/\$?([\d,.]+)\s*per\s*share/i);
-
-    return {
-      ok: true,
-      order_id: idMatch?.[1] ?? "unknown",
-      status: text.toLowerCase().includes("filled") ? "filled" : "pending",
-      filled_price: priceMatch ? Number(priceMatch[1].replace(/,/g, "")) : undefined,
-      filled_qty: quantity,
-    };
+    return parseOrderResult(callRes, quantity);
   } catch (err) {
     return { ok: false, error: String(err) };
   }
 }
+
+/** Idempotency key per logical order (Robinhood dedupes by ref_id). */
+function crypto_uuid(): string {
+  return globalThis.crypto.randomUUID();
+}
+
 
 // ─── Robinhood context fetcher ───────────────────────────────────────────────
 // Pulls 5 data sources from Robinhood MCP and feeds them to the agent.

@@ -14,7 +14,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
-const ROBINHOOD_MCP_URL = "https://agent.robinhood.com/mcp/trading";
 
 /** Robinhood rejects dust orders; anything under a dollar is not worth sending. */
 export const MIN_LIVE_NOTIONAL = 1;
@@ -86,63 +85,22 @@ export type LiveAccount = {
   source: "robinhood_mcp" | "snapshot";
 };
 
-function extractNumber(text: string, pattern: RegExp): number | null {
-  const m = text.match(pattern);
-  if (!m) return null;
-  const n = Number(m[1].replace(/,/g, ""));
-  return Number.isFinite(n) ? n : null;
-}
-
-async function mcpAccountInfo(accessToken: string): Promise<string | null> {
-  try {
-    const initRes = await fetch(ROBINHOOD_MCP_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0", id: 1, method: "initialize",
-        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "live-sizing", version: "1.0" } },
-      }),
-    });
-    const sessionId = initRes.headers.get("mcp-session-id");
-
-    const callRes = await fetch(ROBINHOOD_MCP_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        authorization: `Bearer ${accessToken}`,
-        ...(sessionId ? { "mcp-session-id": sessionId } : {}),
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0", id: 2, method: "tools/call",
-        params: { name: "get_account_info", arguments: {} },
-      }),
-    });
-
-    const ct = callRes.headers.get("content-type") ?? "";
-    if (ct.includes("text/event-stream")) {
-      const text = await callRes.text();
-      const frames = text.split(/\n\n/).map((c) => {
-        const l = c.split("\n").find((x) => x.startsWith("data:"));
-        return l ? l.slice(5).trim() : "";
-      }).filter(Boolean);
-      for (const f of frames) {
-        try {
-          const j = JSON.parse(f) as { id?: number; result?: unknown };
-          if (j.id === 2 && j.result) return JSON.stringify(j.result);
-        } catch { /* skip */ }
-      }
-      return null;
-    }
-    const j = (await callRes.json()) as { result?: unknown };
-    return j.result ? JSON.stringify(j.result) : null;
-  } catch {
-    return null;
-  }
+/**
+ * Reads the agentic account's real value via the Robinhood MCP tools.
+ * Delegates to robinhood-live.ts, which resolves the agentic_allowed account
+ * and calls get_portfolio — the previous implementation called a non-existent
+ * "get_account_info" tool, so every live scan reported "live account value
+ * could not be read" and skipped all real orders.
+ */
+async function mcpAccount(accessToken: string): Promise<LiveAccount | null> {
+  const { fetchAgenticPortfolio } = await import("@/lib/robinhood-live");
+  const p = await fetchAgenticPortfolio(accessToken);
+  if (!p) return null;
+  return {
+    portfolio_value: p.total_value,
+    buying_power: p.buying_power > 0 ? p.buying_power : p.total_value,
+    source: "robinhood_mcp",
+  };
 }
 
 /**
@@ -157,20 +115,10 @@ export async function resolveLiveAccount(
   accessToken: string | null,
 ): Promise<LiveAccount | null> {
   if (accessToken) {
-    const text = await mcpAccountInfo(accessToken);
-    if (text) {
-      const buyingPower = extractNumber(text, /buying.?power[":\s$]*([0-9,]+\.?[0-9]*)/i)
-        ?? extractNumber(text, /cash[":\s$]*([0-9,]+\.?[0-9]*)/i)
-        ?? extractNumber(text, /available[":\s$]*([0-9,]+\.?[0-9]*)/i);
-      const portfolioValue = extractNumber(text, /portfolio.?value[":\s$]*([0-9,]+\.?[0-9]*)/i)
-        ?? extractNumber(text, /account.?value[":\s$]*([0-9,]+\.?[0-9]*)/i)
-        ?? extractNumber(text, /total.?value[":\s$]*([0-9,]+\.?[0-9]*)/i);
-      const pv = portfolioValue ?? buyingPower;
-      if (pv != null && pv > 0) {
-        return { portfolio_value: pv, buying_power: buyingPower ?? pv, source: "robinhood_mcp" };
-      }
-    }
+    const live = await mcpAccount(accessToken);
+    if (live) return live;
   }
+
 
   const { data: snap } = await (supabaseAdmin as never as {
     from: (t: string) => {
