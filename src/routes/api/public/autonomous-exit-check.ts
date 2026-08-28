@@ -65,7 +65,7 @@ export const Route = createFileRoute("/api/public/autonomous-exit-check")({
   },
 });
 
-async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<typeof getAdmin>>, afterEod: boolean): Promise<number> {
+async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<typeof getAdmin>>, afterEod: boolean, executionMode: string): Promise<number> {
   const { data: portfolio } = await supabaseAdmin.from("paper_portfolios").select("*").eq("user_id", userId).maybeSingle();
   if (!portfolio) return 0;
   const { data: openTrades } = await supabaseAdmin.from("paper_trades").select("*").eq("user_id", userId).eq("is_open", true);
