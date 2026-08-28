@@ -111,14 +111,22 @@ ${LEARNING_SCOPE_INSTRUCTION}`;
     }).catch(() => {});
   }
 
+  // Which asset classes are tradeable is system policy, not the reviewer's
+  // call — strip any "trade only crypto" / "avoid stocks" style conclusion
+  // before it is ever persisted (see src/lib/learning-guardrails.ts).
+  const safeAdjustments = sanitizeLearningAdjustments(parsed.adjustments);
+  const safeInsights = sanitizeLearningAdjustments(parsed.key_insights);
+  const safeAnalysis = sanitizeLearningAnalysis(parsed.analysis);
+
   await supabaseAdmin.from("agent_learnings").insert({
     user_id: userId, week_start: weekStart,
-    analysis: parsed.analysis,
-    key_insights: parsed.key_insights as never,
-    adjustments: parsed.adjustments as never,
+    analysis: safeAnalysis,
+    key_insights: safeInsights as never,
+    adjustments: safeAdjustments as never,
     trades_analyzed: withPnl.length, win_rate: winRate, avg_pnl_pct: avgPnlPct,
   });
-  const firstAdj = parsed.adjustments.slice(0, 2).join("; ");
+  const firstAdj = safeAdjustments.slice(0, 2).join("; ");
+
   await supabaseAdmin.from("agent_messages").insert({
     user_id: userId, role: "assistant", is_autonomous: true, session_type: "weekly_learning",
     content: `📚 Weekly learning review complete. Analyzed ${withPnl.length} trades (${(winRate * 100).toFixed(0)}% win rate, avg ${avgPnlPct >= 0 ? "+" : ""}${avgPnlPct.toFixed(1)}% per trade). Key insight: ${parsed.key_insights[0] ?? "n/a"}. Adjustments for next week: ${firstAdj}.`,
