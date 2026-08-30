@@ -28,6 +28,8 @@ import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rat
 import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
+import { classifyGatewayFailure, gatewayBlockUserMessage, type GatewayBlock } from "@/lib/ai-gateway-block";
+
 
 const UNIVERSE = {
   // ── Large-cap stocks: 60 total — most liquid names across every sector ──
