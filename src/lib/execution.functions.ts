@@ -144,14 +144,19 @@ export const openPaperTrade = createServerFn({ method: "POST" })
       }).select().single();
     if (tErr || !trade) return { ok: false, reason: tErr?.message ?? "insert_failed" };
 
-    // Update portfolio cash + mark-to-market equity across all open positions
-    const newBalance = cash - allocCash;
+    // Cash change is applied as an atomic delta (background jobs write the
+    // same row concurrently), then equity is marked to market.
+    const { error: cashErr } = await supabase.rpc("apply_paper_cash_delta", {
+      p_portfolio_id: portfolio.id, p_delta: -allocCash,
+    });
+    if (cashErr) return { ok: false, reason: cashErr.message };
+    const newBalance = Number(portfolio.balance) - allocCash;
     const newEquity = await recomputeEquity(supabase, { id: portfolio.id, balance: newBalance });
     await supabase.from("paper_portfolios").update({
-      balance: newBalance,
       equity: newEquity,
       updated_at: new Date().toISOString(),
     }).eq("id", portfolio.id);
+
 
     // Log execution
     await supabase.from("signals_executions").insert({
