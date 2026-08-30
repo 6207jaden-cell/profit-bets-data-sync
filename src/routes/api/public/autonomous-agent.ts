@@ -28,6 +28,8 @@ import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rat
 import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { scanCatalystsInternal } from "@/lib/catalysts.functions";
+import { classifyGatewayFailure, gatewayBlockUserMessage, type GatewayBlock } from "@/lib/ai-gateway-block";
+
 
 const UNIVERSE = {
   // ── Large-cap stocks: 60 total — most liquid names across every sector ──
@@ -1404,14 +1406,18 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   "message_to_user": "Friendly 2-4 sentence summary."
 }`;
 
-  const ai = await callGateway(systemPrompt, JSON.stringify(userMessageWithMemory));
+  const { data: ai, blocked } = await callGatewayDetailed(systemPrompt, JSON.stringify(userMessageWithMemory));
   if (!ai) {
+    // A 402/403 is terminal — no amount of retrying restores it, so tell the
+    // user rather than recording another invisible `ai_error`.
+    if (blocked) await notifyGatewayBlocked(supabaseAdmin, userId, blocked);
     await supabaseAdmin.from("agent_decisions").insert({
       user_id: userId, session_type: sessionType, regime, trades_opened: 0,
-      payload: { ai_error: true } as never,
+      payload: { ai_error: true, ai_blocked: blocked ?? null } as never,
     });
-    return { opened: 0, skipped: "ai_error" };
+    return { opened: 0, skipped: blocked ? "ai_unavailable" : "ai_error" };
   }
+
   // Item 13 fix: JSON.parse(...) as AiResponse in callGateway is a type
   // ASSERTION, not runtime validation — filter out any malformed trade
   // proposal here, before anything downstream dereferences its fields
@@ -2022,9 +2028,16 @@ async function getAdmin() {
   return supabaseAdmin;
 }
 
-export async function callGateway(system: string, user: string): Promise<AiResponse | null> {
+export type GatewayResult = { data: AiResponse | null; blocked: GatewayBlock | null };
+
+/**
+ * Detailed variant: distinguishes "AI said something unusable" from "the
+ * gateway refused the request because credits/access ran out" (402/403), so
+ * callers can tell the user why nothing happened instead of logging silently.
+ */
+export async function callGatewayDetailed(system: string, user: string): Promise<GatewayResult> {
   const key = process.env.LOVABLE_API_KEY;
-  if (!key) return null;
+  if (!key) return { data: null, blocked: null };
   try {
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -2038,13 +2051,50 @@ export async function callGateway(system: string, user: string): Promise<AiRespo
         temperature: 0.1,  // lower = more consistent, less "creative" for trading decisions
       }),
     });
-    if (!r.ok) { console.error("[gateway]", r.status, await r.text()); return null; }
+    if (!r.ok) {
+      const bodyText = await r.text();
+      console.error("[gateway]", r.status, bodyText);
+      return { data: null, blocked: classifyGatewayFailure(r.status, bodyText) };
+    }
     const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const text = j.choices?.[0]?.message?.content ?? "";
     const cleaned = text.replace(/```json\s*|\s*```/g, "").trim();
-    return JSON.parse(cleaned) as AiResponse;
+    return { data: JSON.parse(cleaned) as AiResponse, blocked: null };
   } catch (e) {
     console.error("[gateway] parse", e);
-    return null;
+    return { data: null, blocked: null };
   }
 }
+
+export async function callGateway(system: string, user: string): Promise<AiResponse | null> {
+  return (await callGatewayDetailed(system, user)).data;
+}
+
+/**
+ * Tells the user, in-app, that automated AI runs are blocked until credits or
+ * access are restored. Deduped to one notice per user per 6 hours so a scan
+ * schedule that fires every 10-30 minutes doesn't spam the feed.
+ */
+export async function notifyGatewayBlocked(
+  admin: Awaited<ReturnType<typeof getAdmin>>,
+  userId: string,
+  block: GatewayBlock,
+): Promise<void> {
+  const since = new Date(Date.now() - 6 * 3600_000).toISOString();
+  const { count } = await admin
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("type", "ai_unavailable")
+    .gte("created_at", since);
+  if ((count ?? 0) > 0) return;
+
+  const body = gatewayBlockUserMessage(block);
+  await admin.from("notifications").insert({
+    user_id: userId, type: "ai_unavailable", title: "AI agent paused — AI access unavailable", body,
+  });
+  await admin.from("agent_messages").insert({
+    user_id: userId, role: "assistant", is_autonomous: true, content: body,
+  });
+}
+

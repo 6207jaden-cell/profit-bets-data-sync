@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
-import { callGateway } from "./autonomous-agent";
+import { callGatewayDetailed, notifyGatewayBlocked } from "./autonomous-agent";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
@@ -99,8 +99,10 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
               market_note: "This is a Friday EOD review. Markets are closing. Weekend is 2 days.",
             });
 
-            const ai = await callGateway(systemPrompt, userMsg);
+            const { data: ai, blocked } = await callGatewayDetailed(systemPrompt, userMsg);
+            if (blocked) await notifyGatewayBlocked(supabaseAdmin, userId, blocked);
             if (!ai) continue;
+
 
             // Build message content
             const parsed = ai as unknown as {
