@@ -483,10 +483,17 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
 
             // Deferred writes: one portfolio update + one bulk executions insert per user.
             if (portfolioDirty) {
-              await supabaseAdmin.from("paper_portfolios").update({
-                balance: cash, equity: cash, updated_at: new Date().toISOString(),
-              }).eq("id", portfolio.id);
+              // Atomic delta so a concurrent agent scan / exit check can't be
+              // clobbered. The RPC also recomputes equity as cash + open
+              // position cost basis — the old `equity: cash` write threw away
+              // the value of every open position.
+              const cashDelta = cash - (Number(portfolio.balance) || 0);
+              const { error: cashErr } = await supabaseAdmin.rpc("apply_paper_cash_delta", {
+                p_portfolio_id: portfolio.id, p_delta: cashDelta,
+              } as never);
+              if (cashErr) console.error("[evaluate-strategies] cash delta failed", cashErr);
             }
+
             if (executionsBuffer.length > 0) {
               await supabaseAdmin.from("signals_executions").insert(executionsBuffer);
             }

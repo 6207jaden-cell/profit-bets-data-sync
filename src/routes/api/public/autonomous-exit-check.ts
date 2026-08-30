@@ -495,7 +495,17 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
     }
   }
 
-  await supabaseAdmin.from("paper_portfolios").update({ balance: cash, updated_at: new Date().toISOString() }).eq("id", portfolio.id);
+  // Atomic delta, not an absolute write: an agent scan running at the same
+  // moment holds its own (now stale) copy of `balance`, and whichever job
+  // wrote last used to erase the other's cash movement.
+  const cashDelta = cash - (Number(portfolio.balance) || 0);
+  if (cashDelta !== 0) {
+    const { error: cashErr } = await supabaseAdmin.rpc("apply_paper_cash_delta", {
+      p_portfolio_id: portfolio.id, p_delta: cashDelta,
+    } as never);
+    if (cashErr) console.error("[exit-check] cash delta failed", cashErr);
+  }
+
 
 
   const cashPct = Number(portfolio.equity) > 0 ? (cash / Number(portfolio.equity)) * 100 : 0;
