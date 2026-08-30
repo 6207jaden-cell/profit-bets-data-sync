@@ -2022,9 +2022,16 @@ async function getAdmin() {
   return supabaseAdmin;
 }
 
-export async function callGateway(system: string, user: string): Promise<AiResponse | null> {
+export type GatewayResult = { data: AiResponse | null; blocked: GatewayBlock | null };
+
+/**
+ * Detailed variant: distinguishes "AI said something unusable" from "the
+ * gateway refused the request because credits/access ran out" (402/403), so
+ * callers can tell the user why nothing happened instead of logging silently.
+ */
+export async function callGatewayDetailed(system: string, user: string): Promise<GatewayResult> {
   const key = process.env.LOVABLE_API_KEY;
-  if (!key) return null;
+  if (!key) return { data: null, blocked: null };
   try {
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -2038,13 +2045,50 @@ export async function callGateway(system: string, user: string): Promise<AiRespo
         temperature: 0.1,  // lower = more consistent, less "creative" for trading decisions
       }),
     });
-    if (!r.ok) { console.error("[gateway]", r.status, await r.text()); return null; }
+    if (!r.ok) {
+      const bodyText = await r.text();
+      console.error("[gateway]", r.status, bodyText);
+      return { data: null, blocked: classifyGatewayFailure(r.status, bodyText) };
+    }
     const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const text = j.choices?.[0]?.message?.content ?? "";
     const cleaned = text.replace(/```json\s*|\s*```/g, "").trim();
-    return JSON.parse(cleaned) as AiResponse;
+    return { data: JSON.parse(cleaned) as AiResponse, blocked: null };
   } catch (e) {
     console.error("[gateway] parse", e);
-    return null;
+    return { data: null, blocked: null };
   }
 }
+
+export async function callGateway(system: string, user: string): Promise<AiResponse | null> {
+  return (await callGatewayDetailed(system, user)).data;
+}
+
+/**
+ * Tells the user, in-app, that automated AI runs are blocked until credits or
+ * access are restored. Deduped to one notice per user per 6 hours so a scan
+ * schedule that fires every 10-30 minutes doesn't spam the feed.
+ */
+export async function notifyGatewayBlocked(
+  admin: Awaited<ReturnType<typeof getAdmin>>,
+  userId: string,
+  block: GatewayBlock,
+): Promise<void> {
+  const since = new Date(Date.now() - 6 * 3600_000).toISOString();
+  const { count } = await admin
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("type", "ai_unavailable")
+    .gte("created_at", since);
+  if ((count ?? 0) > 0) return;
+
+  const body = gatewayBlockUserMessage(block);
+  await admin.from("notifications").insert({
+    user_id: userId, type: "ai_unavailable", title: "AI agent paused — AI access unavailable", body,
+  });
+  await admin.from("agent_messages").insert({
+    user_id: userId, role: "assistant", is_autonomous: true, content: body,
+  });
+}
+
