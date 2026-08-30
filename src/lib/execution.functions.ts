@@ -203,13 +203,17 @@ export const closePaperTrade = createServerFn({ method: "POST" })
       closed_at: new Date().toISOString(),
     }).eq("id", trade.id);
 
+    const { error: cashErr } = await supabase.rpc("apply_paper_cash_delta", {
+      p_portfolio_id: portfolio.id, p_delta: proceeds,
+    });
+    if (cashErr) return { ok: false, reason: cashErr.message };
     const newCash = Number(portfolio.balance) + proceeds;
     const newEquity = await recomputeEquity(supabase, { id: portfolio.id, balance: newCash });
     await supabase.from("paper_portfolios").update({
-      balance: newCash,
       equity: newEquity,
       updated_at: new Date().toISOString(),
     }).eq("id", portfolio.id);
+
 
     await supabase.from("signals_executions").insert({
       user_id: userId,
