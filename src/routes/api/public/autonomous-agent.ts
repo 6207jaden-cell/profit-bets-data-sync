@@ -1406,14 +1406,18 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   "message_to_user": "Friendly 2-4 sentence summary."
 }`;
 
-  const ai = await callGateway(systemPrompt, JSON.stringify(userMessageWithMemory));
+  const { data: ai, blocked } = await callGatewayDetailed(systemPrompt, JSON.stringify(userMessageWithMemory));
   if (!ai) {
+    // A 402/403 is terminal — no amount of retrying restores it, so tell the
+    // user rather than recording another invisible `ai_error`.
+    if (blocked) await notifyGatewayBlocked(supabaseAdmin, userId, blocked);
     await supabaseAdmin.from("agent_decisions").insert({
       user_id: userId, session_type: sessionType, regime, trades_opened: 0,
-      payload: { ai_error: true } as never,
+      payload: { ai_error: true, ai_blocked: blocked ?? null } as never,
     });
-    return { opened: 0, skipped: "ai_error" };
+    return { opened: 0, skipped: blocked ? "ai_unavailable" : "ai_error" };
   }
+
   // Item 13 fix: JSON.parse(...) as AiResponse in callGateway is a type
   // ASSERTION, not runtime validation — filter out any malformed trade
   // proposal here, before anything downstream dereferences its fields
