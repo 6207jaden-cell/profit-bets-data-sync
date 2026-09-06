@@ -329,6 +329,42 @@ export function cryptoBase(sym: string): string {
   return sym.toUpperCase().replace(/[-/]USD[T]?$/, "");
 }
 
+/**
+ * Known crypto base tickers. Needed because saved strategies (and AI output)
+ * frequently name a coin bare — "BTC", "ETH", "Bitcoin" — which every price
+ * source rejects: Yahoo needs "BTC-USD", Polygon needs "X:BTCUSD". Without
+ * normalization those symbols returned market_data_unavailable on every
+ * strategy evaluation, which is exactly what the crypto strategy loop hit.
+ */
+const CRYPTO_BASES = new Set([
+  "BTC","ETH","SOL","AVAX","XRP","ADA","TRX","TON","HBAR","ETC","ATOM","LINK","AAVE","UNI",
+  "MATIC","ARB","OP","INJ","SUI","NEAR","DOT","LTC","FET","RENDER","DOGE","SHIB","PEPE",
+  "WIF","BONK","FLOKI","BCH","XLM","ALGO","FIL","ICP","APT","SEI","TIA","STX","CRV","MKR",
+]);
+
+const CRYPTO_ALIASES: Record<string, string> = {
+  BITCOIN: "BTC", ETHEREUM: "ETH", SOLANA: "SOL", DOGECOIN: "DOGE",
+  CARDANO: "ADA", RIPPLE: "XRP", POLYGON: "MATIC", LITECOIN: "LTC",
+  AVALANCHE: "AVAX", POLKADOT: "DOT", CHAINLINK: "LINK",
+};
+
+/**
+ * Canonicalize any symbol spelling to the form the data sources accept:
+ * crypto becomes "BASE-USD" (the agent universe's format), equities become
+ * plain uppercase tickers. Handles "eth/usd", "BTC/USDT", "Bitcoin", "SOL".
+ */
+export function normalizeSymbol(sym: string): string {
+  const raw = String(sym ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!raw) return raw;
+  const pair = raw.match(/^([A-Z]{2,10})[-/](USD|USDT|USDC)$/);
+  if (pair) return `${CRYPTO_ALIASES[pair[1]] ?? pair[1]}-USD`;
+  const alias = CRYPTO_ALIASES[raw];
+  if (alias) return `${alias}-USD`;
+  if (CRYPTO_BASES.has(raw)) return `${raw}-USD`;
+  return raw;
+}
+
+
 
 export type Bars = {
   times: number[];
@@ -357,7 +393,7 @@ export type IntradayBar = { t: number; o: number; h: number; l: number; c: numbe
  * holding periods).
  */
 export async function fetchVwapBars(symbol: string, daysBack: number): Promise<IntradayBar[] | null> {
-  const S = symbol.toUpperCase();
+  const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const poly = process.env.POLYGON_API_KEY;
   if (!poly) return null;
@@ -479,7 +515,7 @@ export function computeCorrelation(closesA: number[], closesB: number[], lookbac
 }
 
 export async function fetchBars(symbol: string, days = 220): Promise<Bars | null> {
-  const S = symbol.toUpperCase();
+  const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const poly = process.env.POLYGON_API_KEY;
   if (poly) {
@@ -550,8 +586,58 @@ export async function fetchBars(symbol: string, days = 220): Promise<Bars | null
       }
     } catch { /* fall through */ }
   }
+  // Keyless Yahoo daily-bar fallback. Needed because Polygon intermittently
+  // returns too few daily rows for some crypto pairs (ETH-USD was returning
+  // nothing at all while BTC-USD worked), which surfaced as
+  // market_data_unavailable on every strategy evaluation even though quotes
+  // for the same symbol resolved fine.
+  try {
+    const range = days > 400 ? "5y" : days > 200 ? "2y" : "1y";
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(S)}?interval=1d&range=${range}`,
+      { headers: { "User-Agent": "Mozilla/5.0" } },
+    );
+    if (r.ok) {
+      const j = (await r.json()) as {
+        chart?: { result?: Array<{
+          timestamp?: number[];
+          indicators?: { quote?: Array<{ open?: (number | null)[]; high?: (number | null)[]; low?: (number | null)[]; close?: (number | null)[]; volume?: (number | null)[] }> };
+        }> };
+      };
+      const res = j.chart?.result?.[0];
+      const q = res?.indicators?.quote?.[0];
+      const ts = res?.timestamp ?? [];
+      if (q && ts.length) {
+        const rows: Array<{ t: number; o: number; h: number; l: number; c: number; v: number }> = [];
+        for (let i = 0; i < ts.length; i++) {
+          const c = q.close?.[i];
+          if (c == null || !Number.isFinite(c)) continue;
+          rows.push({
+            t: ts[i] * 1000,
+            o: Number(q.open?.[i] ?? c),
+            h: Number(q.high?.[i] ?? c),
+            l: Number(q.low?.[i] ?? c),
+            c: Number(c),
+            v: Number(q.volume?.[i] ?? 0),
+          });
+        }
+        const slice = rows.slice(-days);
+        if (slice.length >= 50) {
+          return {
+            times: slice.map((b) => b.t),
+            opens: slice.map((b) => b.o),
+            highs: slice.map((b) => b.h),
+            lows: slice.map((b) => b.l),
+            closes: slice.map((b) => b.c),
+            volumes: slice.map((b) => b.v),
+          };
+        }
+      }
+    }
+  } catch { /* fall through */ }
   return null;
 }
+
 
 /** Back-compat: fetch just the close series through the shared bar fetcher. */
 export async function fetchDailyCloses(symbol: string, days = 220): Promise<number[] | null> {
@@ -701,7 +787,7 @@ export function isQuoteStale(quoteTimestampMs: number | null | undefined, nowMs:
 const QUOTE_STALENESS_THRESHOLD_MINUTES = 30;
 
 export async function fetchQuotePrice(symbol: string): Promise<number | null> {
-  const S = symbol.toUpperCase();
+  const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const fin = process.env.FINNHUB_API_KEY;
   const poly = process.env.POLYGON_API_KEY;

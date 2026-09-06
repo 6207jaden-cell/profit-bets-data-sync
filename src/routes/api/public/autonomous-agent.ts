@@ -1415,8 +1415,14 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       user_id: userId, session_type: sessionType, regime, trades_opened: 0,
       payload: { ai_error: true, ai_blocked: blocked ?? null } as never,
     });
+    // Unclassified failures previously left no trace the user could see: a
+    // week of scans recorded `ai_error` silently. Surface a repeated-stall
+    // notice once the failures are clearly not a one-off.
+    if (!blocked) await notifyAgentStalled(supabaseAdmin, userId);
     return { opened: 0, skipped: blocked ? "ai_unavailable" : "ai_error" };
   }
+
+
 
   // Item 13 fix: JSON.parse(...) as AiResponse in callGateway is a type
   // ASSERTION, not runtime validation — filter out any malformed trade
@@ -2098,3 +2104,43 @@ export async function notifyGatewayBlocked(
   });
 }
 
+
+/**
+ * Raises one visible notice when scans keep failing for a reason the gateway
+ * did not classify (bad/empty model output, network errors). Requires 3+
+ * failed decisions in the last 3 hours so a single blip stays quiet, and
+ * dedupes to one notice per user per 12 hours.
+ */
+export async function notifyAgentStalled(
+  admin: Awaited<ReturnType<typeof getAdmin>>,
+  userId: string,
+): Promise<void> {
+  const since = new Date(Date.now() - 3 * 3600_000).toISOString();
+  const { data: recent } = await admin
+    .from("agent_decisions")
+    .select("id, payload, created_at")
+    .eq("user_id", userId)
+    .gte("created_at", since)
+    .limit(50);
+  const failures = (recent ?? []).filter(
+    (d) => (d.payload as { ai_error?: boolean } | null)?.ai_error === true,
+  ).length;
+  if (failures < 3) return;
+
+  const dedupeSince = new Date(Date.now() - 12 * 3600_000).toISOString();
+  const { count } = await admin
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("type", "agent_stalled")
+    .gte("created_at", dedupeSince);
+  if ((count ?? 0) > 0) return;
+
+  const body = `The trading agent's last ${failures} scheduled scans could not complete — the AI step failed each time, so no new decisions were made. Nothing has been traded during that window. This usually clears on its own; if it keeps happening, run a scan manually from the Agent tab to see the error.`;
+  await admin.from("notifications").insert({
+    user_id: userId, type: "agent_stalled", title: "Agent scans are failing", body,
+  });
+  await admin.from("agent_messages").insert({
+    user_id: userId, role: "assistant", is_autonomous: true, content: body,
+  });
+}

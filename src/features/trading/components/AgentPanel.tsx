@@ -77,6 +77,8 @@ export function AgentPanel() {
   });
 
   const ready = conn.data?.state === "ready";
+  const tokenExpired = ready && conn.data?.token_expired === true;
+
   const pendingAuth = conn.data?.state === "authenticating" || !!authUrl;
   const openAuthUrl = authUrl ?? conn.data?.auth_url ?? null;
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
@@ -277,19 +279,35 @@ export function AgentPanel() {
     <AutonomousSection userId={userId} robinhoodReady={true} />
     <AgentPerformanceCard />
     <div className="grid grid-rows-[auto_1fr_auto] gap-3 h-[calc(100vh-320px)] min-h-[500px]">
-      <Card className="px-4 py-2 flex items-center justify-between bg-card border-border">
+      <Card className={cn("px-4 py-2 flex items-center justify-between bg-card border-border", tokenExpired && "border-amber-500/50 bg-amber-500/5")}>
         <div className="flex items-center gap-2 text-sm">
-          <span className="h-2 w-2 rounded-full bg-bull animate-pulse" />
+          <span className={cn("h-2 w-2 rounded-full", tokenExpired ? "bg-amber-500" : "bg-bull animate-pulse")} />
           <span className="font-display font-semibold">Robinhood</span>
-          <span className="text-muted-foreground text-xs">connected via MCP</span>
+          {tokenExpired ? (
+            <span className="text-amber-500 text-xs">session expired — reconnect to place live orders</span>
+          ) : (
+            <span className="text-muted-foreground text-xs">connected via MCP</span>
+          )}
         </div>
-        <button
-          onClick={handleDisconnect}
-          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-        >
-          <X className="h-3 w-3" /> disconnect
-        </button>
+        <div className="flex items-center gap-3">
+          {tokenExpired && (
+            <button
+              onClick={handleConnect}
+              disabled={connectionBusy}
+              className="text-xs font-medium text-amber-500 hover:underline flex items-center gap-1"
+            >
+              <Link2 className="h-3 w-3" /> reconnect
+            </button>
+          )}
+          <button
+            onClick={handleDisconnect}
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+          >
+            <X className="h-3 w-3" /> disconnect
+          </button>
+        </div>
       </Card>
+
 
       <Card className="p-4 overflow-y-auto bg-card border-border">
         {chat.messages.length === 0 ? (

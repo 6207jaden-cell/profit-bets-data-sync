@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, fetchQuotePrice, type Bars } from "@/lib/indicators";
+import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, fetchQuotePrice, normalizeSymbol, type Bars } from "@/lib/indicators";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
@@ -28,7 +28,7 @@ function cryptoBase(sym: string): string {
 }
 
 async function fetchLiveQuote(symbol: string): Promise<Quote | null> {
-  const S = symbol.toUpperCase();
+  const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const fin = process.env.FINNHUB_API_KEY;
   const poly = process.env.POLYGON_API_KEY;
@@ -309,7 +309,14 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
 
             for (const strat of userStrats) {
               const sj = strat.strategy_json ?? {};
-              const universe = (sj.universe ?? []).map((s) => String(s).toUpperCase()).filter(Boolean);
+              // Normalize saved strategy symbols to the canonical form the
+              // data sources accept ("ETH/USD" / "BTC" -> "ETH-USD" /
+              // "BTC-USD"). Un-normalized crypto spellings were the cause of
+              // the repeated market_data_unavailable errors on every run.
+              const universe = Array.from(
+                new Set((sj.universe ?? []).map((s) => normalizeSymbol(String(s))).filter(Boolean)),
+              );
+
               const entryConds = sj.entry?.conditions ?? [];
               const entryLogic = sj.entry?.logic === "OR" ? "OR" : "AND";
               const exitConds = sj.exit?.conditions ?? [];
