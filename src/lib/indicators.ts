@@ -586,8 +586,58 @@ export async function fetchBars(symbol: string, days = 220): Promise<Bars | null
       }
     } catch { /* fall through */ }
   }
+  // Keyless Yahoo daily-bar fallback. Needed because Polygon intermittently
+  // returns too few daily rows for some crypto pairs (ETH-USD was returning
+  // nothing at all while BTC-USD worked), which surfaced as
+  // market_data_unavailable on every strategy evaluation even though quotes
+  // for the same symbol resolved fine.
+  try {
+    const range = days > 400 ? "5y" : days > 200 ? "2y" : "1y";
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(S)}?interval=1d&range=${range}`,
+      { headers: { "User-Agent": "Mozilla/5.0" } },
+    );
+    if (r.ok) {
+      const j = (await r.json()) as {
+        chart?: { result?: Array<{
+          timestamp?: number[];
+          indicators?: { quote?: Array<{ open?: (number | null)[]; high?: (number | null)[]; low?: (number | null)[]; close?: (number | null)[]; volume?: (number | null)[] }> };
+        }> };
+      };
+      const res = j.chart?.result?.[0];
+      const q = res?.indicators?.quote?.[0];
+      const ts = res?.timestamp ?? [];
+      if (q && ts.length) {
+        const rows: Array<{ t: number; o: number; h: number; l: number; c: number; v: number }> = [];
+        for (let i = 0; i < ts.length; i++) {
+          const c = q.close?.[i];
+          if (c == null || !Number.isFinite(c)) continue;
+          rows.push({
+            t: ts[i] * 1000,
+            o: Number(q.open?.[i] ?? c),
+            h: Number(q.high?.[i] ?? c),
+            l: Number(q.low?.[i] ?? c),
+            c: Number(c),
+            v: Number(q.volume?.[i] ?? 0),
+          });
+        }
+        const slice = rows.slice(-days);
+        if (slice.length >= 50) {
+          return {
+            times: slice.map((b) => b.t),
+            opens: slice.map((b) => b.o),
+            highs: slice.map((b) => b.h),
+            lows: slice.map((b) => b.l),
+            closes: slice.map((b) => b.c),
+            volumes: slice.map((b) => b.v),
+          };
+        }
+      }
+    }
+  } catch { /* fall through */ }
   return null;
 }
+
 
 /** Back-compat: fetch just the close series through the shared bar fetcher. */
 export async function fetchDailyCloses(symbol: string, days = 220): Promise<number[] | null> {
