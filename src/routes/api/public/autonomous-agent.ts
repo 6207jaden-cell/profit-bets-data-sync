@@ -1415,8 +1415,14 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       user_id: userId, session_type: sessionType, regime, trades_opened: 0,
       payload: { ai_error: true, ai_blocked: blocked ?? null } as never,
     });
+    // Unclassified failures previously left no trace the user could see: a
+    // week of scans recorded `ai_error` silently. Surface a repeated-stall
+    // notice once the failures are clearly not a one-off.
+    if (!blocked) await notifyAgentStalled(supabaseAdmin, userId);
     return { opened: 0, skipped: blocked ? "ai_unavailable" : "ai_error" };
   }
+
+
 
   // Item 13 fix: JSON.parse(...) as AiResponse in callGateway is a type
   // ASSERTION, not runtime validation — filter out any malformed trade
