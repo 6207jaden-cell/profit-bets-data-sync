@@ -11,8 +11,16 @@ export const getRobinhoodConnection = createServerFn({ method: "GET" })
       .select("id, state, auth_url, server_label, expires_at, updated_at")
       .eq("server_url", robinhoodMcpUrl)
       .maybeSingle();
-    return data ?? null;
+    if (!data) return null;
+    // A row can sit at state "ready" long after its access token expired (the
+    // token is only refreshed when a scan actually places an order). Showing
+    // that as "connected" hid a days-old dead link, so derive freshness here.
+    const expiresAtMs = data.expires_at ? new Date(data.expires_at).getTime() : null;
+    const token_expired = expiresAtMs != null && expiresAtMs <= Date.now();
+    return { ...data, token_expired };
   });
+
+
 
 export const initiateRobinhoodConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
