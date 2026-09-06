@@ -393,7 +393,7 @@ export type IntradayBar = { t: number; o: number; h: number; l: number; c: numbe
  * holding periods).
  */
 export async function fetchVwapBars(symbol: string, daysBack: number): Promise<IntradayBar[] | null> {
-  const S = symbol.toUpperCase();
+  const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const poly = process.env.POLYGON_API_KEY;
   if (!poly) return null;
@@ -515,7 +515,7 @@ export function computeCorrelation(closesA: number[], closesB: number[], lookbac
 }
 
 export async function fetchBars(symbol: string, days = 220): Promise<Bars | null> {
-  const S = symbol.toUpperCase();
+  const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const poly = process.env.POLYGON_API_KEY;
   if (poly) {
@@ -737,7 +737,7 @@ export function isQuoteStale(quoteTimestampMs: number | null | undefined, nowMs:
 const QUOTE_STALENESS_THRESHOLD_MINUTES = 30;
 
 export async function fetchQuotePrice(symbol: string): Promise<number | null> {
-  const S = symbol.toUpperCase();
+  const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const fin = process.env.FINNHUB_API_KEY;
   const poly = process.env.POLYGON_API_KEY;
