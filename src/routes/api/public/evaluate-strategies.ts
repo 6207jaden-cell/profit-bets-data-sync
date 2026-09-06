@@ -309,7 +309,14 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
 
             for (const strat of userStrats) {
               const sj = strat.strategy_json ?? {};
-              const universe = (sj.universe ?? []).map((s) => String(s).toUpperCase()).filter(Boolean);
+              // Normalize saved strategy symbols to the canonical form the
+              // data sources accept ("ETH/USD" / "BTC" -> "ETH-USD" /
+              // "BTC-USD"). Un-normalized crypto spellings were the cause of
+              // the repeated market_data_unavailable errors on every run.
+              const universe = Array.from(
+                new Set((sj.universe ?? []).map((s) => normalizeSymbol(String(s))).filter(Boolean)),
+              );
+
               const entryConds = sj.entry?.conditions ?? [];
               const entryLogic = sj.entry?.logic === "OR" ? "OR" : "AND";
               const exitConds = sj.exit?.conditions ?? [];
