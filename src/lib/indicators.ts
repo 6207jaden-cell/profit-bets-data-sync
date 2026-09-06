@@ -329,6 +329,42 @@ export function cryptoBase(sym: string): string {
   return sym.toUpperCase().replace(/[-/]USD[T]?$/, "");
 }
 
+/**
+ * Known crypto base tickers. Needed because saved strategies (and AI output)
+ * frequently name a coin bare — "BTC", "ETH", "Bitcoin" — which every price
+ * source rejects: Yahoo needs "BTC-USD", Polygon needs "X:BTCUSD". Without
+ * normalization those symbols returned market_data_unavailable on every
+ * strategy evaluation, which is exactly what the crypto strategy loop hit.
+ */
+const CRYPTO_BASES = new Set([
+  "BTC","ETH","SOL","AVAX","XRP","ADA","TRX","TON","HBAR","ETC","ATOM","LINK","AAVE","UNI",
+  "MATIC","ARB","OP","INJ","SUI","NEAR","DOT","LTC","FET","RENDER","DOGE","SHIB","PEPE",
+  "WIF","BONK","FLOKI","BCH","XLM","ALGO","FIL","ICP","APT","SEI","TIA","STX","CRV","MKR",
+]);
+
+const CRYPTO_ALIASES: Record<string, string> = {
+  BITCOIN: "BTC", ETHEREUM: "ETH", SOLANA: "SOL", DOGECOIN: "DOGE",
+  CARDANO: "ADA", RIPPLE: "XRP", POLYGON: "MATIC", LITECOIN: "LTC",
+  AVALANCHE: "AVAX", POLKADOT: "DOT", CHAINLINK: "LINK",
+};
+
+/**
+ * Canonicalize any symbol spelling to the form the data sources accept:
+ * crypto becomes "BASE-USD" (the agent universe's format), equities become
+ * plain uppercase tickers. Handles "eth/usd", "BTC/USDT", "Bitcoin", "SOL".
+ */
+export function normalizeSymbol(sym: string): string {
+  const raw = String(sym ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!raw) return raw;
+  const pair = raw.match(/^([A-Z]{2,10})[-/](USD|USDT|USDC)$/);
+  if (pair) return `${CRYPTO_ALIASES[pair[1]] ?? pair[1]}-USD`;
+  const alias = CRYPTO_ALIASES[raw];
+  if (alias) return `${alias}-USD`;
+  if (CRYPTO_BASES.has(raw)) return `${raw}-USD`;
+  return raw;
+}
+
+
 
 export type Bars = {
   times: number[];
