@@ -28,7 +28,7 @@ function cryptoBase(sym: string): string {
 }
 
 async function fetchLiveQuote(symbol: string): Promise<Quote | null> {
-  const S = symbol.toUpperCase();
+  const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const fin = process.env.FINNHUB_API_KEY;
   const poly = process.env.POLYGON_API_KEY;
