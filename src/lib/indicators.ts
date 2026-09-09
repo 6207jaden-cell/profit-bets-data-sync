@@ -336,10 +336,17 @@ export function cryptoBase(sym: string): string {
  * normalization those symbols returned market_data_unavailable on every
  * strategy evaluation, which is exactly what the crypto strategy loop hit.
  */
+/**
+ * Bare tickers safe to rewrite as crypto pairs. Deliberately EXCLUDES any
+ * base that is also a listed equity ticker (STX=Seagate, CRV=Carver,
+ * APT=Appfolio, OP=Otis, UNI=Uniti, LINK=Interlink, MKR, ICP, TIA, SEI,
+ * FET, ETC, ARB, ATOM, TON): rewriting those silently returned crypto
+ * prices for stock holdings. Those coins still work when written
+ * explicitly as a pair ("UNI-USD", "STX/USD").
+ */
 const CRYPTO_BASES = new Set([
-  "BTC","ETH","SOL","AVAX","XRP","ADA","TRX","TON","HBAR","ETC","ATOM","LINK","AAVE","UNI",
-  "MATIC","ARB","OP","INJ","SUI","NEAR","DOT","LTC","FET","RENDER","DOGE","SHIB","PEPE",
-  "WIF","BONK","FLOKI","BCH","XLM","ALGO","FIL","ICP","APT","SEI","TIA","STX","CRV","MKR",
+  "BTC","ETH","SOL","AVAX","XRP","ADA","HBAR","AAVE","MATIC","INJ","SUI","NEAR","DOT","LTC",
+  "RENDER","DOGE","SHIB","PEPE","WIF","BONK","FLOKI","BCH","XLM","ALGO","FIL",
 ]);
 
 const CRYPTO_ALIASES: Record<string, string> = {
@@ -350,8 +357,9 @@ const CRYPTO_ALIASES: Record<string, string> = {
 
 /**
  * Canonicalize any symbol spelling to the form the data sources accept:
- * crypto becomes "BASE-USD" (the agent universe's format), equities become
- * plain uppercase tickers. Handles "eth/usd", "BTC/USDT", "Bitcoin", "SOL".
+ * explicit crypto pairs become "BASE-USD" (the agent universe's format),
+ * equities stay plain uppercase tickers. Handles "eth/usd", "BTC/USDT",
+ * "Bitcoin", and unambiguous bare coins like "SOL".
  */
 export function normalizeSymbol(sym: string): string {
   const raw = String(sym ?? "").trim().toUpperCase().replace(/\s+/g, "");
