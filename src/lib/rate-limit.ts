@@ -65,7 +65,13 @@ export async function checkRateLimit(
     }
     return { allowed: true, remaining: Math.max(0, maxRequests - requestCount), resetAt, limit: maxRequests };
   } catch (e) {
-    console.warn("[rate-limit] check failed, failing open:", String(e));
+    // Supabase error objects stringify to "[object Object]", which hid the
+    // real cause (an ambiguous column reference in the SQL function) for
+    // weeks. Always surface message + details.
+    const detail = e instanceof Error
+      ? e.message
+      : (() => { try { return JSON.stringify(e); } catch { return String(e); } })();
+    console.warn("[rate-limit] check failed, failing open:", detail);
     return { allowed: true, remaining: maxRequests, resetAt, limit: maxRequests };
   }
 }

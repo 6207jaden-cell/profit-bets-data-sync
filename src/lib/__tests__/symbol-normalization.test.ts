@@ -38,3 +38,15 @@ describe("normalizeSymbol", () => {
     expect(cryptoBase(s)).toBe("BTC");
   });
 });
+
+describe("normalizeSymbol — ambiguous equity tickers", () => {
+  it("leaves tickers that are also listed equities alone", () => {
+    for (const t of ["STX", "CRV", "APT", "OP", "UNI", "LINK", "MKR", "ICP", "TIA", "SEI", "FET", "ETC", "ARB", "ATOM", "TON"]) {
+      expect(normalizeSymbol(t)).toBe(t);
+    }
+  });
+  it("still honours an explicit crypto pair for those bases", () => {
+    expect(normalizeSymbol("UNI/USD")).toBe("UNI-USD");
+    expect(normalizeSymbol("STX-USD")).toBe("STX-USD");
+  });
+});
