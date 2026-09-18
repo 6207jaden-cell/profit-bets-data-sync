@@ -304,6 +304,15 @@ export async function updateSignalWeights(
 ): Promise<void> {
   if (!entrySignals || entrySignals.length === 0) return; // manual trades have no recorded signals — skip
 
+  // Data-integrity gate: a return this large is corrupted price data, not a
+  // result. Letting it in poisons every Bayesian aggregate below (that is
+  // exactly what produced the hundreds-of-percent contribution figures in
+  // diag_signal_contribution). Reject rather than learn from it.
+  if (!Number.isFinite(pnlPct) || Math.abs(pnlPct) > IMPLAUSIBLE_RETURN_PCT) {
+    console.warn(`[signal-learning] skipping learning update: implausible pnlPct ${pnlPct} (data-quality screen)`);
+    return;
+  }
+
   const won = pnlPct > 0;
 
   for (const signalName of entrySignals) {
