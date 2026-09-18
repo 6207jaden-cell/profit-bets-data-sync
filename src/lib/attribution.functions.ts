@@ -55,6 +55,9 @@ export const getRiskAttribution = createServerFn({ method: "GET" })
       .select("asset, side, entry_price, exit_price")
       .eq("user_id", context.userId)
       .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false)
       .not("exit_price", "is", null);
     if (error || !data) return [];
 

@@ -58,6 +58,9 @@ export const getRegimePerformance = createServerFn({ method: "GET" })
       .select("pnl, side, entry_price, exit_price, created_at")
       .eq("user_id", context.userId)
       .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false)
       .not("exit_price", "is", null)
       .order("created_at", { ascending: true });
     if (error || !trades || trades.length === 0) return empty;

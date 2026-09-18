@@ -60,6 +60,9 @@ export async function computePortfolioAttribution(
     .select("pnl, asset, instrument")
     .eq("user_id", userId)
     .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false)
     .not("pnl", "is", null);
 
   const trades = (data ?? []) as Array<{ pnl: number | string; asset: string; instrument: string | null }>;

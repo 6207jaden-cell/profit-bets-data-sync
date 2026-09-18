@@ -579,6 +579,9 @@ export function ExitAnalysisPanel({ userId }: { userId: string }) {
         .select("id, asset, side, entry_price, exit_price, pnl, created_at, closed_at, stop_loss_pct, take_profit_pct, hold_duration, rationale")
         .eq("user_id", userId)
         .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false)
         .not("exit_price", "is", null)
         .order("closed_at", { ascending: false })
         .limit(100);

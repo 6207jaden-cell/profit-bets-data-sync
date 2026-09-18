@@ -50,7 +50,10 @@ export function RiskPanel() {
       const { data: portfolio } = await supabase.from("paper_portfolios").select("starting_balance").eq("user_id", userId).maybeSingle();
       const { data: trades } = await supabase
         .from("paper_trades").select("pnl")
-        .eq("is_open", false).gte("closed_at", dayStart.toISOString());
+        .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false).gte("closed_at", dayStart.toISOString());
       const pnl = (trades ?? []).reduce((a, t) => a + Number(t.pnl ?? 0), 0);
       return { pnl, start: Number(portfolio?.starting_balance ?? 10000) };
     },
