@@ -80,6 +80,25 @@ describe("selectTrustedPrice", () => {
     expect(result.price).toBe(100);
   });
 
+  it("prefers the fresh live quote over a previous-day close when the position really moved >15% from entry", () => {
+    // entry 100, live quote 140 (fresh), polygon previous close 101 (not live).
+    const result = selectTrustedPrice(
+      [c("yahoo", 140, true), c("polygon-prev-close", 101, false)],
+      100,
+    );
+    expect(result.price).toBe(140);
+    expect(result.source).toBe("yahoo");
+  });
+
+  it("among fresh quotes, prefers the one corroborated by the reference", () => {
+    const result = selectTrustedPrice(
+      [c("yahoo", 400, true), c("finnhub", 102, true)],
+      100,
+    );
+    expect(result.price).toBe(102);
+  });
+
+
   it("rejects two sources that disagree wildly and neither matches the reference", () => {
     const result = selectTrustedPrice([c("yahoo", 100), c("polygon", 140)], 400);
     // 100 and 140 both survive the 5x reference screen, disagree by >15%,
