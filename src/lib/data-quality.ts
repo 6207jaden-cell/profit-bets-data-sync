@@ -19,6 +19,9 @@ export function returnPctOfNotional(
   entryPrice: number | null | undefined,
   quantity: number | null | undefined,
 ): number | null {
+  // A missing pnl is "unknown", not zero — Number(null) would silently be 0
+  // and make an unrecorded trade look like a flat, verified 0% return.
+  if (pnl == null) return null;
   const p = Number(pnl);
   const notional = Number(entryPrice) * Number(quantity);
   if (!Number.isFinite(p) || !Number.isFinite(notional) || notional === 0) return null;
