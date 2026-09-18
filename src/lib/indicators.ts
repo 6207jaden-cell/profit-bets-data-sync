@@ -849,12 +849,19 @@ export function isImplausibleVsReference(
  *     outright — that is the corruption signature this whole function exists
  *     to catch (16 historical trades, ~87% of reported P&L, see
  *     DECISION_LOG.md 2026-09-18).
- *  2. A candidate corroborated by the reference price (within 15%) is trusted.
- *  3. Otherwise two independent sources agreeing within 15% are trusted
- *     (median-ish: the fresher / earlier-priority one is returned).
- *  4. A single surviving candidate is trusted ONLY if its freshness was
- *     actually verified. An unverifiable, uncorroborated single source is
- *     rejected rather than assumed fine.
+ *  2. A candidate whose freshness was actually verified (a real live
+ *     timestamp) wins. This MUST rank above reference corroboration: the
+ *     reference is usually a position's own entry price, so on a genuinely
+ *     fast-moving position the live quote disagrees with entry while a
+ *     previous-day close still "agrees" — preferring corroboration there
+ *     would mark the position at yesterday's price and stop-loss /
+ *     take-profit would never fire. Among verified candidates a
+ *     reference-corroborated one is preferred.
+ *  3. Otherwise a candidate corroborated by the reference price (within 15%)
+ *     is trusted.
+ *  4. Otherwise two independent sources agreeing within 15% are trusted.
+ *  5. An unverifiable, uncorroborated single source is rejected rather than
+ *     assumed fine.
  */
 export function selectTrustedPrice(
   candidates: QuoteCandidate[],
@@ -874,12 +881,27 @@ export function selectTrustedPrice(
     };
   }
 
-  if (reference != null && Number.isFinite(reference) && reference > 0) {
+  const hasReference = reference != null && Number.isFinite(reference) && reference > 0;
+
+  const verifiedCandidates = kept.filter((c) => c.freshnessVerified);
+  if (verifiedCandidates.length > 0) {
+    const preferred = hasReference
+      ? verifiedCandidates.find((c) => pricesAgree(c.price, reference)) ?? verifiedCandidates[0]
+      : verifiedCandidates[0];
+    return {
+      price: preferred.price,
+      source: preferred.source,
+      reason: "live quote with verified freshness",
+    };
+  }
+
+  if (hasReference) {
     const corroborated = kept.find((c) => pricesAgree(c.price, reference));
     if (corroborated) {
       return { price: corroborated.price, source: corroborated.source, reason: "corroborated by reference price" };
     }
   }
+
 
   for (let i = 0; i < kept.length; i++) {
     for (let j = i + 1; j < kept.length; j++) {
