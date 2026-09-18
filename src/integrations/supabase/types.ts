@@ -596,6 +596,8 @@ export type Database = {
           closed_at: string | null
           conviction: number | null
           created_at: string
+          data_quality_flag: boolean
+          data_quality_reason: string | null
           entry_price: number
           entry_quoted_price: number | null
           entry_signals: string[] | null
@@ -624,6 +626,8 @@ export type Database = {
           closed_at?: string | null
           conviction?: number | null
           created_at?: string
+          data_quality_flag?: boolean
+          data_quality_reason?: string | null
           entry_price: number
           entry_quoted_price?: number | null
           entry_signals?: string[] | null
@@ -652,6 +656,8 @@ export type Database = {
           closed_at?: string | null
           conviction?: number | null
           created_at?: string
+          data_quality_flag?: boolean
+          data_quality_reason?: string | null
           entry_price?: number
           entry_quoted_price?: number | null
           entry_signals?: string[] | null
@@ -868,6 +874,7 @@ export type Database = {
           claude_direction: string | null
           claude_traded: boolean
           created_at: string
+          data_quality_flag: boolean
           deterministic_direction: string
           deterministic_rank: number
           deterministic_score: number
@@ -888,6 +895,7 @@ export type Database = {
           claude_direction?: string | null
           claude_traded?: boolean
           created_at?: string
+          data_quality_flag?: boolean
           deterministic_direction: string
           deterministic_rank: number
           deterministic_score: number
@@ -908,6 +916,7 @@ export type Database = {
           claude_direction?: string | null
           claude_traded?: boolean
           created_at?: string
+          data_quality_flag?: boolean
           deterministic_direction?: string
           deterministic_rank?: number
           deterministic_score?: number
@@ -938,6 +947,7 @@ export type Database = {
           adaptive_bull_score: number
           adaptive_rank: number
           created_at: string
+          data_quality_flag: boolean
           direction_hint: string
           hypothetical_return_pct: number | null
           id: string
@@ -960,6 +970,7 @@ export type Database = {
           adaptive_bull_score: number
           adaptive_rank: number
           created_at?: string
+          data_quality_flag?: boolean
           direction_hint?: string
           hypothetical_return_pct?: number | null
           id?: string
@@ -982,6 +993,7 @@ export type Database = {
           adaptive_bull_score?: number
           adaptive_rank?: number
           created_at?: string
+          data_quality_flag?: boolean
           direction_hint?: string
           hypothetical_return_pct?: number | null
           id?: string
@@ -1461,6 +1473,7 @@ export type Database = {
         Returns: {
           asset: string
           closed_at: string
+          data_quality_reason: string
           entry_price: number
           entry_quoted_price: number
           exit_price: number
@@ -1515,6 +1528,7 @@ export type Database = {
           request_count: number
         }[]
       }
+      recompute_agent_signal_weights: { Args: never; Returns: Json }
       register_all_crons: { Args: never; Returns: Json }
       release_cron_lock: { Args: { p_lock_key: string }; Returns: undefined }
       tier_rank: {
