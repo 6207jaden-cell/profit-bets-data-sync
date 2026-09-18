@@ -1,0 +1,14 @@
+REVOKE ALL ON FUNCTION public.diag_flagged_trades() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.diag_overall_edge_test() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.diag_cost_reality() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.diag_claude_value() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.diag_adaptive_weighting() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.diag_signal_contribution() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.diag_evidence_readiness() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.diag_flagged_trades() TO service_role;
+GRANT EXECUTE ON FUNCTION public.diag_overall_edge_test() TO service_role;
+GRANT EXECUTE ON FUNCTION public.diag_cost_reality() TO service_role;
+GRANT EXECUTE ON FUNCTION public.diag_claude_value() TO service_role;
+GRANT EXECUTE ON FUNCTION public.diag_adaptive_weighting() TO service_role;
+GRANT EXECUTE ON FUNCTION public.diag_signal_contribution() TO service_role;
+GRANT EXECUTE ON FUNCTION public.diag_evidence_readiness() TO service_role;
