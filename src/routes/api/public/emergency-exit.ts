@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { flagTradeIfImplausible } from "@/lib/data-quality";
 import { fetchQuotePrice } from "@/lib/indicators";
 import { enforceRateLimit, endpointAndIpBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";

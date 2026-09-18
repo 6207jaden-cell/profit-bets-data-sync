@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { flagTradeIfImplausible } from "@/lib/data-quality";
 import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, fetchQuotePrice, normalizeSymbol, type Bars } from "@/lib/indicators";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
