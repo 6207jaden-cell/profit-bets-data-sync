@@ -18,6 +18,9 @@
 // user contributes less to future scores than one with a 70% win rate,
 // automatically, without needing a scheduled retraining job.
 
+import { IMPLAUSIBLE_RETURN_PCT } from "@/lib/data-quality";
+
+
 // These functions write to / read from tables (agent_signal_weights'
 // absent-side columns, shadow_candidate_log) that are ahead of the
 // auto-generated Database type — migrations exist and are applied, but
