@@ -1424,6 +1424,66 @@ export type Database = {
         Returns: number
       }
       cron_lock_cleanup: { Args: never; Returns: undefined }
+      diag_adaptive_weighting: {
+        Args: never
+        Returns: {
+          avg_hypothetical_return_pct: number
+          bucket: string
+          meets_30_row_floor: boolean
+          resolved_rows: number
+        }[]
+      }
+      diag_claude_value: {
+        Args: never
+        Returns: {
+          agreement: string
+          avg_hypothetical_return_pct: number
+          meets_30_row_floor: boolean
+          resolved_rows: number
+        }[]
+      }
+      diag_cost_reality: {
+        Args: never
+        Returns: {
+          avg_gross_return_pct: number
+          avg_net_return_pct: number
+          cost_drag_pct: number
+          flagged_excluded: number
+          meets_20_trade_floor: boolean
+          session_type: string
+          still_positive_after_costs: boolean
+          trades_with_cost_data: number
+        }[]
+      }
+      diag_evidence_readiness: { Args: never; Returns: Json }
+      diag_flagged_trades: {
+        Args: never
+        Returns: {
+          asset: string
+          closed_at: string
+          entry_price: number
+          entry_quoted_price: number
+          exit_price: number
+          exit_quoted_price: number
+          pnl: number
+          quantity: number
+          return_pct: number
+          trade_id: string
+        }[]
+      }
+      diag_overall_edge_test: { Args: never; Returns: Json }
+      diag_signal_contribution: {
+        Args: never
+        Returns: {
+          absent_avg_return_pct: number
+          absent_n: number
+          contribution_pct: number
+          has_minimum_evidence: boolean
+          present_avg_return_pct: number
+          present_n: number
+          signal_name: string
+        }[]
+      }
       get_strategy_trade_stats: {
         Args: never
         Returns: {
