@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice, fetchBars, atr } from "@/lib/indicators";
 import { callGateway } from "@/routes/api/public/autonomous-agent";
 import { updateSignalWeights } from "@/lib/signal-learning";
+import { flagTradeIfImplausible } from "@/lib/data-quality";
 import { estimateSlippageBps, applySlippage } from "@/lib/slippage";
 import { estimateFees } from "@/lib/cost-reality";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
