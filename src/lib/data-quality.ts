@@ -40,11 +40,11 @@ export function isImplausibleReturn(
   return Math.abs(ret) > IMPLAUSIBLE_RETURN_PCT;
 }
 
-type MinimalAdmin = {
-  from: (table: string) => {
-    update: (values: Record<string, unknown>) => { eq: (col: string, val: unknown) => Promise<unknown> };
-  };
-};
+// The generated Database type lags the applied migrations (data_quality_flag
+// is newer than the last codegen run), and a fully-typed client parameter
+// would make every internal .update() call here fail type-checking.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MinimalAdmin = any;
 
 /**
  * Flag a just-closed trade when its return is impossible. Auditable and
