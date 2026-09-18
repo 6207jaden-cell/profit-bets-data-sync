@@ -351,6 +351,8 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     await supabaseAdmin.from("paper_trades").update({
                       is_open: false, exit_price: quote.price, pnl, closed_at: new Date().toISOString(),
                     }).eq("id", trade.id);
+                    // Data-integrity screen (see src/lib/data-quality.ts).
+                    await flagTradeIfImplausible(supabaseAdmin, String(trade.id), pnl, entry, qty);
                     cash += proceeds;
                     portfolioDirty = true;
                     executionsBuffer.push({
