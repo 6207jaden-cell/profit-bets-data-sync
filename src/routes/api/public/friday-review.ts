@@ -54,7 +54,11 @@ export const Route = createFileRoute("/api/public/friday-review")({
             // Fetch current prices for all positions
             const positionSummaries = await Promise.all(
               openTrades.map(async (t) => {
-                const currentPrice = await fetchQuotePrice(String(t.asset)).catch(() => null);
+                // Reference price = this position's own recorded entry quote, so a
+                // wildly divergent quote is rejected instead of trusted.
+                const currentPrice = await fetchQuotePrice(String(t.asset), {
+                  referencePrice: Number((t as unknown as { entry_quoted_price?: number | null }).entry_quoted_price ?? t.entry_price) || null,
+                }).catch(() => null);
                 const entry = Number(t.entry_price);
                 const pnlPct = currentPrice
                   ? ((currentPrice - entry) / entry) * 100 * (t.side === "buy" ? 1 : -1)

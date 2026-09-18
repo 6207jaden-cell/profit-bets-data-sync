@@ -1763,9 +1763,14 @@ even now.
 2. **All call sites pass a reference price** — entry writes use the current
    scan's own independently-fetched price for the symbol; mark-to-market
    reads and exit paths use the position's `entry_quoted_price` /
-   `entry_price`. Touched `autonomous-agent.ts`, `autonomous-exit-check.ts`,
-   `emergency-exit.ts`, `evaluate-strategies.ts`, `friday-review.ts`,
-   `snapshot-portfolio.ts`, `resolve-shadow-experiments.ts`.
+   `entry_price`; shadow-experiment resolution uses `price_at_scan`. Touched
+   `autonomous-agent.ts`, `autonomous-exit-check.ts`, `emergency-exit.ts`,
+   `friday-review.ts`, `resolve-shadow-experiments.ts`. Two call sites have no
+   meaningful reference available (the VIX read in `evaluate-strategies.ts`,
+   and options mark-to-market in `snapshot-portfolio.ts`, where the stored
+   entry price is an option premium and the quote is of the underlying) — they
+   rely on the cross-source corroboration rules alone, which now reject an
+   uncorroborated unverifiable quote outright.
 3. **Second line of defence** — new `src/lib/data-quality.ts`. Every close
    path calls `flagTradeIfImplausible`, which marks any trade closing with
    `|return| > 100%` of notional as `data_quality_flag = true` with a
