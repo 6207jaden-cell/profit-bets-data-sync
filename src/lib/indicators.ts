@@ -901,21 +901,15 @@ export function selectTrustedPrice(
       return { price: corroborated.price, source: corroborated.source, reason: "corroborated by reference price" };
     }
   }
-
-
   for (let i = 0; i < kept.length; i++) {
     for (let j = i + 1; j < kept.length; j++) {
       if (pricesAgree(kept[i].price, kept[j].price)) {
-        const winner = kept[i].freshnessVerified ? kept[i] : kept[j].freshnessVerified ? kept[j] : kept[i];
-        return { price: winner.price, source: winner.source, reason: `agreed with ${kept[i].source === winner.source ? kept[j].source : kept[i].source}` };
+        return { price: kept[i].price, source: kept[i].source, reason: `agreed with ${kept[j].source}` };
       }
     }
   }
 
-  const verified = kept.find((c) => c.freshnessVerified);
-  if (verified) {
-    return { price: verified.price, source: verified.source, reason: "single source with verified freshness" };
-  }
+
 
   return {
     price: null,
