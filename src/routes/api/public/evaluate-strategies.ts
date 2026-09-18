@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { flagTradeIfImplausible } from "@/lib/data-quality";
 import { fetchBars, buildContext, evalGroup, isCryptoSymbol, isMarketOpen, detectMarketRegime, atr, fetchQuotePrice, normalizeSymbol, type Bars } from "@/lib/indicators";
 import { fireWebhook } from "@/lib/webhook.functions";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
@@ -351,6 +352,8 @@ export const Route = createFileRoute("/api/public/evaluate-strategies")({
                     await supabaseAdmin.from("paper_trades").update({
                       is_open: false, exit_price: quote.price, pnl, closed_at: new Date().toISOString(),
                     }).eq("id", trade.id);
+                    // Data-integrity screen (see src/lib/data-quality.ts).
+                    await flagTradeIfImplausible(supabaseAdmin, String(trade.id), pnl, entry, qty);
                     cash += proceeds;
                     portfolioDirty = true;
                     executionsBuffer.push({

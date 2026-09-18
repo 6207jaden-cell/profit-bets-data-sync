@@ -384,6 +384,9 @@ function AttributionPanel({ strategyId }: { strategyId: string }) {
         .select("asset, side, quantity, entry_price, exit_price, pnl, created_at, closed_at, is_open")
         .eq("strategy_id", strategyId)
         .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false)
         .order("closed_at", { ascending: false })
         .limit(200);
       if (error) throw error;

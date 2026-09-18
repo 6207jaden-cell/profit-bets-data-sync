@@ -1743,3 +1743,66 @@ other OWASP sub-categories weren't specifically checked in this or
 prior passes, and this shouldn't be read as an exhaustive Top 10 sweep
 even now.
 
+---
+
+## 2026-09-18 — Entry-price data-integrity bug: 87% of reported profit was not real
+
+**What changed:**
+
+1. **Root cause fixed** — `fetchQuotePrice` (`src/lib/indicators.ts`) was
+   first-hit-wins: it tried Yahoo's keyless endpoint first and accepted any
+   `regularMarketPrice > 0`, and the staleness guard failed open whenever a
+   timestamp was missing or unparseable. It now queries every available
+   source, tracks per-source freshness verification, and runs
+   `selectTrustedPrice`: a candidate implausibly far from a caller-supplied
+   reference (>5x) is dropped; a candidate corroborated by the reference
+   (within 15%) or by a second agreeing source is trusted; a single
+   uncorroborated source is trusted ONLY if its freshness was actually
+   verified. Otherwise the function returns `null` and the caller skips the
+   trade rather than sizing capital off an unverified number.
+2. **All call sites pass a reference price** — entry writes use the current
+   scan's own independently-fetched price for the symbol; mark-to-market
+   reads and exit paths use the position's `entry_quoted_price` /
+   `entry_price`; shadow-experiment resolution uses `price_at_scan`. Touched
+   `autonomous-agent.ts`, `autonomous-exit-check.ts`, `emergency-exit.ts`,
+   `friday-review.ts`, `resolve-shadow-experiments.ts`. Two call sites have no
+   meaningful reference available (the VIX read in `evaluate-strategies.ts`,
+   and options mark-to-market in `snapshot-portfolio.ts`, where the stored
+   entry price is an option premium and the quote is of the underlying) — they
+   rely on the cross-source corroboration rules alone, which now reject an
+   uncorroborated unverifiable quote outright.
+3. **Second line of defence** — new `src/lib/data-quality.ts`. Every close
+   path calls `flagTradeIfImplausible`, which marks any trade closing with
+   `|return| > 100%` of notional as `data_quality_flag = true` with a
+   reason string. `updateSignalWeights` refuses to learn from such a trade.
+4. **Historical rows flagged, not touched** — the 19 corrupted trades keep
+   their recorded values and are excluded from every performance, analytics
+   and learning query (`portfolio-attribution`, `attribution.functions`,
+   `regime-performance.functions`, `signal-learning`, `autonomous-learning`,
+   and the trading UI panels), plus `get_strategy_trade_stats()`. See
+   `DECISION_LOG.md` D-11.
+5. **Contaminated aggregates recomputed** — `recompute_agent_signal_weights()`
+   rebuilt all 18 `agent_signal_weights` rows from clean trades only; the
+   shadow-experiment tables carry the same flag so `diag_claude_value()` and
+   `diag_adaptive_weighting()` no longer report bogus hundreds-of-percent
+   figures.
+
+**Why:** `diag_evidence_readiness()` showed 19 of 449 closed trades (~4%)
+with `|return| > 100%`, and those 19 produced the overwhelming majority of
+all displayed profit. Excluding them, the honest read is 430 trades,
+19.53% win rate, -0.5855% average return, t-stat ≈ -2.33 — a small
+negative result, not "not enough data yet". `HYPOTHESIS_LOG.md` H11 records
+this; ROADMAP item 7 is resolved by it.
+
+**Verification:** `bunx tsgo --noEmit` clean; full suite 330/330 passing,
+including a new `src/lib/__tests__/price-trust.test.ts` covering
+`pctDifference`, `pricesAgree`, `isImplausibleVsReference`,
+`selectTrustedPrice` (corroboration, single-source rejection, the exact
+corruption signature) and the `data-quality` return screen (boundary at
+exactly ±100%, missing-pnl handled as unknown rather than zero).
+Migrations applied against production; `diag_*` functions rewritten to read
+the stored flag.
+
+**Still to watch:** monitor `diag_overall_edge_test()` for several days —
+any trade opened after this date appearing in `diag_flagged_trades()` means
+a path was missed.

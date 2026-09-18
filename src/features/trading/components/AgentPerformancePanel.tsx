@@ -62,6 +62,9 @@ export function AgentPerformancePanel() {
         .select("id, asset, side, instrument, pnl, hold_duration, stop_loss_pct, take_profit_pct, created_at, closed_at")
         .eq("user_id", userId!)
         .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false)
         .not("pnl", "is", null)
         .order("closed_at", { ascending: false })
         .limit(200);

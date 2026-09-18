@@ -63,6 +63,9 @@ export function SessionPerformancePanel() {
         .select("side, quantity, entry_price, exit_price, rationale")
         .eq("user_id", userId!)
         .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false)
         .not("exit_price", "is", null);
       return (data ?? []) as Trade[];
     },

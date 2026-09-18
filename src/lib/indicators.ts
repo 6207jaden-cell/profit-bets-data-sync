@@ -773,18 +773,18 @@ export function buildContext(closes: number[], entryPrice: number | null = null)
   };
 }
 
-/** Fetch a live quote price for a symbol. Finnhub → Polygon → Alpha Vantage. */
 /**
  * True if a quote's own reported timestamp indicates it's older than
  * `maxAgeMinutes`. Pure, testable in isolation (TRADING_ENGINE_REVIEW.md
  * Finding 6). A missing/invalid timestamp returns false — "cannot
- * determine staleness" is treated as "don't reject," not "assume stale."
- * This is a deliberate, defensive choice: not every price source in
- * fetchQuotePrice below reliably provides a timestamp field this code
- * can verify without live network access to those external APIs during
- * development, so failing open on missing data is the safe default
- * rather than breaking quote fetching entirely if an assumed field name
- * turns out to be wrong or absent for a given response.
+ * determine staleness" is not the same as "assume stale," so this
+ * function alone never rejects an unverifiable quote.
+ *
+ * IMPORTANT: this is only half the trust decision. fetchQuotePrice below
+ * additionally requires a quote whose freshness it could NOT verify to be
+ * corroborated by a second source (or a caller-supplied reference price)
+ * before that quote is allowed to set capital-allocating numbers. See
+ * selectTrustedPrice.
  */
 export function isQuoteStale(quoteTimestampMs: number | null | undefined, nowMs: number, maxAgeMinutes: number): boolean {
   if (quoteTimestampMs == null || !Number.isFinite(quoteTimestampMs) || quoteTimestampMs <= 0) return false;
@@ -794,7 +794,127 @@ export function isQuoteStale(quoteTimestampMs: number | null | undefined, nowMs:
 
 const QUOTE_STALENESS_THRESHOLD_MINUTES = 30;
 
-export async function fetchQuotePrice(symbol: string): Promise<number | null> {
+/** Two prices agree if they are within this % of each other. */
+export const PRICE_AGREEMENT_MAX_PCT = 15;
+/** A price this many times away from a known reference is not a price move, it's bad data. */
+export const PRICE_REFERENCE_MAX_MULTIPLE = 5;
+
+export type QuoteCandidate = {
+  source: string;
+  price: number;
+  /** true only when the source supplied a timestamp AND it passed the staleness check. */
+  freshnessVerified: boolean;
+};
+
+export type TrustedPriceResult = {
+  price: number | null;
+  reason: string;
+  source: string | null;
+};
+
+/** Percentage difference between two prices, relative to their mean. */
+export function pctDifference(a: number, b: number): number {
+  const mid = (Math.abs(a) + Math.abs(b)) / 2;
+  if (mid <= 0) return Infinity;
+  return (Math.abs(a - b) / mid) * 100;
+}
+
+export function pricesAgree(a: number, b: number, maxPct = PRICE_AGREEMENT_MAX_PCT): boolean {
+  return pctDifference(a, b) <= maxPct;
+}
+
+/**
+ * A price is implausible when it is an order-of-magnitude style departure
+ * from a known-good reference (last traded price for this symbol). Real
+ * moves — even violent crypto moves — do not multiply or divide a price by
+ * 5x between two consecutive quote reads.
+ */
+export function isImplausibleVsReference(
+  price: number,
+  reference: number | null | undefined,
+  maxMultiple = PRICE_REFERENCE_MAX_MULTIPLE,
+): boolean {
+  if (reference == null || !Number.isFinite(reference) || reference <= 0) return false;
+  if (!Number.isFinite(price) || price <= 0) return true;
+  const ratio = price > reference ? price / reference : reference / price;
+  return ratio > maxMultiple;
+}
+
+/**
+ * Decide which, if any, of the collected quote candidates may be trusted to
+ * set a number that sizes real capital.
+ *
+ * Rules, in order:
+ *  1. A candidate implausibly far from a caller-supplied reference is dropped
+ *     outright — that is the corruption signature this whole function exists
+ *     to catch (16 historical trades, ~87% of reported P&L, see
+ *     DECISION_LOG.md 2026-09-18).
+ *  2. A candidate corroborated by the reference price (within 15%) is trusted.
+ *  3. Otherwise two independent sources agreeing within 15% are trusted
+ *     (median-ish: the fresher / earlier-priority one is returned).
+ *  4. A single surviving candidate is trusted ONLY if its freshness was
+ *     actually verified. An unverifiable, uncorroborated single source is
+ *     rejected rather than assumed fine.
+ */
+export function selectTrustedPrice(
+  candidates: QuoteCandidate[],
+  reference?: number | null,
+): TrustedPriceResult {
+  const usable = candidates.filter((c) => Number.isFinite(c.price) && c.price > 0);
+  const kept = usable.filter((c) => !isImplausibleVsReference(c.price, reference));
+  const rejectedForReference = usable.length - kept.length;
+
+  if (kept.length === 0) {
+    return {
+      price: null,
+      source: null,
+      reason: rejectedForReference > 0
+        ? `all ${rejectedForReference} quote(s) rejected as implausible vs reference price ${reference}`
+        : "no usable quote from any source",
+    };
+  }
+
+  if (reference != null && Number.isFinite(reference) && reference > 0) {
+    const corroborated = kept.find((c) => pricesAgree(c.price, reference));
+    if (corroborated) {
+      return { price: corroborated.price, source: corroborated.source, reason: "corroborated by reference price" };
+    }
+  }
+
+  for (let i = 0; i < kept.length; i++) {
+    for (let j = i + 1; j < kept.length; j++) {
+      if (pricesAgree(kept[i].price, kept[j].price)) {
+        const winner = kept[i].freshnessVerified ? kept[i] : kept[j].freshnessVerified ? kept[j] : kept[i];
+        return { price: winner.price, source: winner.source, reason: `agreed with ${kept[i].source === winner.source ? kept[j].source : kept[i].source}` };
+      }
+    }
+  }
+
+  const verified = kept.find((c) => c.freshnessVerified);
+  if (verified) {
+    return { price: verified.price, source: verified.source, reason: "single source with verified freshness" };
+  }
+
+  return {
+    price: null,
+    source: null,
+    reason: `single uncorroborated source with unverifiable freshness (${kept.map((c) => c.source).join(",")}) — not trusted for capital allocation`,
+  };
+}
+
+/**
+ * Fetch a live quote price for a symbol, cross-checked across sources.
+ *
+ * Every source is queried (not first-hit-wins) so the result can be
+ * corroborated before use. `referencePrice` should be the symbol's last
+ * known-good price when the caller has one (e.g. a position's entry price
+ * for mark-to-market) — it both catches corruption and lets a single
+ * source be accepted safely.
+ */
+export async function fetchQuotePrice(
+  symbol: string,
+  opts?: { referencePrice?: number | null },
+): Promise<number | null> {
   const S = normalizeSymbol(symbol);
   const isCrypto = isCryptoSymbol(S);
   const fin = process.env.FINNHUB_API_KEY;
@@ -807,9 +927,26 @@ export async function fetchQuotePrice(symbol: string): Promise<number | null> {
   // entirely, not catch a real staleness problem).
   const shouldCheckStaleness = isCrypto || isMarketOpen();
   const nowMs = Date.now();
+  const reference = opts?.referencePrice ?? null;
+  const candidates: QuoteCandidate[] = [];
+
+  const consider = (source: string, price: number | null | undefined, timestampMs: number | null) => {
+    if (price == null || !Number.isFinite(price) || price <= 0) return;
+    if (shouldCheckStaleness && isQuoteStale(timestampMs, nowMs, QUOTE_STALENESS_THRESHOLD_MINUTES)) {
+      console.warn(`[fetchQuotePrice] ${source} quote for ${S} is stale, ignoring`);
+      return;
+    }
+    candidates.push({
+      source,
+      price,
+      // Freshness counts as *verified* only when the source actually gave a
+      // usable timestamp. A missing timestamp no longer silently passes as
+      // "fine" — it just means this source can't stand alone.
+      freshnessVerified: timestampMs != null && Number.isFinite(timestampMs) && timestampMs > 0,
+    });
+  };
 
   // Yahoo Finance (keyless) — works for both stocks and crypto pairs like ETH-USD.
-  // Tried FIRST for crypto because Finnhub free tier does not return BINANCE quotes.
   try {
     const r = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(S)}?interval=1d&range=1d`,
@@ -818,91 +955,68 @@ export async function fetchQuotePrice(symbol: string): Promise<number | null> {
     if (r.ok) {
       const j = (await r.json()) as { chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; regularMarketTime?: number } }> } };
       const meta = j.chart?.result?.[0]?.meta;
-      const p = meta?.regularMarketPrice;
-      // regularMarketTime is Yahoo's own documented Unix-seconds timestamp
-      // for when regularMarketPrice was last updated — undocumented API,
-      // not independently verifiable against live Yahoo responses in this
-      // environment (no network access to finance.yahoo.com here), so
-      // this is best-effort: if the field is absent or unexpected,
-      // isQuoteStale's missing-timestamp handling means this source is
-      // simply not staleness-checked, not broken.
-      const quoteTimestampMs = meta?.regularMarketTime != null ? meta.regularMarketTime * 1000 : null;
-      if (p && p > 0) {
-        if (shouldCheckStaleness && isQuoteStale(quoteTimestampMs, nowMs, QUOTE_STALENESS_THRESHOLD_MINUTES)) {
-          console.warn(`[fetchQuotePrice] Yahoo quote for ${S} is stale, trying next source`);
-        } else {
-          return p;
-        }
-      }
+      consider("yahoo", meta?.regularMarketPrice, meta?.regularMarketTime != null ? meta.regularMarketTime * 1000 : null);
     }
   } catch { /* fall */ }
+
   try {
     if (fin && !isCrypto) {
       const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${S}&token=${fin}`);
       if (r.ok) {
         const j = (await r.json()) as { c?: number; t?: number };
-        // Finnhub's documented quote-endpoint `t` field is a Unix-seconds
-        // timestamp — same best-effort caveat as Yahoo above applies.
-        const quoteTimestampMs = j.t != null ? j.t * 1000 : null;
-        if (j.c) {
-          if (shouldCheckStaleness && isQuoteStale(quoteTimestampMs, nowMs, QUOTE_STALENESS_THRESHOLD_MINUTES)) {
-            console.warn(`[fetchQuotePrice] Finnhub quote for ${S} is stale, trying next source`);
-          } else {
-            return j.c;
-          }
-        }
+        consider("finnhub", j.c, j.t != null ? j.t * 1000 : null);
       }
     }
     if (fin && isCrypto) {
       const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=BINANCE:${cryptoBase(S)}USDT&token=${fin}`);
       if (r.ok) {
         const j = (await r.json()) as { c?: number; t?: number };
-        const quoteTimestampMs = j.t != null ? j.t * 1000 : null;
-        if (j.c) {
-          if (shouldCheckStaleness && isQuoteStale(quoteTimestampMs, nowMs, QUOTE_STALENESS_THRESHOLD_MINUTES)) {
-            console.warn(`[fetchQuotePrice] Finnhub crypto quote for ${S} is stale, trying next source`);
-          } else {
-            return j.c;
-          }
+        consider("finnhub-crypto", j.c, j.t != null ? j.t * 1000 : null);
+      }
+    }
+  } catch { /* fall */ }
+
+  try {
+    if (poly) {
+      // Polygon's /prev endpoint is EXPLICITLY the previous trading day's
+      // close by design, not a live quote — deliberately not staleness
+      // checked (it is always "old" during live hours by design), but it
+      // is an excellent independent cross-check for magnitude, which is
+      // exactly what the corruption screen needs.
+      const polySym = isCrypto ? `X:${cryptoBase(S)}USD` : S;
+      const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/prev?apiKey=${poly}`);
+      if (r.ok) {
+        const j = (await r.json()) as { results?: Array<{ c: number; t?: number }> };
+        const c = j.results?.[0]?.c;
+        if (c != null && Number.isFinite(c) && c > 0) {
+          candidates.push({ source: "polygon-prev-close", price: c, freshnessVerified: false });
         }
       }
     }
   } catch { /* fall */ }
-  try {
-    if (poly) {
-      // Polygon's /prev endpoint is EXPLICITLY the previous trading day's
-      // close by design, not a live quote — it is used here specifically
-      // as a lower-priority fallback when live sources fail, and is
-      // therefore deliberately NOT staleness-checked against the same
-      // live-market threshold as the sources above: during live market
-      // hours this endpoint is correctly always "old" by design (up to
-      // ~24h), and rejecting it on that basis would defeat its entire
-      // purpose as a fallback. TRADING_ENGINE_REVIEW.md Finding 6.
-      const polySym = isCrypto ? `X:${cryptoBase(S)}USD` : S;
-      const r = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(polySym)}/prev?apiKey=${poly}`);
-      if (r.ok) {
-        const j = (await r.json()) as { results?: Array<{ c: number }> };
-        const c = j.results?.[0]?.c;
-        if (c) return c;
-      }
-    }
-  } catch { /* fall */ }
+
   try {
     if (alpha && !isCrypto) {
       const r = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${S}&apikey=${alpha}`);
       if (r.ok) {
         const j = (await r.json()) as { ["Global Quote"]?: Record<string, string> };
         const p = j["Global Quote"]?.["05. price"];
-        // Alpha Vantage's GLOBAL_QUOTE only provides "07. latest trading
-        // day" (a date, not a precise timestamp) — too coarse for the
-        // same minute-level staleness check used above, and this is
-        // already the last fallback in the chain, so no further check
-        // is applied here.
-        if (p) return Number(p);
+        const num = p != null ? Number(p) : null;
+        // Only a trading DAY is available here, not a timestamp — coarse, so
+        // this source can corroborate but never stand alone.
+        if (num != null && Number.isFinite(num) && num > 0) {
+          candidates.push({ source: "alpha-vantage", price: num, freshnessVerified: false });
+        }
       }
     }
   } catch { /* fall */ }
-  return null;
+
+  const decision = selectTrustedPrice(candidates, reference);
+  if (decision.price == null) {
+    console.warn(`[fetchQuotePrice] no trusted price for ${S}: ${decision.reason}`);
+    return null;
+  }
+  return decision.price;
 }
 
 // ---------- Options pricing ----------

@@ -15,6 +15,7 @@ import { filterValidAiTrades } from "@/lib/ai-response-validation";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, updateSignalWeights, type SignalWeightMap } from "@/lib/signal-learning";
+import { flagTradeIfImplausible } from "@/lib/data-quality";
 import { logShadowCandidates, linkShadowCandidateToTrade, logWeightingComparison, linkWeightingComparisonToTrade } from "@/lib/shadow-experiments";
 import { fetchFundingRate, interpretFundingRate, getBtcDominanceRoc, isCryptoWeekend } from "@/lib/crypto-signals";
 import { computeBreadthScore, getBreadthMomentum } from "@/lib/market-breadth";
@@ -702,11 +703,24 @@ async function runForUser(args: {
     .from("paper_trades").select("*").eq("user_id", userId).eq("is_open", true);
   const openList = openTrades ?? [];
 
+  // Reference prices from this run's own scan (fetchBars, independent of the
+  // quote endpoints). Used to sanity-check any quote that sets or marks
+  // capital-allocating numbers.
+  const scanPrices = new Map<string, number>();
+  for (const c of candidates) {
+    const sym = String((c as { symbol?: unknown }).symbol ?? "").toUpperCase();
+    const p = Number((c as { price?: unknown }).price);
+    if (sym && Number.isFinite(p) && p > 0) scanPrices.set(sym, p);
+  }
+
   // ---- Compute total unrealized P&L on open positions ----
   let unrealized = 0;
   const quotes = new Map<string, number>();
   await Promise.all(openList.map(async (t) => {
-    const p = await fetchQuotePrice(String(t.asset));
+    const reference = scanPrices.get(String(t.asset).toUpperCase())
+      ?? Number((t as unknown as { entry_quoted_price?: number | null }).entry_quoted_price ?? t.entry_price)
+      ?? null;
+    const p = await fetchQuotePrice(String(t.asset), { referencePrice: reference || null });
     if (p) quotes.set(String(t.asset), p);
   }));
   for (const t of openList) {
@@ -778,6 +792,8 @@ async function runForUser(args: {
         exit_slippage_bps: cbSlip.slippageBps,
         estimated_fees: estimateFees(String(t.instrument ?? "stock")),
       } as never).eq("id", t.id);
+      // Data-integrity screen (see src/lib/data-quality.ts).
+      await flagTradeIfImplausible(supabaseAdmin, String(t.id), pnl, entry, qty);
       // Circuit-breaker closures are real (usually negative) outcomes and should
       // still feed the learning loop — otherwise the signal weights never learn
       // from the trades that were going badly enough to trip the breaker.
@@ -1004,7 +1020,7 @@ async function runForUser(args: {
         try {
           const earningsDate = upcomingMap.get(sym)!;
           const daysToEarnings = Math.round((new Date(earningsDate).getTime() - Date.now()) / 86400_000);
-          const price = await fetchQuotePrice(sym);
+          const price = await fetchQuotePrice(sym, { referencePrice: scanPrices.get(sym.toUpperCase()) ?? null });
           if (!price) return;
 
           const [callContract, putContract, longBars, histDates] = await Promise.all([
@@ -1756,8 +1772,13 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
       continue;
     }
 
-    const quotedPrice = await fetchQuotePrice(t.symbol);
-    if (!quotedPrice || quotedPrice <= 0) { debugSkips.push({ symbol: t.symbol, reason: "no_price" }); continue; }
+    // This quote WRITES entry_price, which sizes capital — so it is
+    // cross-checked against this run's own scan price for the symbol (an
+    // independent read via fetchBars). A quote wildly divergent from it is
+    // rejected rather than trusted. Root cause of the 19 corrupted trades in
+    // diag_flagged_trades(); see DECISION_LOG.md 2026-09-18.
+    const quotedPrice = await fetchQuotePrice(t.symbol, { referencePrice: scanPrices.get(t.symbol.toUpperCase()) ?? null });
+    if (!quotedPrice || quotedPrice <= 0) { debugSkips.push({ symbol: t.symbol, reason: "no_price", detail: "no trusted cross-checked quote" }); continue; }
 
     // Realistic slippage: paper fills at the exact quoted price make every
     // P&L number in the app systematically optimistic vs what real money

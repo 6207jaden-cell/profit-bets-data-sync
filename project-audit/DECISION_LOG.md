@@ -362,3 +362,51 @@ that higher-cost option, it doesn't rule it out permanently.
 
 **Related hypothesis:** H3 (adaptive per-signal weighting improves
 returns).
+
+---
+
+## D-11 — Corrupted-price trades are FLAGGED and excluded, never edited or deleted
+
+**Date:** 2026-09-18
+**Decision:** The 19 closed `paper_trades` rows that
+`diag_flagged_trades()` returns (|return| > 100% of notional, caused by a
+bad `entry_price`) keep their original recorded values. A
+`data_quality_flag` / `data_quality_reason` column pair marks them, every
+performance, analytics and learning query excludes flagged rows, and the
+aggregate tables built from them (`agent_signal_weights`, and the
+`shadow_candidate_log` / `shadow_weighting_comparison` shadow logs) were
+recomputed from clean trades only.
+
+**Alternatives considered:**
+- Delete the 19 rows — rejected: it destroys the only evidence of the
+  bug and makes the historical record unauditable. Reported P&L would
+  silently improve with no trace of why.
+- Correct the entry prices to plausible values — rejected: there is no
+  trustworthy source for what the price *actually* was at those moments,
+  so any "correction" is a fabricated number presented as a measurement,
+  which Section 2 of the constitution forbids.
+- Leave them in and caveat the numbers in the UI — rejected: those 19
+  rows were producing ~87% of all displayed profit. A caveat next to a
+  number that is wrong by that margin is not honesty, it is decoration.
+
+**Reason chosen:** Auditable and reversible. The flag is a claim about
+data quality (defensible, reproducible from `diag_flagged_trades()`), not
+a claim about what the market did.
+
+**Expected impact:** Reported all-time P&L drops sharply and the honest
+read becomes slightly negative — see `HYPOTHESIS_LOG.md` H11. This is a
+correction of the reporting, not a change in trading outcome; the money
+was never there.
+
+**Root cause fixed separately:** `fetchQuotePrice`
+(`src/lib/indicators.ts`) now queries all available sources and requires
+cross-source corroboration — or corroboration against a caller-supplied
+reference price — before a quote may set a capital-allocating number. An
+uncorroborated single source whose freshness could not be verified is
+rejected rather than assumed fine. `src/lib/data-quality.ts` is the second
+line of defence: any trade that still closes with an impossible return is
+flagged automatically at close time.
+
+**Future review criteria:** If `diag_flagged_trades()` returns any trade
+opened after 2026-09-18, the corroboration rules did not hold and the
+remaining path must be found before trusting any performance figure again.

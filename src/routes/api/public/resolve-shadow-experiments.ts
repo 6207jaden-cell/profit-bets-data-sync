@@ -104,7 +104,9 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
               continue;
             }
 
-            const currentPrice = await fetchQuotePrice(symbol);
+            const currentPrice = await fetchQuotePrice(symbol, {
+              referencePrice: priceAtScan,
+            });
             if (!currentPrice) continue; // price fetch failed, try again next run
 
             const hypotheticalPct = ((currentPrice - priceAtScan) / priceAtScan) * 100 * dirMult;
@@ -169,7 +171,9 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
               continue;
             }
 
-            const currentPrice = await fetchQuotePrice(symbol);
+            const currentPrice = await fetchQuotePrice(symbol, {
+              referencePrice: priceAtScan,
+            });
             if (!currentPrice) continue;
 
             const hypotheticalPct = ((currentPrice - priceAtScan) / priceAtScan) * 100 * dirMult;

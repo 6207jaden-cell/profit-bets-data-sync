@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { flagTradeIfImplausible } from "@/lib/data-quality";
 import { fetchQuotePrice } from "@/lib/indicators";
 import { enforceRateLimit, endpointAndIpBucketKey, resolveRateLimit } from "@/lib/rate-limit";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
@@ -49,7 +50,9 @@ export const Route = createFileRoute("/api/public/emergency-exit")({
         }
 
         // Get fresh price (use provided price but verify with a live fetch)
-        const livePrice = await fetchQuotePrice(String(trade.asset));
+        const livePrice = await fetchQuotePrice(String(trade.asset), {
+          referencePrice: Number((trade as unknown as { entry_quoted_price?: number | null }).entry_quoted_price ?? trade.entry_price) || null,
+        });
         const price = livePrice ?? body.current_price;
         if (!price) {
           return Response.json({ ok: false, error: "could not fetch price" });
@@ -85,6 +88,8 @@ export const Route = createFileRoute("/api/public/emergency-exit")({
           pnl,
           closed_at: new Date().toISOString(),
         }).eq("id", trade.id);
+        // Data-integrity screen (see src/lib/data-quality.ts).
+        await flagTradeIfImplausible(supabaseAdmin, String(trade.id), pnl, entry, qty);
 
         // Update portfolio cash
         const proceeds = qty * price;

@@ -36,7 +36,10 @@ async function runLearningForUser(userId: string, supabaseAdmin: Awaited<ReturnT
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
   const { data: trades } = await supabaseAdmin
     .from("paper_trades").select("*")
-    .eq("user_id", userId).eq("is_open", false).gte("closed_at", weekAgo);
+    .eq("user_id", userId).eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false).gte("closed_at", weekAgo);
   // Lowered threshold from 3 to 1 — even 1 closed trade gives useful learning signal
   if (!trades || trades.length < 1) return false;
 

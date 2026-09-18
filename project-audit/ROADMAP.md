@@ -140,9 +140,24 @@ once enough real trade volume exists, not more infrastructure work.
     only instrument type fees are charged for). See
     `TRADING_ENGINE_REVIEW.md` Finding 13. The `agent-backtest.ts` review
     itself (item 6) is now fully complete; items 10-12 below remain open.
-7. **Get an honest read on actual closed-trade count** and, if low, be
+7. ~~**Get an honest read on actual closed-trade count** and, if low, be
    explicit with the user that no statistical claims about edge are valid
-   yet — set a real re-evaluation date once enough data exists.
+   yet — set a real re-evaluation date once enough data exists.~~
+   **RESOLVED 2026-09-18.** The count is known and it is not low: 449
+   closed trades, of which 19 were corrupted by a bad `entry_price`
+   (`diag_flagged_trades()`). The clean read is **430 trades, 19.53% win
+   rate, -0.5855% average return, t-stat ≈ -2.33** — a small NEGATIVE
+   result, not "insufficient data". Recorded as `HYPOTHESIS_LOG.md` H11;
+   the corrupted rows are flagged-not-deleted per `DECISION_LOG.md` D-11.
+   Replacement follow-ups, in priority order:
+   - **7b.** Monitor `diag_overall_edge_test()` daily for ~1 week; any
+     trade opened after 2026-09-18 showing up in `diag_flagged_trades()`
+     means a price path was missed by the corroboration fix.
+   - **7c.** With the aggregate now known to be negative, work the
+     component experiments (item 7a) to find WHERE the loss comes from —
+     the negative aggregate raises their priority rather than lowering it.
+   - **7d.** Re-read the clean average once post-fix trades dominate the
+     sample, so the figure reflects corroborated prices throughout.
 7a. **Review the 4 experiments' results** (added 2026-08-05, infrastructure
    complete — see the "Completed Since Pass 1" section above and
    `EXPERIMENT_RESULTS.md`). Not actionable yet — each experiment has a

@@ -440,10 +440,58 @@ over a meaningfully long period).
 
 ---
 
+## H11 — This system has positive expectancy at all (the load-bearing assumption underneath every other hypothesis)
+
+**Hypothesis:** Added 2026-09-18. The autonomous agent's closed paper
+trades, taken as a whole, have a positive average return per trade.
+
+**Why we believed it:** Reported P&L was strongly positive (+$2,328
+cumulative at the time of review), and ROADMAP item 7 recorded the
+position that closed-trade count was too low for any statistical claim.
+
+**Evidence AGAINST it — this hypothesis now has a real result, and it is
+negative.** `diag_evidence_readiness()` on 2026-09-18:
+
+- Raw (all closed trades): 449 trades, 22.94% win rate, +109.00% average
+  return per trade — the headline number, and it is not real.
+- 19 of those 449 trades carry `|return| > 100%` and account for the
+  overwhelming majority of all reported profit. Root cause found in code:
+  `fetchQuotePrice` accepted a single unchecked quote source when writing
+  `entry_price` (see `DECISION_LOG.md` D-11 and `CHANGELOG.md` 2026-09-18).
+- Excluding those 19 corrupted rows: **430 trades, 19.53% win rate,
+  -0.5855% average return per trade, t-stat ≈ -2.33.**
+
+**Interpretation:** This is a small, negative, statistically
+distinguishable-from-zero result — NOT "insufficient data". 430 trades is
+enough to say the current configuration does not have demonstrated
+positive expectancy, and the honest present read is that it is slightly
+negative net of the modelled costs. The t-stat is an approximation
+(`diag_overall_edge_test().note`) and per-trade returns are not
+independent, so treat -2.33 as "clearly not encouraging", not as a
+precise p-value.
+
+**What this does NOT say:** it does not identify WHICH component is
+losing money. H1–H10 remain individually unresolved; this is the
+aggregate, and the aggregate being negative is exactly why those
+component experiments now matter more, not less.
+
+**Experiment needed:** Continue monitoring `diag_overall_edge_test()` for
+a few days after the 2026-09-18 quote-integrity fix, confirming no NEW
+trade crosses the 100% flag threshold from an unaddressed cause. A
+genuinely huge crypto move should still be checked by hand rather than
+auto-trusted just because the code no longer flags it. Then re-read the
+clean average once post-fix trades dominate the sample.
+
+**Confidence:** Medium (real result, real sample, imperfect statistics)
+**Conclusion:** Resolved for now, negatively. Current configuration shows
+no positive edge.
+
+---
+
 ## Cross-reference discipline
 
 Per `ENGINEERING_CONSTITUTION.md` Section 17, any `DECISION_LOG.md` entry
-that rests on one of these hypotheses should cite it by ID (H1–H10). Any
+that rests on one of these hypotheses should cite it by ID (H1–H11). Any
 new hypothesis identified in future work should be added here before the
 corresponding feature ships, not after — see Section 13's feature
 development rules ("what evidence suggests this will help?").

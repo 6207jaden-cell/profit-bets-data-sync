@@ -76,6 +76,9 @@ export function PerformanceMetricsPanel() {
         .select("side, quantity, entry_price, exit_price, closed_at, created_at, stop_loss_pct")
         .eq("user_id", userId!)
         .eq("is_open", false)
+        // Exclude data-quality-flagged trades (corrupted entry prices);
+        // see diag_flagged_trades() and src/lib/data-quality.ts.
+        .eq("data_quality_flag", false)
         .not("exit_price", "is", null)
         .order("closed_at", { ascending: true });
       return (data ?? []) as ClosedTrade[];
