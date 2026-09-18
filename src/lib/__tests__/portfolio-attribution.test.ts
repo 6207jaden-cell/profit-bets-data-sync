@@ -7,7 +7,10 @@ function makeMockSupabase(trades: Array<{ pnl: number; asset: string; instrument
       select: (_cols: string) => ({
         eq: (_col1: string, _val1: string) => ({
           eq: (_col2: string, _val2: boolean) => ({
-            not: async (_col3: string, _op: string, _val3: unknown) => ({ data: trades, error: null }),
+            // third .eq is the data_quality_flag=false exclusion
+            eq: (_col3: string, _val3: boolean) => ({
+              not: async (_col4: string, _op: string, _val4: unknown) => ({ data: trades, error: null }),
+            }),
           }),
         }),
       }),
