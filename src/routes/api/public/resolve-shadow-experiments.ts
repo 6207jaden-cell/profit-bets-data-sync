@@ -105,7 +105,7 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
             }
 
             const currentPrice = await fetchQuotePrice(symbol, {
-              referencePrice: Number((row as unknown as { price_at_scan?: number | null }).price_at_scan) || null,
+              referencePrice: priceAtScan,
             });
             if (!currentPrice) continue; // price fetch failed, try again next run
 
@@ -172,7 +172,7 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
             }
 
             const currentPrice = await fetchQuotePrice(symbol, {
-              referencePrice: Number((row as unknown as { price_at_scan?: number | null }).price_at_scan) || null,
+              referencePrice: priceAtScan,
             });
             if (!currentPrice) continue;
 
