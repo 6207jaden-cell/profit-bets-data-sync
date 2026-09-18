@@ -77,7 +77,10 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
   const aiCandidates: Array<Row & { current_price: number; current_pnl_pct: number; days_held: number }> = [];
 
   for (const t of openTrades) {
-    const price = await fetchQuotePrice(t.asset);
+    // Mark-to-market read: give the quote checker this position's own entry
+    // price as a reference so an order-of-magnitude bad quote is rejected
+    // instead of closing a position at a fabricated price.
+    const price = await fetchQuotePrice(t.asset, { referencePrice: Number(t.entry_quoted_price ?? t.entry_price) || null });
     if (!price) continue;
     const dir = t.side === "buy" ? 1 : -1;
     const pnlPct = ((price - Number(t.entry_price)) / Number(t.entry_price)) * 100 * dir;
@@ -390,6 +393,11 @@ async function runExitForUser(userId: string, supabaseAdmin: Awaited<ReturnType<
       console.error("[exit-check] close failed, skipping logs", c.trade.id, closeErr?.message);
       continue;
     }
+
+    // Data-integrity screen: if this close still produced an impossible
+    // return, mark the row so analytics and learning exclude it (the row
+    // itself is preserved, never edited or deleted).
+    await flagTradeIfImplausible(supabaseAdmin, String(c.trade.id), pnl, Number(c.trade.entry_price), Number(c.trade.quantity));
 
     // Bayesian signal-weight update — nudges this user's learned weight for
     // every signal that was active when this trade opened, using the actual
