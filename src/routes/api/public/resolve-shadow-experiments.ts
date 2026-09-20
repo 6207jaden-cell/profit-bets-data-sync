@@ -87,6 +87,11 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
                 resolved_at: new Date().toISOString(),
                 resolution_price: exit,
                 hypothetical_return_pct: Number(realizedPct.toFixed(3)),
+                // Same screen updateSignalWeights applies before learning from a
+                // closed trade: an impossible return is corrupted price data, not
+                // an outcome. Flag (auditable, reversible) rather than drop — the
+                // row stays exactly as computed, marked so attribution excludes it.
+                data_quality_flag: isImplausibleReturnPct(realizedPct),
               }).eq("id", String(row.id));
               resolvedCount++;
               continue;
@@ -116,6 +121,7 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
               resolved_at: new Date().toISOString(),
               resolution_price: currentPrice,
               hypothetical_return_pct: Number(hypotheticalPct.toFixed(3)),
+              data_quality_flag: isImplausibleReturnPct(hypotheticalPct),
             }).eq("id", String(row.id));
             resolvedCount++;
           } catch (e) {
@@ -159,6 +165,7 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
               await supabaseAdmin.from("shadow_weighting_comparison").update({
                 resolved: true, resolved_at: new Date().toISOString(),
                 resolution_price: exit, hypothetical_return_pct: Number(realizedPct.toFixed(3)),
+                data_quality_flag: isImplausibleReturnPct(realizedPct),
               }).eq("id", String(row.id));
               resolvedWeightingCount++;
               continue;
@@ -181,6 +188,7 @@ export const Route = createFileRoute("/api/public/resolve-shadow-experiments")({
             await supabaseAdmin.from("shadow_weighting_comparison").update({
               resolved: true, resolved_at: new Date().toISOString(),
               resolution_price: currentPrice, hypothetical_return_pct: Number(hypotheticalPct.toFixed(3)),
+              data_quality_flag: isImplausibleReturnPct(hypotheticalPct),
             }).eq("id", String(row.id));
             resolvedWeightingCount++;
           } catch (e) {
