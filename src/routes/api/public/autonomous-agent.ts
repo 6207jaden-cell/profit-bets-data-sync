@@ -2043,7 +2043,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     // absolute `balance = cashRemaining` write silently erased those
     // proceeds (that's how ~$1.3k of paper equity vanished on 2026-08-28).
     // apply_paper_cash_delta also refreshes equity = cash + open cost basis.
-    const cashDelta = cashRemaining - cash;
+    const cashDelta = cashRemaining - cashBaseline;
     const { error: cashErr } = await supabaseAdmin.rpc("apply_paper_cash_delta", {
       p_portfolio_id: portfolio.id, p_delta: cashDelta,
     } as never);
@@ -2095,8 +2095,10 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   }).catch(() => {});
   await supabaseAdmin.from("agent_decisions").insert({
     user_id: userId, session_type: sessionType, regime,
-    market_assessment: ai.market_assessment, payload: { ...(ai as object), debug_skips: debugSkips } as never,
+    market_assessment: ai.market_assessment,
+    payload: { ...(ai as object), debug_skips: debugSkips, ai_closes: aiCloseNotes } as never,
     trades_opened: opened,
+    trades_closed: aiClosedCount,
   });
   // ---- Live Robinhood execution for strategies in live mode ----
   // The live Robinhood account holds a different amount of money than the
