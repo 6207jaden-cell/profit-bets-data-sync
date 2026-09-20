@@ -11,7 +11,7 @@ import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth"
 import { ALL_PROPOSABLE_INSTRUMENT_TYPES, isOptionsInstrumentType } from "@/lib/instruments";
 import { sanitizeLearningAdjustments, sanitizeLearningAnalysis } from "@/lib/learning-guardrails";
 
-import { filterValidAiTrades } from "@/lib/ai-response-validation";
+import { splitAiProposals } from "@/lib/ai-response-validation";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, updateSignalWeights, type SignalWeightMap } from "@/lib/signal-learning";
@@ -1643,7 +1643,10 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   const sectorEquityBase = currentEquity > 0 ? currentEquity : cash;
 
   let opened = 0;
-  let cashRemaining = cash;
+  // Proceeds from AI-initiated closes were already credited atomically above,
+  // so they form the baseline this scan's entries spend from.
+  const cashBaseline = cash + aiCloseProceeds;
+  let cashRemaining = cashBaseline;
   // Sector ETF momentum filter setup — defined OUTSIDE the for loop so cache works across iterations
   const SECTOR_ETF: Record<string, string> = {
     tech: "XLK", finance: "XLF", energy: "XLE", health: "XLV", consumer: "XLP",
