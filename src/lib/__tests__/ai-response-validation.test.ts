@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isValidAiTrade, filterValidAiTrades, type AiTradeShape } from "@/lib/ai-response-validation";
+import { isValidAiTrade, filterValidAiTrades, isValidAiClose, splitAiProposals, type AiTradeShape } from "@/lib/ai-response-validation";
 
 function validTrade(overrides: Partial<AiTradeShape> = {}): unknown {
   return {
@@ -107,5 +107,44 @@ describe("filterValidAiTrades", () => {
     ];
     const result = filterValidAiTrades(trades);
     expect(result).toHaveLength(3);
+  });
+});
+
+describe("close proposals", () => {
+  it("accepts a close proposal with zeroed numeric fields — the exact payload that used to be discarded", () => {
+    const close = {
+      symbol: "AAVE-USD",
+      direction: "close",
+      allocation_pct: 0,
+      stop_loss_pct: 0,
+      take_profit_pct: 0,
+      conviction: 0,
+      rationale: "Locking in 12.65% profit.",
+    };
+    expect(isValidAiClose(close)).toBe(true);
+    const { entries, closes } = splitAiProposals([close]);
+    expect(closes).toHaveLength(1);
+    expect(entries).toHaveLength(0);
+  });
+
+  it("accepts a close proposal with no rationale but rejects one with no symbol", () => {
+    expect(isValidAiClose({ symbol: "AAPL", direction: "close" })).toBe(true);
+    expect(isValidAiClose({ direction: "close" })).toBe(false);
+    expect(isValidAiClose({ symbol: "  ", direction: "close" })).toBe(false);
+    expect(isValidAiClose(null)).toBe(false);
+  });
+
+  it("does not treat an entry proposal as a close", () => {
+    expect(isValidAiClose(validTrade())).toBe(false);
+  });
+
+  it("splits entries and closes and still drops malformed entries", () => {
+    const { entries, closes } = splitAiProposals([
+      validTrade({ symbol: "MSFT" }),
+      { symbol: "AAVE-USD", direction: "close", rationale: "take profit" },
+      { symbol: 123 },
+    ]);
+    expect(entries.map((e) => e.symbol)).toEqual(["MSFT"]);
+    expect(closes.map((c) => c.symbol)).toEqual(["AAVE-USD"]);
   });
 });
