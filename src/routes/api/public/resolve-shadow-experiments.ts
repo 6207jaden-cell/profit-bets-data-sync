@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { fetchQuotePrice } from "@/lib/indicators";
 import { isResolutionDue } from "@/lib/shadow-experiments";
 import { enforceRateLimit, endpointBucketKey, resolveRateLimit } from "@/lib/rate-limit";
+import { isImplausibleReturnPct } from "@/lib/data-quality";
 import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth";
 
 // Experiment 1 (Claude Value Test) resolution job. Finds shadow_candidate_log
