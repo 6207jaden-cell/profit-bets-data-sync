@@ -1806,3 +1806,37 @@ the stored flag.
 **Still to watch:** monitor `diag_overall_edge_test()` for several days —
 any trade opened after this date appearing in `diag_flagged_trades()` means
 a path was missed.
+
+---
+
+## 2026-09-20 — Price trust: fresh quotes no longer override the sanity check; agent exit decisions are executed
+
+**What changed (1/2):** `selectTrustedPrice` in `src/lib/indicators.ts` no
+longer returns any freshness-verified quote unconditionally. A verified quote
+that corroborates the reference wins first; a verified quote that *disagrees*
+with the reference wins only within `PRICE_VERIFIED_OVERRIDE_MAX_MULTIPLE`
+(2x), which still covers genuine fast moves (entry 100 → live 140) but rejects
+a corrupt "live" 400 against a reference 100 when another source corroborates
+the reference. The two-source agreement loop regained its freshness tiebreak.
+
+**Why:** The 2026-09-19 fix for stale previous-day closes over-corrected and
+reopened the bad-price hole the cross-check exists to close.
+
+**What changed (2/2):** The prompt tells the model it may exit a position with
+`direction="close"`, but the response validator only accepted `long`/`short`
+and required positive allocation/stop values, so every exit decision was
+logged as "malformed AI trade proposal" and discarded (AAVE-USD, 2026-09-19,
+a 12.65% profit never taken). Added `isValidAiClose` / `splitAiProposals` in
+`src/lib/ai-response-validation.ts` and a close handler in
+`autonomous-agent.ts` that mirrors the existing circuit-breaker/exit-check
+mechanics: trusted quote, slippage + fees, `flagTradeIfImplausible`,
+`updateSignalWeights`, execution + notification rows, atomic
+`apply_paper_cash_delta`, live Robinhood mirroring via `scaleSellQuantity`,
+and `trades_closed` + `ai_closes` recorded on the decision row. Closes with no
+matching open position are recorded as skipped, not errors.
+
+**Files:** `src/lib/indicators.ts`, `src/lib/ai-response-validation.ts`,
+`src/routes/api/public/autonomous-agent.ts`, and their tests.
+
+**Verification:** `bunx tsgo --noEmit` clean, `bunx vitest run` 337/337,
+`bun run build` clean.

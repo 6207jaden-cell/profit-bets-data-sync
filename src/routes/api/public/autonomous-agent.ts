@@ -11,7 +11,7 @@ import { verifyPublicApiKeyFromEnv, unauthorizedResponse } from "@/lib/api-auth"
 import { ALL_PROPOSABLE_INSTRUMENT_TYPES, isOptionsInstrumentType } from "@/lib/instruments";
 import { sanitizeLearningAdjustments, sanitizeLearningAnalysis } from "@/lib/learning-guardrails";
 
-import { filterValidAiTrades } from "@/lib/ai-response-validation";
+import { splitAiProposals } from "@/lib/ai-response-validation";
 import { resolveOptionsContract, formatContractSummary } from "@/lib/options-chain";
 import { loadRelevantMemories, saveMemories, buildMemorySection } from "@/lib/agent-memory";
 import { loadFullSignalStats, applySignalWeights, computeKellySizeMultiplier, updateSignalWeights, type SignalWeightMap } from "@/lib/signal-learning";
@@ -1446,7 +1446,142 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   // unguarded (see ai-response-validation.ts for full reasoning). Skips
   // only the malformed entries; valid trades in the same response still
   // process normally.
-  ai.trades = filterValidAiTrades(ai.trades ?? []);
+  // The prompt also allows exit instructions (direction="close"), which carry
+  // zeroed allocation/stop numbers and therefore fail the entry rules — those
+  // are split out and acted on below instead of being discarded.
+  const { entries: validEntries, closes: aiCloses } = splitAiProposals(ai.trades ?? []);
+  ai.trades = validEntries;
+
+  // ---- AI-initiated closes ------------------------------------------------
+  // Same mechanics as the circuit-breaker closure above: trusted quote,
+  // slippage + fees, data-quality screen, learning update, atomic cash delta.
+  const aiCloseNotes: Array<{ symbol: string; result: string }> = [];
+  const aiLiveExits: Array<{ symbol: string; side: string; qty: number; reason: string }> = [];
+  let aiClosedCount = 0;
+  let aiCloseProceeds = 0;
+  for (const close of aiCloses) {
+    const sym = close.symbol.toUpperCase();
+    const position = openList.find((o) => String(o.asset).toUpperCase() === sym);
+    if (!position) {
+      aiCloseNotes.push({ symbol: sym, result: "skipped — no matching open position" });
+      continue;
+    }
+    const reference = scanPrices.get(sym)
+      ?? Number((position as unknown as { entry_quoted_price?: number | null }).entry_quoted_price ?? position.entry_price)
+      ?? null;
+    const quote = quotes.get(String(position.asset))
+      ?? await fetchQuotePrice(String(position.asset), { referencePrice: reference || null });
+    if (!quote) {
+      aiCloseNotes.push({ symbol: sym, result: "skipped — no trusted price available" });
+      continue;
+    }
+    const qty = Number(position.quantity);
+    const entry = Number(position.entry_price);
+    const dir = position.side === "buy" ? 1 : -1;
+    const exitSide = position.side === "buy" ? "sell" : "buy";
+    const isCryptoSym = /-?USD$/i.test(String(position.asset));
+    const slip = estimateSlippageBps({ orderNotional: qty * quote, avgDailyVolume: null, price: quote, isCrypto: isCryptoSym });
+    const fillPrice = applySlippage(quote, exitSide, slip.slippageBps);
+    const pnl = (fillPrice - entry) * qty * dir;
+    // `is_open` in the filter keeps this idempotent against the exit checker
+    // closing the same position in a concurrent run.
+    const { data: closedRows, error: closeErr } = await supabaseAdmin
+      .from("paper_trades").update({
+        is_open: false, exit_price: fillPrice, pnl, closed_at: new Date().toISOString(),
+        exit_quoted_price: quote,
+        exit_slippage_bps: slip.slippageBps,
+        estimated_fees: estimateFees(String(position.instrument ?? "stock")),
+      } as never)
+      .eq("id", position.id).eq("is_open", true).select("id");
+    if (closeErr || !closedRows || closedRows.length === 0) {
+      aiCloseNotes.push({ symbol: sym, result: `skipped — already closed or write failed${closeErr ? ` (${closeErr.message})` : ""}` });
+      continue;
+    }
+    await flagTradeIfImplausible(supabaseAdmin, String(position.id), pnl, entry, qty);
+    try {
+      const pnlPctForLearning = entry > 0 ? ((fillPrice - entry) / entry) * 100 * dir : 0;
+      const entrySignals = (position as unknown as { entry_signals?: string[] | null }).entry_signals;
+      await updateSignalWeights(supabaseAdmin, userId, entrySignals, pnlPctForLearning);
+    } catch { /* best-effort */ }
+    await supabaseAdmin.from("signals_executions").insert({
+      user_id: userId, execution_type: "paper", status: "filled",
+      asset: position.asset, side: exitSide, quantity: qty, price: fillPrice,
+      reason: `ai close pnl=${pnl.toFixed(2)} — ${close.rationale ?? "agent exit decision"}`.slice(0, 500),
+    } as never);
+    try {
+      const pnlPct = entry > 0 ? ((fillPrice - entry) / entry) * 100 * dir : 0;
+      const sign = pnl >= 0 ? "+" : "";
+      await supabaseAdmin.from("notifications").insert({
+        user_id: userId, type: "trade_close",
+        title: `✅ ${position.asset} closed by agent`,
+        body: `Exit $${fillPrice.toFixed(2)} | P&L ${sign}$${pnl.toFixed(2)} (${sign}${pnlPct.toFixed(2)}%) | ${close.rationale ?? "agent exit decision"}`,
+      });
+    } catch { /* best-effort */ }
+    aiCloseProceeds += qty * fillPrice;
+    aiClosedCount += 1;
+    aiCloseNotes.push({ symbol: sym, result: `closed at $${fillPrice.toFixed(2)} (P&L ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)})` });
+    aiLiveExits.push({ symbol: String(position.asset), side: String(position.side), qty, reason: close.rationale ?? "agent exit decision" });
+    // Remove from the working set so exposure/sector math below reflects it.
+    const idx = openList.indexOf(position);
+    if (idx >= 0) openList.splice(idx, 1);
+    quotes.delete(String(position.asset));
+  }
+  if (aiCloseProceeds > 0) {
+    const { error: cashErr } = await supabaseAdmin.rpc("apply_paper_cash_delta", {
+      p_portfolio_id: portfolio.id, p_delta: aiCloseProceeds,
+    } as never);
+    if (cashErr) console.error("[autonomous] ai-close cash delta failed", cashErr);
+  }
+  // Mirror AI closes into the real account (live mode), same fraction-of-
+  // position approach used by the 10-minute exit checker.
+  if (executionMode === "live" && aiLiveExits.length > 0) {
+    try {
+      const token = await getValidToken(supabaseAdmin, userId);
+      if (!token) {
+        aiCloseNotes.push({ symbol: "live", result: "no valid Robinhood connection — live sells not mirrored" });
+      } else {
+        const liveCtx = await fetchRobinhoodContext(supabaseAdmin, userId, [...new Set(aiLiveExits.map((e) => e.symbol))]).catch(() => null);
+        for (const ex of aiLiveExits) {
+          if (ex.side !== "buy") {
+            aiCloseNotes.push({ symbol: ex.symbol, result: "live skipped (short position, no live equivalent)" });
+            continue;
+          }
+          const liveQty = liveCtx?.positions.find((p) => p.symbol.toUpperCase() === ex.symbol.toUpperCase())?.quantity ?? 0;
+          const sellQty = scaleSellQuantity(ex.qty, ex.qty, liveQty, 0, 0);
+          if (!sellQty.ok) {
+            aiCloseNotes.push({ symbol: ex.symbol, result: `live skipped (${sellQty.reason})` });
+            continue;
+          }
+          const result = await placeLiveSell(token, ex.symbol, sellQty.quantity);
+          if (result.ok) {
+            aiCloseNotes.push({ symbol: ex.symbol, result: `live SOLD ${sellQty.quantity} sh order_id=${result.order_id}` });
+            await supabaseAdmin.from("signals_executions").insert({
+              user_id: userId, execution_type: "live", status: result.status === "filled" ? "filled" : "pending",
+              asset: ex.symbol, side: "sell", quantity: sellQty.quantity, price: null,
+              reason: `live exit mirror (ai close) — ${ex.reason}`.slice(0, 500),
+            } as never);
+          } else {
+            aiCloseNotes.push({ symbol: ex.symbol, result: `LIVE SELL FAILED — ${result.error}` });
+            await supabaseAdmin.from("notifications").insert({
+              user_id: userId, type: "live_order_failed",
+              title: `⚠️ Live exit failed: ${ex.symbol}`,
+              body: `Paper position closed by the agent but the real Robinhood sell failed: ${result.error}. You may still be holding it in Robinhood.`,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[autonomous] ai-close live mirroring error", e);
+    }
+  }
+  if (aiCloseNotes.length > 0) {
+    await supabaseAdmin.from("agent_messages").insert({
+      user_id: userId, role: "assistant", is_autonomous: true, session_type: sessionType,
+      content: `🔄 Agent exit decisions: ${aiCloseNotes.map((n) => `${n.symbol} — ${n.result}`).join(" | ")}`,
+    });
+  }
+
+
 
   // Experiment 1 (Claude Value Test) — pure observation, never affects
   // trading. Logs every candidate shown to Claude alongside its
@@ -1508,7 +1643,10 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   const sectorEquityBase = currentEquity > 0 ? currentEquity : cash;
 
   let opened = 0;
-  let cashRemaining = cash;
+  // Proceeds from AI-initiated closes were already credited atomically above,
+  // so they form the baseline this scan's entries spend from.
+  const cashBaseline = cash + aiCloseProceeds;
+  let cashRemaining = cashBaseline;
   // Sector ETF momentum filter setup — defined OUTSIDE the for loop so cache works across iterations
   const SECTOR_ETF: Record<string, string> = {
     tech: "XLK", finance: "XLF", energy: "XLE", health: "XLV", consumer: "XLP",
@@ -1905,7 +2043,7 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     // absolute `balance = cashRemaining` write silently erased those
     // proceeds (that's how ~$1.3k of paper equity vanished on 2026-08-28).
     // apply_paper_cash_delta also refreshes equity = cash + open cost basis.
-    const cashDelta = cashRemaining - cash;
+    const cashDelta = cashRemaining - cashBaseline;
     const { error: cashErr } = await supabaseAdmin.rpc("apply_paper_cash_delta", {
       p_portfolio_id: portfolio.id, p_delta: cashDelta,
     } as never);
@@ -1957,8 +2095,10 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
   }).catch(() => {});
   await supabaseAdmin.from("agent_decisions").insert({
     user_id: userId, session_type: sessionType, regime,
-    market_assessment: ai.market_assessment, payload: { ...(ai as object), debug_skips: debugSkips } as never,
+    market_assessment: ai.market_assessment,
+    payload: { ...(ai as object), debug_skips: debugSkips, ai_closes: aiCloseNotes } as never,
     trades_opened: opened,
+    trades_closed: aiClosedCount,
   });
   // ---- Live Robinhood execution for strategies in live mode ----
   // The live Robinhood account holds a different amount of money than the
