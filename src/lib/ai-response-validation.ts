@@ -71,3 +71,45 @@ export function filterValidAiTrades(trades: unknown[]): AiTradeShape[] {
   }
   return valid;
 }
+
+/**
+ * An exit instruction for an already-open position. The prompt explicitly
+ * tells the model it may exit a position with direction="close", and such a
+ * proposal legitimately carries zeroed allocation/stop/target numbers — so it
+ * cannot be validated with the entry rules above (that mismatch silently
+ * discarded every exit decision the agent made; see CHANGELOG 2026-09-20).
+ */
+export type AiCloseShape = {
+  symbol: string;
+  direction: "close";
+  rationale?: string;
+};
+
+export function isValidAiClose(proposal: unknown): proposal is AiCloseShape {
+  if (proposal == null || typeof proposal !== "object") return false;
+  const t = proposal as Record<string, unknown>;
+  if (t.direction !== "close") return false;
+  if (typeof t.symbol !== "string" || t.symbol.trim().length === 0) return false;
+  if (t.rationale != null && typeof t.rationale !== "string") return false;
+  return true;
+}
+
+/**
+ * Splits one AI response's proposals into entries (long/short, strict rules)
+ * and closes (exit instructions), dropping only genuinely malformed entries.
+ */
+export function splitAiProposals(proposals: unknown[]): { entries: AiTradeShape[]; closes: AiCloseShape[] } {
+  const entries: AiTradeShape[] = [];
+  const closes: AiCloseShape[] = [];
+  for (const p of proposals) {
+    if (isValidAiClose(p)) {
+      closes.push(p);
+    } else if (isValidAiTrade(p)) {
+      entries.push(p);
+    } else {
+      const symbolHint = p != null && typeof p === "object" && "symbol" in p ? String((p as Record<string, unknown>).symbol) : "unknown";
+      console.warn(`[autonomous-agent] skipping malformed AI trade proposal (symbol: ${symbolHint})`, p);
+    }
+  }
+  return { entries, closes };
+}
