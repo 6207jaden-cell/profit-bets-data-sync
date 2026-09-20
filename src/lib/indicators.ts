@@ -798,6 +798,13 @@ const QUOTE_STALENESS_THRESHOLD_MINUTES = 30;
 export const PRICE_AGREEMENT_MAX_PCT = 15;
 /** A price this many times away from a known reference is not a price move, it's bad data. */
 export const PRICE_REFERENCE_MAX_MULTIPLE = 5;
+/**
+ * How far a freshness-verified quote may sit from the reference price and
+ * still outrank a reference-corroborated quote. Real single-session moves stay
+ * well inside 2x; beyond that the "live" quote is more likely corrupt than the
+ * corroborated one.
+ */
+export const PRICE_VERIFIED_OVERRIDE_MAX_MULTIPLE = 2;
 
 export type QuoteCandidate = {
   source: string;
@@ -885,14 +892,24 @@ export function selectTrustedPrice(
 
   const verifiedCandidates = kept.filter((c) => c.freshnessVerified);
   if (verifiedCandidates.length > 0) {
-    const preferred = hasReference
-      ? verifiedCandidates.find((c) => pricesAgree(c.price, reference)) ?? verifiedCandidates[0]
+    // Among verified quotes, a reference-corroborated one is best.
+    const corroboratedVerified = hasReference
+      ? verifiedCandidates.find((c) => pricesAgree(c.price, reference))
+      : undefined;
+    if (corroboratedVerified) {
+      return { price: corroboratedVerified.price, source: corroboratedVerified.source, reason: "live quote with verified freshness" };
+    }
+    // No verified quote agrees with the reference. A genuinely fast-moving
+    // position looks like this (entry 100, live 140), so the live quote must
+    // still win over a previous-day close — but only within a plausible
+    // single-move distance. Beyond that it is bad data, and another source
+    // that corroborates the reference is the better answer.
+    const plausibleVerified = hasReference
+      ? verifiedCandidates.find((c) => !isImplausibleVsReference(c.price, reference, PRICE_VERIFIED_OVERRIDE_MAX_MULTIPLE))
       : verifiedCandidates[0];
-    return {
-      price: preferred.price,
-      source: preferred.source,
-      reason: "live quote with verified freshness",
-    };
+    if (plausibleVerified) {
+      return { price: plausibleVerified.price, source: plausibleVerified.source, reason: "live quote with verified freshness" };
+    }
   }
 
   if (hasReference) {
@@ -904,7 +921,9 @@ export function selectTrustedPrice(
   for (let i = 0; i < kept.length; i++) {
     for (let j = i + 1; j < kept.length; j++) {
       if (pricesAgree(kept[i].price, kept[j].price)) {
-        return { price: kept[i].price, source: kept[i].source, reason: `agreed with ${kept[j].source}` };
+        const winner = kept[i].freshnessVerified || !kept[j].freshnessVerified ? kept[i] : kept[j];
+        const other = winner === kept[i] ? kept[j] : kept[i];
+        return { price: winner.price, source: winner.source, reason: `agreed with ${other.source}` };
       }
     }
   }

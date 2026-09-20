@@ -98,6 +98,15 @@ describe("selectTrustedPrice", () => {
     expect(result.price).toBe(102);
   });
 
+  it("does not let a corrupted live quote beat another source that corroborates the reference", () => {
+    // yahoo is 'fresh' but 4x off; finnhub agrees with entry at 101.
+    const result = selectTrustedPrice([c("yahoo", 400, true), c("finnhub", 101, false)], 100);
+    expect(result.price).toBe(101);
+    expect(result.source).toBe("finnhub");
+  });
+
+
+
 
   it("rejects two sources that disagree wildly and neither matches the reference", () => {
     const result = selectTrustedPrice([c("yahoo", 100), c("polygon", 140)], 400);
