@@ -410,3 +410,55 @@ flagged automatically at close time.
 **Future review criteria:** If `diag_flagged_trades()` returns any trade
 opened after 2026-09-18, the corroboration rules did not hold and the
 remaining path must be found before trusting any performance figure again.
+
+---
+
+## D-12 — Shadow-experiment resolution gets the same data-quality gate as trade learning
+
+**Date:** 2026-09-20
+**Decision:** `resolve-shadow-experiments.ts` now applies the shared
+`isImplausibleReturnPct()` screen (`src/lib/data-quality.ts`,
+`IMPLAUSIBLE_RETURN_PCT = 100`) to every `hypothetical_return_pct` it
+writes, for both `shadow_candidate_log` (Experiment 1) and
+`shadow_weighting_comparison` (Experiment 2), setting the row's existing
+`data_quality_flag` when the computed return is impossible or non-finite.
+`computeClaudeAttribution()` and `computeLearningAttribution()` now filter
+`data_quality_flag = false`, matching what `diag_claude_value()` and
+`diag_adaptive_weighting()` already did.
+
+**How it surfaced:** `diag_evidence_readiness()` confirmed the
+`paper_trades` / `agent_signal_weights` side of the 2026-09-18 fix was
+working (`diag_signal_contribution()` back to -0.7%..+3.7%), which made it
+visible that `diag_adaptive_weighting()` was reading from a table nothing
+ever wrote that flag to. Both diagnostics already filtered on
+`data_quality_flag = false`, so the filter read as protection while in fact
+the column was always `false` — an unguarded write path behind a filter
+that looked safe.
+
+**Alternatives considered:**
+- Skip the row (don't resolve it) — rejected: it would sit unresolved
+  forever and be silently re-fetched every run, hiding the bad data
+  instead of recording it.
+- Discard the computed return and resolve with `null` — rejected: it
+  destroys the evidence of what the corrupt quote pair actually produced,
+  the same objection as D-11.
+- Widen the threshold to catch the ±30-75% cluster found in the same
+  investigation (62 `MATIC-USD` rows at -75.31%, 25 `NEAR-USD` rows at
+  +48..61%) — rejected for now: a -75% move over a 2-day crypto horizon is
+  not physically impossible, so screening it on magnitude alone would
+  reject real outcomes. Those rows need a reference-divergence test, not a
+  looser magnitude cap. Logged as open work rather than fixed by guesswork.
+
+**Reason chosen:** Consistency with D-11 (flag, never delete or fabricate)
+and with `updateSignalWeights`'s existing gate, so all three consumers of
+`fetchQuotePrice`-derived returns reject the same class of corrupted data
+by the same rule from one shared function.
+
+**Expected impact:** None on existing rows — no historical row exceeds
+±100%, so this changes nothing retroactively. It is defense-in-depth
+against the 2026-09-18 bug class reproducing through the one write path
+that was still unguarded.
+
+**Future review criteria:** If any `shadow_*` row ever gets
+`data_quality_flag = true`, a price path bypassed `fetchQuotePrice`'s
+corroboration rules and that path must be found — same standard as D-11.

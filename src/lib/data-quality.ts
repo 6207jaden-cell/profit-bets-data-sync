@@ -29,6 +29,22 @@ export function returnPctOfNotional(
 }
 
 /**
+ * Same screen as isImplausibleReturn(), but for a return percentage that has
+ * ALREADY been computed (shadow-experiment resolution derives its
+ * hypothetical_return_pct from two prices rather than from pnl/notional).
+ * Shared so the shadow tables, paper_trades and agent_signal_weights all
+ * reject the same class of corrupted price data instead of each route
+ * inventing its own threshold. A non-finite value is treated as implausible:
+ * it can only come from a bad/zero denominator.
+ */
+export function isImplausibleReturnPct(returnPct: number | null | undefined): boolean {
+  if (returnPct == null) return false; // unknown, not wrong
+  const r = Number(returnPct);
+  if (!Number.isFinite(r)) return true;
+  return Math.abs(r) > IMPLAUSIBLE_RETURN_PCT;
+}
+
+/**
  * True when a closed trade's return is outside anything a real fill can
  * produce for this system's position sizing — i.e. the price data behind it
  * cannot be trusted.

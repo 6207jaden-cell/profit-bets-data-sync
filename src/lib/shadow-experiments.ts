@@ -288,6 +288,9 @@ export async function computeClaudeAttribution(
     .select("agreement, hypothetical_return_pct")
     .eq("user_id", userId)
     .eq("resolved", true)
+    // Rows whose resolution price failed the data-quality screen are kept in
+    // the table for audit but must never enter an attribution average.
+    .eq("data_quality_flag", false)
     .not("hypothetical_return_pct", "is", null);
 
   const rows = (data ?? []) as Array<{ agreement: string; hypothetical_return_pct: number }>;
@@ -355,6 +358,7 @@ export async function computeLearningAttribution(
     .select("rank_delta, hypothetical_return_pct")
     .eq("user_id", userId)
     .eq("resolved", true)
+    .eq("data_quality_flag", false)
     .not("hypothetical_return_pct", "is", null);
 
   const rows = (data ?? []) as Array<{ rank_delta: number; hypothetical_return_pct: number }>;
