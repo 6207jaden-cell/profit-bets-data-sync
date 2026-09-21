@@ -1889,3 +1889,62 @@ the gap and that pass under the ±100% screen.
 
 **Verification:** 343 tests pass (6 new), `tsgo --noEmit` clean, production
 build clean, fresh-clone verify per the Release Verification Rule.
+
+---
+
+## 2026-09-21 — Base-rate anchored signal weights
+
+**What changed:** the agent's learned per-signal weight is now judged
+against the account's own measured win rate instead of an assumed 50%.
+
+```
+- weight = clamp(0.5 + alpha/(alpha+beta),                  0.4, 1.8)
++ weight = clamp(1 + (shrunkWinRate - baseWinRate),         0.4, 1.8)
+    shrunkWinRate = (win_count + baseWinRate * 20) / (sample_size + 20)
+```
+
+Sensitivity and the clamp are unchanged; only the anchor moved, and the
+Bayesian prior is now centred on the base rate.
+
+**Why:** `diag_adaptive_weighting()` showed promoted candidates
+under-performing demoted ones. The cause was the anchor, not the ranking
+math: at a ~24% real win rate, every measured signal sat below 1.0x while
+never-traded signals sat at exactly 1.0x, so "no evidence" outranked
+"measured". `corr(sample_size, weight_multiplier)` was -0.87. See
+`DECISION_LOG.md` D-13 and `HYPOTHESIS_LOG.md` H3.
+
+**Base rate is measured, not hardcoded:** account-level win rate over
+closed non-flagged `paper_trades` (currently 0.2445 = 156W / 638),
+trade-level rather than summed per-signal counts, read once per closed trade
+and cached per user for 10 minutes, falling back to 0.5 below 30 clean
+trades.
+
+**Verified core property:** an untested signal (n=0) and a signal performing
+exactly at the base rate both score exactly 1.0x — asserted directly in
+tests across five different base rates, not inferred from the algebra.
+
+**Applied to existing rows:** `recompute_agent_signal_weights()` updated
+with the identical formula and re-run. Measured signals moved 0.69-0.96 ->
+0.87-1.05; the five never-traded signals held at 1.0x and dropped from
+top-ranked to mid-pack. Full 18-row before/after table in H3.
+
+**Files touched:** `src/lib/signal-learning.ts`
+(`WEIGHT_PRIOR_STRENGTH`, `DEFAULT_BASE_WIN_RATE`,
+`MIN_TRADES_FOR_BASE_RATE`, `shrunkWinRate`,
+`computeSignalWeightMultiplier`, `loadAccountBaseWinRate`,
+`clearBaseWinRateCache`), `src/lib/__tests__/base-rate-anchor.test.ts`
+(new, 8 tests), migration replacing
+`recompute_agent_signal_weights()` (also revoked its stray
+`authenticated` EXECUTE grant — it is service_role only, as intended),
+`project-audit/HYPOTHESIS_LOG.md`, `project-audit/DECISION_LOG.md`.
+
+**Not in this pass (deliberate):** the 87 `MATIC-USD` / `NEAR-USD`
+reference-divergence rows remain open work, logged in H3.
+
+**Follow-up required before trusting this worked:** re-run
+`diag_adaptive_weighting()` on rows created after 2026-09-21 only, once
+~30+ resolved rows exist per bucket. No such rows exist yet, so this change
+is shipped-and-unvalidated by design.
+
+**Verification:** 351 tests pass (8 new), `tsgo --noEmit` clean, production
+build clean, fresh-clone verify per the Release Verification Rule.
