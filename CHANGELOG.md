@@ -1840,3 +1840,52 @@ matching open position are recorded as skipped, not errors.
 
 **Verification:** `bunx tsgo --noEmit` clean, `bunx vitest run` 337/337,
 `bun run build` clean.
+
+---
+
+## 2026-09-20 — Shadow-experiment resolution gate + adaptive-weighting investigation
+
+**What changed:**
+1. `resolve-shadow-experiments.ts` now runs every `hypothetical_return_pct`
+   it computes through the shared `isImplausibleReturnPct()` screen before
+   writing, setting `data_quality_flag` on the row when the return is
+   impossible or non-finite — for both experiments, and for both the
+   real-trade and hypothetical resolution branches (4 write sites).
+2. `computeClaudeAttribution()` / `computeLearningAttribution()` exclude
+   flagged rows, matching `diag_claude_value()` / `diag_adaptive_weighting()`.
+3. `isImplausibleReturnPct()` added to `src/lib/data-quality.ts` — the
+   already-computed-percentage sibling of `isImplausibleReturn()`, so the
+   shadow tables, `paper_trades` and `agent_signal_weights` all screen by
+   one rule from one place.
+
+**Why:** `diag_evidence_readiness()` confirmed the 2026-09-18 entry-price
+fix was holding on the trades side, which exposed that the shadow tables'
+`data_quality_flag` was filtered by both diagnostics but never actually set
+by anything. See `DECISION_LOG.md` D-12.
+
+**Investigation (no code change):** `diag_adaptive_weighting()`'s backwards
+result — promoted candidates averaging -6.89% vs demoted -1.81% over
+1,574+ resolved rows — was traced. The thin-sample noise-chasing theory is
+**not** supported (average minimum signal sample size is 246.8 for promoted
+vs 246.6 for demoted). The actual defect is that
+`weight_multiplier = clamp(0.5 + winRate, 0.4, 1.8)` anchors neutral at a
+50% win rate while this account's pooled win rate is 21.8%, so every
+measured signal sits at 0.688-0.944 and the six never-traded bearish
+signals stay pinned at 1.0x — correlation between `sample_size` and
+`weight_multiplier` is -0.87. Adaptive weighting is promoting *unmeasured*
+signals, not good ones. A base-rate anchor is proposed and costed in
+`HYPOTHESIS_LOG.md` H3; deliberately not implemented without approval,
+since it changes live position scoring. Also logged there: 87 rows
+(`MATIC-USD` -75.31%, `NEAR-USD` +48..61%) that inflate but do not create
+the gap and that pass under the ±100% screen.
+
+**Files touched:** `src/lib/data-quality.ts`,
+`src/routes/api/public/resolve-shadow-experiments.ts`,
+`src/lib/shadow-experiments.ts`,
+`src/lib/__tests__/shadow-resolution-quality.test.ts` (new),
+`src/lib/__tests__/learning-attribution.test.ts`,
+`src/lib/__tests__/claude-attribution.test.ts`,
+`project-audit/HYPOTHESIS_LOG.md`, `project-audit/DECISION_LOG.md`.
+
+**Verification:** 343 tests pass (6 new), `tsgo --noEmit` clean, production
+build clean, fresh-clone verify per the Release Verification Rule.
