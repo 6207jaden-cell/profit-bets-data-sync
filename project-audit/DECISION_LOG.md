@@ -462,3 +462,82 @@ that was still unguarded.
 **Future review criteria:** If any `shadow_*` row ever gets
 `data_quality_flag = true`, a price path bypassed `fetchQuotePrice`'s
 corroboration rules and that path must be found — same standard as D-11.
+
+---
+
+## D-13 — Signal weights are anchored to the account's own win rate, measured dynamically
+
+**Date:** 2026-09-21
+**Decision:** `weight_multiplier` in `agent_signal_weights` is now computed
+relative to the account's **measured** pooled win rate instead of an assumed
+50%:
+
+```
+shrunkWinRate = (win_count + baseWinRate * 20) / (sample_size + 20)
+weight        = clamp(1 + (shrunkWinRate - baseWinRate), 0.4, 1.8)
+```
+
+Sensitivity and the `[0.4, 1.8]` clamp are unchanged from the previous
+`clamp(0.5 + winRate, 0.4, 1.8)`. Only the anchor moved, and the Bayesian
+prior is now centred on the base rate rather than on an implicit coin flip.
+
+**How it surfaced:** `diag_adaptive_weighting()` reported promoted
+candidates averaging a WORSE return (-6.89%) than demoted ones (-1.81%)
+over 1,574 resolved rows — backwards from the mechanism's purpose. The
+ranking math and the Bayesian update were both directionally correct. The
+defect was the anchor: this account's pooled win rate is ~24%, not 50%, so
+every signal with real evidence landed at 0.69-0.96 while the five
+never-traded signals sat at exactly 1.0x. Correlation between `sample_size`
+and `weight_multiplier` was **-0.87** — adaptive weighting was reliably
+promoting the *absence* of evidence. See `HYPOTHESIS_LOG.md` H3.
+
+**Where the base rate is computed, and why:** trade-level, from the
+account's own closed non-flagged `paper_trades` (one trade, one vote) —
+deliberately NOT summed from `agent_signal_weights.win_count`, which
+double-counts a single trade once per active signal and would bias the
+anchor toward frequently-firing signals. Read once per `updateSignalWeights`
+call (i.e. once per closed trade, not once per signal) and cached per user
+for 10 minutes: it is an account-wide aggregate that moves in the third
+decimal place between two consecutive trades, so a per-signal query would
+buy nothing. The TTL is what keeps it honest as real performance shifts —
+the whole reason it is measured rather than pinned at today's 0.2445. Below
+`MIN_TRADES_FOR_BASE_RATE = 30` clean closed trades it falls back to 0.5,
+since an anchor measured on a handful of trades is worse than no anchor.
+
+**Alternatives considered:**
+- Hardcode the 21.8% / 24.45% figure — rejected: it is a measurement of one
+  moment. Pinning it means the anchor silently goes stale exactly when
+  performance changes, which is when it matters most.
+- A minimum-evidence floor (hold weights near 1.0 until n >= 20-30), the
+  originally hypothesised fix — rejected on the data. Thin samples are not
+  the cause (average minimum signal sample size is 246.8 for promoted vs
+  246.6 for demoted rows), and a floor would pin *more* signals at 1.0x,
+  which under the old anchor was the most favourable value in the account.
+  It would have amplified the defect while appearing to add rigour.
+- Re-derive the anchor from `alpha`/`beta` rather than
+  `win_count`/`sample_size` — rejected: `alpha`/`beta` already carry the old
+  1,1 prior baked in, so the anchor would inherit the assumption it exists
+  to remove. `alpha`/`beta` are still written and still feed Kelly sizing,
+  which needs an absolute win probability and is correctly left alone.
+- Recompute the base rate inside the per-signal loop — rejected as pure
+  cost: up to 18 identical aggregate queries per closed trade.
+
+**Reason chosen:** It makes "no evidence" score the same as "average
+evidence" instead of better than it, which is the single behaviour that was
+inverted. It is the smallest change that does so — no new tunable beyond the
+prior strength, same clamp, same sensitivity, same table.
+
+**Expected impact:** Measured, not projected — full 18-signal before/after
+table in `HYPOTHESIS_LOG.md` H3. Measured signals move from 0.69-0.96 to
+0.87-1.05; the five never-traded bearish signals hold at 1.0x in absolute
+terms but drop from top-ranked to mid-pack, which is the point. Applied to
+existing rows by rebuilding through `recompute_agent_signal_weights()`,
+which was updated with the identical formula so the live per-close path and
+the rebuild path cannot drift (verified to agree to 3dp on real rows).
+
+**Future review criteria:** Re-run `diag_adaptive_weighting()` over rows
+created after 2026-09-21 ONLY, once ~30+ resolved rows exist per bucket, and
+check whether the promoted/demoted ordering has flipped. Mixing in
+pre-2026-09-21 rows compares two different anchors and proves nothing. If
+the inversion persists on a clean post-anchor window, the defect is not the
+anchor and H3 should be rejected on the idea rather than the implementation.
