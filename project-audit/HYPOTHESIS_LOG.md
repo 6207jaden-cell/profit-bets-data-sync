@@ -166,11 +166,72 @@ resolved rows per side. Same caveat as above still applies: this doesn't
 change the answer, still genuinely unresolved, but the tooling to read
 the answer the moment enough data exists is now built and tested.
 
-**Confidence:** Low — mechanism is reasonable, specific and named
-statistical risk attached, unproven either direction.
-**Conclusion:** Unresolved. Highest-priority hypothesis to formally test
-once volume allows, given it directly feeds Kelly sizing (H4) — an error
-here compounds into H4.
+**First real read (2026-09-20) — evidence AGAINST, with an identified
+mechanism defect:** `diag_adaptive_weighting()` now has volume (764
+demoted / 980 no-change / 810 promoted resolved rows) and the ordering is
+backwards from the hypothesis:
+
+| bucket | n | avg return (all) | avg return (\|ret\| ≤ 30% subset) | median |
+|---|---|---|---|---|
+| adaptive_demoted | 764 | -1.81% | -2.08% | -2.41% |
+| no_change | 980 | -3.90% | -3.00% | -3.50% |
+| adaptive_promoted | 810 | -6.89% | -4.04% | -4.02% |
+
+Two separate things were found, and they are NOT the same problem:
+
+1. **Contaminated rows inflate the gap but do not create it.** 87 rows
+   carry returns outside ±30%: 62 identical `MATIC-USD` rows at -75.31%
+   (scan 0.2164 vs resolution 0.3794 — a ticker-migration/quote mismatch,
+   not a market move) and 25 `NEAR-USD` rows at +48% to +61%. All sit
+   under the ±100% screen, so `IMPLAUSIBLE_RETURN_PCT` would not have
+   caught them even if the gate had existed (see `DECISION_LOG.md` D-12 —
+   the gate was missing entirely). Excluding them narrows promoted-vs-
+   demoted from 5.08 points to 1.95, and the medians (unaffected by
+   outliers) preserve the same ordering. **The inversion is real.**
+
+2. **The thin-sample noise-chasing theory (2a) is NOT what's happening —
+   but the mechanism is still defective.** Checked directly: for resolved
+   comparison rows linked to a real trade, average minimum sample size
+   across the trade's active signals is 246.8 (promoted) vs 246.6
+   (demoted) — no correlation with thin evidence. What the
+   `agent_signal_weights` distribution shows instead is structural:
+   `weight_multiplier = clamp(0.5 + winRate, 0.4, 1.8)` treats a 50% win
+   rate as neutral, but this system's pooled win rate is **21.8%**
+   (902W / 3236L). So every signal with evidence lands at 0.688-0.944,
+   while the six signals with `sample_size = 0` (all bearish:
+   `rsi_overbought`, `macd_bearish`, `stoch_overbought`, `bb_upper_band`,
+   `rs_strong_underperform`) stay pinned at exactly 1.0x. Correlation
+   between `sample_size` and `weight_multiplier` is **-0.87**.
+   Consequence: adaptive weighting doesn't promote *good* signals, it
+   promotes *unmeasured* ones. "No evidence" currently outranks "measured
+   and mediocre". That is visible in the outcome split by direction —
+   promoted shorts (n=68) average -49.6% while promoted longs (n=742)
+   average -2.98%: the promoted bucket is disproportionately short
+   candidates riding never-evaluated bearish signals.
+
+**Proposed fix (NOT implemented — needs approval):** shrink toward the
+account's own pooled base rate rather than an assumed 50%, i.e. anchor
+neutral at the pooled win rate and center the prior on it, so an
+unmeasured signal is scored *average*, not *best*. A minimum-evidence
+floor as originally hypothesized (hold weights near 1.0 until n≥20-30)
+would make this **worse**, not better — it pins even more signals at the
+value that is currently the most favourable one. Estimated impact of the
+base-rate anchor on current weights: the 12 signals with n≥30 move from
+~0.69-0.73 back toward ~1.0 (they are performing at roughly the account
+base rate, so they should be near-neutral), the six zero-sample bearish
+signals drop from 1.0 to the base-rate anchor, and the thin outliers
+(`bb_lower_band` n=43 at 0.944, `rsi_oversold` n=10 at 0.917) lose most of
+their current relative advantage.
+
+**Confidence:** Moderate, now grounded in data — the mechanism as built is
+mis-anchored, and the hypothesis as stated ("adaptive weighting improves
+returns") is currently contradicted by 1,574 resolved rows across the two
+non-neutral buckets.
+**Conclusion:** Provisionally REJECTED in its current implementation, on
+the mis-anchoring defect specifically rather than on the idea of adaptive
+weighting. Re-open after the base-rate anchor ships and a fresh matched
+window of resolved rows accumulates. Still feeds Kelly sizing (H4), so the
+same mis-anchoring should be assumed to be contaminating H4 until checked.
 
 ---
 
