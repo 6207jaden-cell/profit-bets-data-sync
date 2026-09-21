@@ -450,10 +450,11 @@ export async function updateSignalWeights(
         avgLossPct = avgLossPct + (Math.abs(pnlPct) - avgLossPct) / lossCount;
       }
 
-      const winRate = alpha / (alpha + beta);
-      // 50% win rate -> 1.0x neutral. 70% -> 1.2x boost. 30% -> 0.8x reduction.
-      // Clamped so early small-sample noise can't send a weight to an extreme.
-      const weightMultiplier = Math.max(0.4, Math.min(1.8, 0.5 + winRate));
+      // Base-rate anchored: performing AT the account's own win rate is 1.0x,
+      // above it boosts, below it reduces. Untested signals also land at 1.0x
+      // because the prior is centred on the same rate. Clamped as before so
+      // small-sample noise can't send a weight to an extreme.
+      const weightMultiplier = computeSignalWeightMultiplier(winCount, sampleSize, baseWinRate);
 
       await supabaseAdmin.from("agent_signal_weights").upsert({
         user_id: userId,
