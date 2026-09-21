@@ -233,6 +233,108 @@ weighting. Re-open after the base-rate anchor ships and a fresh matched
 window of resolved rows accumulates. Still feeds Kelly sizing (H4), so the
 same mis-anchoring should be assumed to be contaminating H4 until checked.
 
+### 2026-09-21 — base-rate anchor SHIPPED, hypothesis re-opened pending fresh data
+
+The mis-anchoring fix identified above is now implemented (see
+`DECISION_LOG.md` D-13).
+
+**What changed.** `weight_multiplier` was
+`clamp(0.5 + alpha/(alpha+beta), 0.4, 1.8)`. It is now
+`clamp(1 + (shrunkWinRate - baseWinRate), 0.4, 1.8)`, where
+`shrunkWinRate = (win_count + baseWinRate * 20) / (sample_size + 20)`.
+Sensitivity (1 point of weight per point of win rate) and the `[0.4, 1.8]`
+clamp are unchanged — only the anchor moved, and the Bayesian prior is now
+centred on the base rate instead of on an implicit coin flip.
+
+`baseWinRate` is **measured, not hardcoded**: the account's own pooled win
+rate over its closed, non-flagged `paper_trades`, currently 0.2445
+(156W / 638 trades). It is trade-level (one trade, one vote) rather than
+summed from `agent_signal_weights.win_count`, which double-counts a single
+trade once per active signal and would bias the anchor toward
+frequently-firing signals. Below 30 clean closed trades it falls back to
+0.5, since an anchor measured on a handful of trades is worse than no
+anchor. Same expression implemented twice, deliberately: in
+`updateSignalWeights` (the live per-close path) and inside
+`recompute_agent_signal_weights()` (the rebuild path) — both are now
+verified to agree to 3dp on real rows.
+
+**The core property, verified rather than assumed.** An untested signal
+(`sample_size = 0`) and a signal performing exactly at the base rate both
+score exactly 1.0x. This is what removes the perverse incentive; it is
+asserted directly in `src/lib/__tests__/base-rate-anchor.test.ts` for
+base rates of 0.05 / 0.2445 / 0.5 / 0.75 / 0.95, not inferred from the
+algebra.
+
+**Measured before/after on all 18 live signals** (weights rebuilt via
+`recompute_agent_signal_weights()`):
+
+| signal | n | old | new |
+| --- | --- | --- | --- |
+| momentum | 474 | 0.729 | 0.905 |
+| volume_surge | 447 | 0.726 | 0.897 |
+| liquidity | 466 | 0.694 | 0.899 |
+| rs_vs_spy | 428 | 0.697 | 0.889 |
+| return_5d | 411 | 0.705 | 0.890 |
+| return_20d | 404 | 0.722 | 0.906 |
+| rs_strong_outperform | 391 | 0.697 | 0.888 |
+| macd_bullish | 279 | 0.730 | 0.906 |
+| volume_surge_strong | 224 | 0.719 | 0.869 |
+| stoch_oversold | 131 | 0.811 | 0.966 |
+| regime_aligned | 60 | 0.735 | 0.919 |
+| bb_lower_band | 41 | 0.957 | 1.003 |
+| rsi_oversold | 9 | 0.917 | 1.052 |
+| bb_upper_band | 0 | 1.000 | 1.000 |
+| macd_bearish | 0 | 1.000 | 1.000 |
+| rs_strong_underperform | 0 | 1.000 | 1.000 |
+| rsi_overbought | 0 | 1.000 | 1.000 |
+| stoch_overbought | 0 | 1.000 | 1.000 |
+
+(`n` is the freshly recomputed `sample_size`; the rebuild also refreshed
+counts that had gone stale since the last recompute, so these differ
+slightly from the pre-rebuild figures quoted earlier in this entry's
+investigation.)
+
+Read: the measured signals move from 0.69-0.96 up to 0.87-1.05, i.e. from
+"all uniformly demoted" to "clustered around neutral, ranked against each
+other". The five never-traded bearish signals stay at 1.0x in absolute
+terms but **lose their former relative advantage** — they were the top-
+ranked weights in the account and are now mid-pack. Correlation between
+`sample_size` and `weight_multiplier` was -0.87 before this change; the
+strong negative relationship is what the fix targets.
+
+**Note on what is NOT claimed.** The never-traded signals still sit at
+exactly the same value as an average signal. That is intentional — an
+unmeasured signal should be treated as average, not as good or bad — but it
+means this change removes a perverse ranking, it does not by itself
+establish that adaptive weighting helps.
+
+**Status:** Hypothesis **RE-OPENED** (was provisionally rejected). The
+rejection was specific to the mis-anchored implementation, which no longer
+exists. It remains **unproven**, not supported: the promoted-vs-demoted
+inversion (-6.89% vs -1.81%) was measured under the old anchor, and every
+resolved row in `shadow_weighting_comparison` today was scored under it.
+
+**Next check (do not skip, do not front-run):** let fresh rows accumulate
+under the new anchor, then re-run `diag_adaptive_weighting()` restricted to
+rows created after 2026-09-21 and confirm whether the promoted/demoted
+ordering has actually flipped. Reading the existing pooled rows will mix
+anchors and prove nothing. Needs ~30+ resolved rows per bucket before it
+says anything (the `meets_30_row_floor` column in that diagnostic).
+
+**Also still open, deliberately untouched here:** the 87 rows
+(62 `MATIC-USD` at -75.31%, 25 `NEAR-USD` at +48..61%) that pass under the
+±100% screen and need a reference-divergence test rather than a looser
+magnitude cap. They inflate but do not create the inversion (excluding
+them narrows the promoted-vs-demoted gap from 5.08 points to 1.95, with
+medians preserving the ordering). Separate work.
+
+**Knock-on:** H4 (Kelly sizing) reads `winRate` from `alpha/(alpha+beta)`,
+which this change does NOT re-anchor — Kelly needs an absolute win
+probability, not a relative one, so that is correct as-is. But H4's
+inputs were fed by the same contaminated weight ranking, so the caveat in
+H4 stands until it is re-checked on post-2026-09-21 data.
+
+
 ---
 
 ## H4 — Kelly Criterion sizing improves risk-adjusted performance
