@@ -217,6 +217,104 @@ export async function loadSignalWeights(
   return map;
 }
 
+// ── Base-rate anchor (HYPOTHESIS_LOG.md H3, DECISION_LOG.md D-13) ──────────
+// The original weight formula was `clamp(0.5 + winRate, 0.4, 1.8)`, i.e. it
+// treated a 50% win rate as "neutral". This account does not win 50% of the
+// time — it wins roughly a quarter of the time and relies on winners being
+// larger than losers. The consequence was perverse: EVERY signal with real
+// evidence landed below 1.0x, while the signals that had never traded sat at
+// exactly 1.0x, so "no evidence" outranked "measured". Correlation between
+// sample_size and weight_multiplier was -0.87, and adaptive weighting was
+// effectively promoting unmeasured signals.
+//
+// The fix is to anchor neutral at the account's OWN pooled win rate, and to
+// centre the Bayesian prior on that same rate, so an untested signal and a
+// signal performing exactly at the base rate both score exactly 1.0x.
+
+/** Strength of the base-rate-centred prior, in pseudo-trades. */
+export const WEIGHT_PRIOR_STRENGTH = 20;
+/** Fallback base rate when the account has too little history to measure one. */
+export const DEFAULT_BASE_WIN_RATE = 0.5;
+/** Minimum closed clean trades before the measured base rate is trusted. */
+export const MIN_TRADES_FOR_BASE_RATE = 30;
+
+/**
+ * Shrunk win-rate estimate for a signal, using a prior centred on the
+ * account's base rate rather than on an assumed coin flip.
+ *
+ * At sampleSize = 0 this returns exactly baseWinRate, which is what makes an
+ * untested signal score identically to a signal performing exactly at the
+ * base rate (see computeSignalWeightMultiplier).
+ */
+export function shrunkWinRate(winCount: number, sampleSize: number, baseWinRate: number): number {
+  const k = WEIGHT_PRIOR_STRENGTH;
+  return (winCount + baseWinRate * k) / (sampleSize + k);
+}
+
+/**
+ * Weight multiplier for one signal, relative to the account's base rate.
+ * Sensitivity (1 point of weight per 1 point of win rate) and the [0.4, 1.8]
+ * clamp are unchanged from the original formula — only the anchor moved.
+ */
+export function computeSignalWeightMultiplier(
+  winCount: number,
+  sampleSize: number,
+  baseWinRate: number,
+): number {
+  const rate = shrunkWinRate(winCount, sampleSize, baseWinRate);
+  return Math.max(0.4, Math.min(1.8, 1 + (rate - baseWinRate)));
+}
+
+// Cached because updateSignalWeights runs once per closed trade and the base
+// rate is an account-wide aggregate that barely moves between two consecutive
+// trades — recomputing it inside the per-signal loop would mean one aggregate
+// query per signal per trade for a number that changes in the third decimal
+// place. A short TTL keeps it honest as real performance shifts (the whole
+// point of not hardcoding it), and each Worker invocation is short-lived so
+// the cache is per-instance and self-expiring.
+const BASE_RATE_TTL_MS = 10 * 60 * 1000;
+const baseRateCache = new Map<string, { value: number; at: number }>();
+
+/**
+ * The account's own pooled win rate, measured from its closed, non-flagged
+ * paper trades. Trade-level (one trade, one vote) rather than summed from
+ * agent_signal_weights.win_count — those counts double-count a single trade
+ * once per active signal, which would bias the anchor toward whatever signals
+ * happen to fire most often.
+ */
+export async function loadAccountBaseWinRate(
+  supabaseAdmin: SupabaseAdminClient,
+  userId: string,
+  now: number = Date.now(),
+): Promise<number> {
+  const cached = baseRateCache.get(userId);
+  if (cached && now - cached.at < BASE_RATE_TTL_MS) return cached.value;
+  let rate = DEFAULT_BASE_WIN_RATE;
+  try {
+    const { data } = await supabaseAdmin
+      .from("paper_trades")
+      .select("pnl")
+      .eq("user_id", userId)
+      .eq("is_open", false)
+      .eq("data_quality_flag", false)
+      .not("pnl", "is", null);
+    const rows = (data ?? []) as Array<{ pnl: number | null }>;
+    if (rows.length >= MIN_TRADES_FOR_BASE_RATE) {
+      const wins = rows.filter((r) => Number(r.pnl) > 0).length;
+      rate = wins / rows.length;
+    }
+  } catch (e) {
+    console.warn("[signal-learning] base-rate query failed, using neutral default", String(e));
+  }
+  baseRateCache.set(userId, { value: rate, at: now });
+  return rate;
+}
+
+/** Test/maintenance hook — drops the cached base rate so the next read re-measures. */
+export function clearBaseWinRateCache(): void {
+  baseRateCache.clear();
+}
+
 /**
  * Re-scores a raw SignalScoreResult using the user's learned weights. Each
  * named signal's contribution is looked up individually and multiplied by
