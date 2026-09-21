@@ -86,3 +86,11 @@ describe("computeLearningAttribution", () => {
     expect(result.neutralSampleSize).toBe(1);
   });
 });
+
+describe("computeLearningAttribution — data-quality exclusion", () => {
+  it("filters out rows flagged by the resolution data-quality screen", async () => {
+    const { mock, filters } = makeMockSupabase([{ rank_delta: 1, hypothetical_return_pct: 4 }]);
+    await computeLearningAttribution(mock, "user-1");
+    expect(filters).toContainEqual(["data_quality_flag", false]);
+  });
+});

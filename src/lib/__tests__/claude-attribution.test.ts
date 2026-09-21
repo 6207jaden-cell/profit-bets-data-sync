@@ -76,3 +76,11 @@ describe("computeClaudeAttribution", () => {
     expect(result.claudeAddedValuePct).toBeLessThan(0);
   });
 });
+
+describe("computeClaudeAttribution — data-quality exclusion", () => {
+  it("filters out rows flagged by the resolution data-quality screen", async () => {
+    const { mock, filters } = makeMockSupabase([{ agreement: "agree_traded", hypothetical_return_pct: 4 }]);
+    await computeClaudeAttribution(mock, "user-1");
+    expect(filters).toContainEqual(["data_quality_flag", false]);
+  });
+});
