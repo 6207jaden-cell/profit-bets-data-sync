@@ -415,6 +415,9 @@ export async function updateSignalWeights(
   }
 
   const won = pnlPct > 0;
+  // Measured once per closed trade (cached, see loadAccountBaseWinRate) and
+  // reused for every signal on this trade.
+  const baseWinRate = await loadAccountBaseWinRate(supabaseAdmin, userId);
 
   for (const signalName of entrySignals) {
     try {
