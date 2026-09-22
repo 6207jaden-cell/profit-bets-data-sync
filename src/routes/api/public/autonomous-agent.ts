@@ -1867,9 +1867,11 @@ Respond with ONLY valid JSON — no prose, no markdown fences:
     }
 
 
-    // Cumulative allocation guard: ensure this trade doesn't exceed deployable cash
-    const deployableCash = cash * ((100 - effectiveMinCashPct) / 100);
-    const alreadyDeployed = cash - cashRemaining;
+    // Cumulative allocation guard: ensure this trade doesn't exceed deployable cash.
+    // Measure against cashBaseline (post-AI-close cash), not the pre-close `cash` —
+    // otherwise sale proceeds count as negative spending and loosen the min-cash reserve.
+    const deployableCash = cashBaseline * ((100 - effectiveMinCashPct) / 100);
+    const alreadyDeployed = cashBaseline - cashRemaining;
     if (alreadyDeployed + allocCash > deployableCash * 1.02) {
       console.log(`[autonomous] skip ${t.symbol}: cumulative allocation would exceed deployable cash`);
       debugSkips.push({ symbol: t.symbol, reason: "cum_alloc_exceeded", detail: { alreadyDeployed, allocCash, deployableCash } });
